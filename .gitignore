@@ -89,3 +89,6 @@ gemini*.json
 
 # --- Bibliotecas
 src/library/*
+
+.gemini/
+gha-creds-*.json

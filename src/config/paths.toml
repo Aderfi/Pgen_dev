@@ -1,0 +1,38 @@
+# Pharmagen - Pharmacogenetic Prediction and Therapeutic Efficacy
+# Copyright (C) 2025 Adrim Hamed Outmani
+# Licensed under the GNU GPLv3. See LICENSE file in the project root.
+#
+# src/config/paths.toml
+
+[base]
+# Carpetas raíz
+data = "data"
+logs = "logs"
+results = "results"
+reports = "reports"
+cache = "cache"
+src = "src"
+
+[data]
+# Subcarpetas de data
+raw = "data/raw"
+processed = "data/processed"
+dicts = "data/dicts"
+ref_genome = "data/ref_genome"
+
+[models]
+# Directorios relacionados con el modelo Deep Learning
+root = "src/pgen_model"
+models_saved = "src/pgen_model/models"
+encoders = "src/pgen_model/encoders"
+vocabs = "src/pgen_model/labels_vocabs"
+
+[reports]
+# Subcarpetas de reports
+figures = "reports/figures"
+optuna = "reports/optuna_reports"
+training = "reports/train_reports"
+
+[genome_references]
+ref_genome_dir = "data/ref_genome"
+ref_genome_fasta = "data/ref_genome/HSapiens_GChr38.fa"

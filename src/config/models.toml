@@ -1,0 +1,47 @@
+# Pharmagen - Pharmacogenetic Prediction and Therapeutic Efficacy
+# Copyright (C) 2025 Adrim Hamed Outmani
+# Licensed under the GNU GPLv3. See LICENSE file in the project root.
+#
+# src/config/models.toml
+
+# ==========================================
+# MODELO 1: Phenotype_Effect_Outcome
+# ==========================================
+[TwoTowerGAT]
+# --- Graph Input Dimensions (HARD REQUIREMENTS) ---
+# Drug Tower (From d_utils.py)
+drug_in_features = 25   # If you removed the duplicate line. Use 30 otherwise.
+drug_edge_dim = 7
+
+# Haplo Tower (From all_in_one.py)
+haplo_in_features = 5   # [backbone, split/merge, ref, alt, score]
+haplo_edge_dim = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
+# haplo_edge_dim = 0    # Use 0 if you did NOT apply the edge fix in all_in_one.py
+
+# --- Training Config ---
+batch_size = 32
+epochs = 50
+learning_rate = 0.001
+
+# --- Model Architecture Defaults ---
+embedding_dim = 128     # Shared latent space size
+hidden_dim = 64         # Hidden GAT layers size
+n_layers = 3            # GAT layers per tower
+heads = 4               # Attention heads
+dropout_rate = 0.1
+
+# --- OPTUNA SEARCH SPACE ---
+# These define the range/choices for the Tuner
+[TwoTowerGAT.optuna]
+
+# Architecture
+embedding_dim = [64, 128, 256]
+hidden_dim = [32, 64, 128]
+n_layers = ["int", 2, 5]
+heads = [2, 4, 8]
+dropout_rate = [0.0, 0.5]
+
+# Optimization
+learning_rate = [1e-4, 1e-2]  # Log scale is handled in Tuner code
+weight_decay = [1e-6, 1e-3]
+batch_size = [16, 32, 64]

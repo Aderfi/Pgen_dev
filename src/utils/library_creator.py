@@ -1,3 +1,80 @@
+import sys
+
+
+DOC_PRES ="""
+# ============================================================================= 
+#  Genomic Graph Builder for Pharmacogenomics Variants
+# =============================================================================
+Documentation:
+This script constructs a unified library of genomic graphs for pharmacogenomics
+variants using PyTorch Geometric. It processes variant data from multiple
+sources, validates them against a reference genome, and generates graph
+representations suitable for machine learning tasks.
+
+# Features:
+- Supports SNPs, MNPs, Insertions, Deletions, and Star Alleles.
+- Extracts genomic context from a reference FASTA and GFF annotation.
+- Utilizes parallel processing for efficient variant validation.
+- Generates detailed graph structures with atom and bond features using RDKit.
+- Saves the final library in Parquet format for easy access.
+
+# Requirements:
+    - Python 3.10+
+    - PyTorch Geometric
+    - RDKit
+    - pandas
+    - pyfaidx 
+        ...
+"""
+DOC_FILES = """
+# FILES FOR BUILDING THE LIBRARY:
+    
+    - DRUG_GRAPH_LIBRARY: .tsv file with AT LEAST columns: "cid"    "cmpdname"	"smiles" -- from PubChem
+    - REFERENCE GENOME: FASTA file (e.g., GRCh38) and GFF annotation file. (NCBI Nomenclature prefered)
+    - PGX VARIANTS: Folder structure with per-gene VCF files containing star alleles and variants. (PharmVarDB format)
+    - OTHER VARIANTS: Optional TSV file with additional variants to include with cols:
+        snp     --  [string(rs+id)]	
+        snp_id  --  [int (snp without rs)]	
+        chr	    -- (chrNUMBER|LETTER, NUMBER|LETTER or NC_XXXXXXXXX.X format)
+        pos	    -- (1-based position)[int]
+        variant	-- [string: REF>ALT, e.g., A>G, AT>- (deletion), - >AG (insertion)]
+        variant_type	-- [string: SNP, MNP, INS, DEL, STAR_ALLELE]
+        gene	-- [string: gene name, optional, will be inferred if missing]
+        Ref_Allele	-- [string: reference allele]
+        Alt_Allele	-- [string: alternate allele]
+"""
+
+DOC_OUTPUTS = """
+##############
+## OUTPUTS: ##
+##############
+
+ROOT_DIR/
+    library/
+    ├── genomic_variants.parquet         -- Parquet file with validated variant data.
+    ├── graphs/   - One .pt file per variant graph. One dir per gene. || All variants for each gene in a single dir. Gene name as dir name.
+    │   ├── CYP2D6/
+    │   │   ├── CYP2D6_star4.pt
+    │   ├── DPYD/
+    │   │   ├── DPYD_rs3918290.pt
+    │   ...
+    └── drugs/                        -- Directory with graphs for drug molecules from SMILES.
+        ├── 12345_drugname.pt
+        ├── 67890_drugname2.pt
+        ...
+"""
+DOC_USAGE = """
+# USAGE:
+    +
+    +    USE A CODE EDITOR TO CONFIGURE FILENAMES ON "if __name__ == '__main__':" SECTION. At the end of the file.
+    +    python library_creator.py
+    +
+    + DONE!
+
+
+# =============================================================================
+"""
+
 try:
     import os
     import re
@@ -10,6 +87,7 @@ try:
     from pathlib import Path
     from typing import Dict, List, Any, Optional, cast
     from tqdm import tqdm
+    import argparse
 
     # Importaciones de Bioinformática
     from pyfaidx import Fasta
@@ -714,11 +792,75 @@ class DrugGraphBuilder:
 #  EJECUCIÓN PRINCIPAL
 # =============================================================================
 
-if __name__ == "__main__":
-    # ---------------- Configuraciones de Rutas ----------------
+def help_DOC() -> None:
+    """
+    Muestra un menú interactivo para la documentación.
+    """
+    print("\n--- HELP ---")
+    while True:
+        print("\nWhich section would you like to read?")
+        print("[1] Presentation\n[2] Input Files\n[3] Output Structure\n[4] Usage Instructions\n[5] View All\n[0] Exit Help")
+        
+        doc_choice = input("\n\tChoice: ").strip()
+        
+        DOCS = [DOC_PRES, DOC_FILES, DOC_OUTPUTS, DOC_USAGE]
+
+        if doc_choice == '0':
+            break
+        elif doc_choice in ['1', '2', '3', '4']:
+            idx = int(doc_choice) - 1
+            print(f"\n{'-'*20}\n{DOCS[idx]}\n{'-'*20}")
+        elif doc_choice == '5':
+            print("\n".join(DOCS))
+        else:
+            print("❌ Opción no válida.")
+            
+    return None
+
+
+def args_parser():
+    """
+    Configuración del parser.
+    NOTA: Se usa add_help=False para evitar conflicto con tu flag manual de --help,
+    o mejor aún, dejamos que argparse maneje la ayuda básica y usamos una flag distinta
+    para la documentación interactiva, pero mantendré tu lógica de control manual.
+    """
+    # Desactivamos add_help automático para gestionarlo manualmente si así lo deseas
+    parser = argparse.ArgumentParser(
+        description="Generador de Librería Unificada de Grafos para Genes y Fármacos",
+        add_help=False 
+    )
+    
+    # Argumentos obligatorios / opcionales
+    parser.add_argument('-h', '--help', action='store_true', help='Mostrar menú de documentación interactiva y salir.')
+    #parser.add_argument('--data-dir', type=str, default='data', help='Directorio base de datos de entrada. DEFAULT: ./data')
+    #parser.add_argument('--lib-dir', type=str, default='library', help='Directorio base de salida de la librería. DEFAULT: ./library')
+    
+    return parser.parse_args()
+
+def main(args):
+    print("\nIniciando Generador de Librería Unificada de Grafos...\n" \
+    "\n⚠️ MAKE SURE TO READ THE DOCUMENTATION AT THE TOP OF THE SCRIPT BEFORE RUNNING IT! ⚠️\n")
+    
+    print(DOC_USAGE)
+
+    try:
+        exit_prompt = input("Presiona ENTER para continuar o escribe 'exit' para cancelar: ")
+        if exit_prompt.strip().lower() == 'exit':
+            print("Proceso cancelado por el usuario.")
+            sys.exit(0)
+    except KeyboardInterrupt:
+        print("\nOperación cancelada.")
+        sys.exit(0)
+    
     BASE_DIR = Path("data")
+    if not BASE_DIR.exists():
+        print(f"❌ Error: El directorio de datos '{BASE_DIR}' no existe.")
+        return
+
     REF_DIR = BASE_DIR / "ref_genome"
     LIB_DIR = Path("library")
+
     
     # Archivos de Entrada definidos por usuario
     GENE_VAR_TSV = BASE_DIR / "gene_var.tsv"
@@ -742,12 +884,27 @@ if __name__ == "__main__":
     print("="*60)
 
     # ---------------- 1. Pipeline de Genes ----------------
+    print(f"\n #### ➡️ Processing genome from: {REF_DIR}")
     gene_builder = GenomicGraphBuilder(FASTA_FILE, GFF_FILE, PGX_FOLDER)
     gene_builder.run_pipeline(GENE_VAR_TSV, PARQUET_FILE, GENE_OUT_DIR)
 
     # ---------------- 2. Pipeline de Fármacos -------------
+    print(f"\n #### ➡️ Processing drugs from: {DRUGS_TSV}")
     drug_builder = DrugGraphBuilder()
     drug_builder.run_pipeline(DRUGS_TSV, DRUG_OUT_DIR)
 
-    print("\n✅ PROCESO FINALIZADO EXITOSAMENTE.")
-    print(f"📂 Librería generada en: {LIB_DIR.resolve()}")
+    print("\n✅ PROCESS COMPLETED SUCCESSFULLY.")
+    print(f"📂 Library generated at: {LIB_DIR.resolve()}")
+    
+
+
+if __name__ == "__main__":
+    # ---------------- Configuraciones de Rutas ----------------
+    # READ DOCS BEFORE RUNNING!
+    # DOCS FOR THIS GENERATOR AT THE START OF THE FILE.
+    args = args_parser()
+
+    if args.help:
+        help_DOC()
+    else:
+        main(args)

@@ -31,7 +31,7 @@ from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.architectures.gnn import PharmagenTwoTower
 
 logger = logging.getLogger(__name__)
-MODEL_ENCODERS_DIR = DIRS["model_encoders"]
+MODEL_ENCODERS_DIR = DIRS["model_encoders"] if "model_encoders" in DIRS else DIRS["models"]
 MODELS_DIR = DIRS["models"]
 
 

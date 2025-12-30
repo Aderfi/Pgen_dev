@@ -1,31 +1,27 @@
 import pandas as pd
 import re
+from typing import Optional
 from rapidfuzz import process, fuzz
+from pathlib import Path
+import json
 
-with open('data/dicts/ATC_drug_med.json', 'r', encoding='utf-8') as file:
-    JSON_DICT = pd.read_json(file, typ='series').to_dict()
-atc_dict = {v[0]: [k] for k, v in JSON_DICT.items()}
+def create_drug_cache(library_path: Optional[Path]) -> dict:
+    drug_name_cache = {}
 
-for k, v in atc_dict.items():
-    atc_dict[b[0]] = a
+    library_path = Path('library/drugs') if not library_path else library_path
+    for file in library_path.glob('*.pt'):
+        name = file.stem.lower()
+        cid, drug_name = name.split('_', 1)
+        if cid.isdigit():
+            cid = int(cid)
+        drug_name_cache[drug_name] = cid
+    return drug_name_cache
 
-def translator():
-    atc_codes = None
+if __name__ == "__main__":
+    import numpy as np
 
+    dict_cache = create_drug_cache(Path('library/drugs'))
+    print(f"Cache dictionary created with {len(dict_cache)} entries.")
 
-
-df = pd.DataFrame(columns=['ATC', 'farmaco'])
-
-with open('conj_auton_expanded.txt', 'r', encoding='utf-8') as file:
-    df["farmaco"] = [line.strip() for line in file.readlines()]
-
-with open('data/dicts/ATC_drug_med.json', 'r', encoding='utf-8') as file:
-    json_dict = pd.read_json(file, typ='series').to_dict()
-
-atc_dict = {v[0]: [k] for k, v in json_dict.items()}
-
-drug_dict_list = [v[0] for k, v in json_dict.items()]
-
-df["ATC"] = df["farmaco"].map(translator)
-
-print(df.sample(20))
+    with open('drug_name_cache.json', 'w') as f:
+        json.dump(dict_cache, f, indent=1)

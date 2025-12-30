@@ -59,13 +59,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(PROJECT_ROOT))
 
 # --- Imports del Proyecto ---
-from src.cfg.manager import DIRS
+from src.config.manager import DIRS
 from src.interface.cli import main_menu_loop
-from src.optuna_tuner import run_optuna_study
+from src.modeling.engine.tuner import run_optuna_study
 from src.pipeline import train_pipeline
-from src.predict import PGenPredictor
-from src.utils.logger_setup import setup_logging
-from src.utils.sys_utils import check_environment_and_setup
+from src.modeling.engine.predictor import PGenPredictor
+from src.utils.logger import setup_logging
+from src.utils.system import check_environment_and_setup
 
 # Constantes
 DATE_STAMP = datetime.now().strftime('%Y-%m-%d')
@@ -75,7 +75,7 @@ LOGS_DIR = DIRS["logs"]
 # ==============================================================================
 
 def main():
-    check_environment_and_setup()
+    #check_environment_and_setup()
     
     setup_logging()
     logger = logging.getLogger("Pharmagen")

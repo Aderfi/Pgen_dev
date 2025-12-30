@@ -137,8 +137,8 @@ class EnvStrategy(abc.ABC):
         self.root_path = root_path
         self.python_version = python_version
         self.dry_run = dry_run
-        # Assuming script is in venv_setup_external/, requirements should be there too
-        self.requirements_path = self.root_path / "venv_setup_external" / "requirements.txt"
+        # Assuming script is in venv_setup/, requirements should be there too
+        self.requirements_path = self.root_path / "venv_setup" / "requirements.txt"
 
     @abc.abstractmethod
     def create_env(self) -> bool:
@@ -355,7 +355,7 @@ class SetupOrchestrator:
             activate_cmd = ""
             if manager in [EnvManagerType.UV, EnvManagerType.VENV]:
                 if SystemUtils.get_os() == "Windows":
-                    activate_cmd = f"{env_name}\Scripts\activate"
+                    activate_cmd = f"{env_name}\\Scripts\\activate"
                 else:
                     activate_cmd = f"source {env_name}/bin/activate"
             else:

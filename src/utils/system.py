@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
-from src.cfg.manager import DIRS, METADATA, PROJECT_ROOT, VERSION
+from src.config.manager import DIRS, METADATA, PROJECT_ROOT, VERSION
 
 CONFIG_FILE = Path("asaver")
 

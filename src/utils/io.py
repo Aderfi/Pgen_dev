@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, Union
 from datetime import datetime
-from src.cfg.manager import DIRS, METADATA, PROJECT_ROOT, VERSION
+from src.config.manager import DIRS, METADATA, PROJECT_ROOT, VERSION
 
 LOGS_DIR = DIRS["logs"]
 UNKNOWN_TOKEN = "__UNKNOWN__"

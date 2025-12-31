@@ -39,7 +39,7 @@ Thumbs.db
 # Ignoramos CSV/TSV en general para no subir datos de pacientes
 # Si tienes configs en CSV que SÍ quieres subir, usa 'git add -f archivo.csv'
 *.csv
-*.tsv
+#*.tsv
 *.xlsx
 *.parquet
 *.feather

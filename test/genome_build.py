@@ -359,7 +359,7 @@ class GenomeGraphBuilder:
 
 # --- EXECUTION ENTRY POINT ---
 if __name__ == "__main__":
-    base_dir = Path("data")
+    base_dir = Path("src/library")
     parquet_file = base_dir / "genome_library.parquet"
 
     if not parquet_file.exists():

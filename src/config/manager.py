@@ -5,7 +5,7 @@ import sys
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # TOML Parser (Compatibility wrapper)
 if sys.version_info >= (3, 11):

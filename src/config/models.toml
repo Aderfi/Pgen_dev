@@ -10,44 +10,64 @@
 [TwoTowerGAT]
 # Features && Targets Definition
 
+cols = ["drugs_cid", "drugs", "genotype", "gene", "phenotype_category"]
 features = ["drugs_cid", "genotype"]
-target = ["phenotype_category"]
+targets = ["phenotype_category"]
+stratify_col = "phenotype_category"  # Column used for stratified splitting
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
-# Drug Tower (From d_utils.py)
-drug_in_features = 25   # If you removed the duplicate line. Use 30 otherwise.
+drug_in_features = 25   
 drug_edge_dim = 7
-
 # Haplo Tower (From all_in_one.py)
 haplo_in_features = 9   # [backbone, split/merge, ref, alt, score]
 haplo_edge_dim = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
-# haplo_edge_dim = 0    # Use 0 if you did NOT apply the edge fix in all_in_one.py
-
-# --- Training Config ---
-batch_size = 32
-epochs = 50
-learning_rate = 0.001
-
-# --- Model Architecture Defaults ---
-embedding_dim = 128     # Shared latent space size
-hidden_dim = 64         # Hidden GAT layers size
-n_layers = 3            # GAT layers per tower
-heads = 4               # Attention heads
-dropout_rate = 0.1
+haplo_idx = 2    # Use 0 if you did NOT apply the edge fix in all_in_one.py
 
 # --- OPTUNA SEARCH SPACE ---
 # These define the range/choices for the Tuner
 [TwoTowerGAT.optuna]
+### --- Arquitectura (GNN & Towers) --- ###
+patience = 15
+epochs = 50
+# "categorical" 
+embedding_dim = ["categorical", 64, 128, 256]
+hidden_dim = ["categorical", 128, 256, 512]
 
+# "int" 
+n_layers = ["int", 2, 4]
+
+# Attention Heads (GATv2).
+heads = ["categorical", 2, 4, 8]
+
+# "float" 
+dropout_rate = ["float", 0.1, 0.5]
+
+### --- Optimización (Training Loop) --- ###
+
+# "log"
+learning_rate = ["log", 1e-5, 1e-2]
+weight_decay = ["log", 1e-6, 1e-3]
+
+# Batch size afecta la generalización y el uso de VRAM.
+batch_size = ["categorical", 64, 128, 256]
+
+# --- Función de Pérdida (Loss Hyperparams) ---
+# Si usas FocalLoss o AsymmetricLoss (definidas en losses.py), estos parámetros son críticos.
+# gamma: Controla qué tanto se penalizan los ejemplos difíciles.
+gamma = ["float", 1.0, 4.0] 
+# asl_clip: Para AsymmetricLoss, controla el recorte de negativos fáciles.
+asl_clip = ["float", 0.0, 0.1]
+
+[TwoTowerGAT.params]
 # Architecture
-embedding_dim = [64, 128, 256]
-hidden_dim = [32, 64, 128]
-n_layers = ["int", 2, 5]
-heads = [2, 4, 8]
-dropout_rate = [0.0, 0.5]
+embedding_dim = 128
+hidden_dim = 64
+n_layers = 3
+heads = 4
+dropout_rate = 0.1
 
 # Optimization
-learning_rate = [1e-4, 1e-2]  # Log scale is handled in Tuner code
-weight_decay = [1e-6, 1e-3]
-batch_size = [16, 32, 64]
+learning_rate = 0.001
+weight_decay = 1e-5
+batch_size = 32

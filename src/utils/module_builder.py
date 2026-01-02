@@ -5,8 +5,8 @@ import logging
 from typing import Any, Dict, List, Optional, Set, Type, Union
 import torch
 import torch.nn as nn
-from src.losses import (
-    AdaptiveFocalLoss, FocalLoss, AsymmetricLoss
+from src.utils.losses import (
+    AdaptiveFocalLoss, FocalLoss, AsymmetricLoss, PolyLoss, MultiTaskUncertaintyLoss
 )
 
 logger = logging.getLogger(__name__)
@@ -97,77 +97,52 @@ class SchedulerFactory(ComponentFactory):
 
 
 class LossFactory(ComponentFactory):
-    """
-    Factory specifically for creating Loss Functions (Criteria).
-    Replaces the old PGenLoss and CRITERIONS_MAP.
-    """
     _registry = {
         "cross_entropy": nn.CrossEntropyLoss,
-        "bce_w/logits": nn.BCEWithLogitsLoss,
         "bce": nn.BCEWithLogitsLoss,
-        "adapt_focal": AdaptiveFocalLoss,
         "adaptive_focal": AdaptiveFocalLoss,
         "focal": FocalLoss,
-        "binary": nn.BCELoss,
         "asymmetric": AsymmetricLoss,
-        "asl": AsymmetricLoss,
+        "poly": PolyLoss,
     }
-
-    @staticmethod
-    def create_single(
-        name: str, 
-        params: Dict[str, Any], 
-        **kwargs
-    ) -> nn.Module:
-        loss_cls = LossFactory.get(name)
-        if not loss_cls:
-            raise ValueError(f"Loss type '{name}' not registered.")
-
-        # Logic to extract parameters relevant to specific losses could be refined here
-        # For KISS, we pass specific kwargs or extract from params
-        return loss_cls(**kwargs)
 
     @staticmethod
     def create_task_criterions(
         target_cols: List[str], 
         multi_label_cols: Set[str], 
         params: Dict[str, Any], 
-        device: torch.device,
-        class_pos_weights: Optional[Dict[str, torch.Tensor]] = None
+        device: torch.device
     ) -> Dict[str, nn.Module]: 
         """
-        Orchestrates the creation of multiple loss functions for multi-task setups.
+        Orquesta la creación de múltiples funciones de pérdida basadas en la configuración.
         """
         criterions = {}
-        default_multilabel = params.get("loss_multilabel", "asymmetric")
-        default_singlelabel = params.get("loss_singlelabel", "focal")
+        # Recuperamos las preferencias globales definidas en la config
+        default_ml = params.get("loss_multilabel", "asymmetric")
+        default_sl = params.get("loss_singlelabel", "adaptive_focal")
         
         for col in target_cols:
-            is_multilabel = col in multi_label_cols
-            loss_key = default_multilabel if is_multilabel else default_singlelabel
-
-            # Fallback logic
-            if not LossFactory.get(loss_key):
-                fallback = "asymmetric" if is_multilabel else "focal"
-                logger.warning(f"Loss '{loss_key}' not found. Using fallback '{fallback}'.")
-                loss_key = fallback
+            is_ml = col in multi_label_cols
+            loss_key = default_ml if is_ml else default_sl
             
-            # Prepare arguments based on loss type (Abstraction handling)
-            loss_kwargs = {}
+            # Construcción dinámica de argumentos para la pérdida
+            kwargs = {}
             if loss_key in ["focal", "adaptive_focal"]:
-                loss_kwargs["gamma"] = params.get("gamma", 2.0)
-                loss_kwargs["label_smoothing"] = params.get("label_smoothing", 0.0)
-            
-            elif loss_key in ["asymmetric", "asl"]:
-                loss_kwargs["gamma_neg"] = params.get("gamma_neg", 4.0)
-                loss_kwargs["gamma_pos"] = params.get("gamma_pos", 1.0)
-                loss_kwargs["clip"] = params.get("asl_clip", 0.05)
+                kwargs["gamma"] = params.get("gamma", 2.0) # Conectado a modelos.toml
+                
+            elif loss_key in ["asymmetric"]:
+                kwargs["gamma_neg"] = params.get("gamma_neg", 4.0)
+                kwargs["gamma_pos"] = params.get("gamma_pos", 1.0)
+                kwargs["clip"] = params.get("asl_clip", 0.05) # Conectado a modelos.toml
 
-            elif loss_key in ["binary_focal"]:
-                 loss_kwargs["pos_weight"] = class_pos_weights.get(col) if class_pos_weights else None
-
-            # Instantiate
-            loss_cls = LossFactory.get(loss_key)
-            criterions[col] = loss_cls(**loss_kwargs).to(device)
+            loss_cls = LossFactory.get(loss_key) or nn.BCEWithLogitsLoss
+            criterions[col] = loss_cls(**kwargs).to(device)
             
         return criterions
+
+    @staticmethod
+    def create_uncertainty_wrapper(tasks: List[str], device: torch.device) -> MultiTaskUncertaintyLoss:
+        """
+        Instancia el contenedor de incertidumbre para el aprendizaje multi-tarea.
+        """
+        return MultiTaskUncertaintyLoss(tasks=tasks).to(device)

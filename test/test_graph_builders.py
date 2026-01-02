@@ -3,7 +3,7 @@ import networkx as nx
 import numpy as np
 import json
 
-from src.graph_construct.genome_build import GenomeGraphBuilder
+from src.utils.library_creator import GenomicGraphBuilderNEXTGEN
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -152,7 +152,7 @@ if __name__ == "__main__":
         print(f"❌ Library file not found: {parquet_file}")
     else:
         # 1. Instantiate
-        builder = GenomeGraphBuilder(parquet_file)
+        builder = GenomicGraphBuilderNEXTGEN(parquet_file)
 
         # 2. Select Target Gene (Must exist in the 'gene_context' column of your library)
         gene_target = "CYP2D6"  # Example Pharmacogene

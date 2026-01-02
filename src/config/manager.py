@@ -91,36 +91,44 @@ def get_model_config(model_name: str) -> Dict[str, Any]:
     Returns a merged configuration dictionary for a specific model.
     Priority: Model Config > Global Defaults.
     """
+    final_config: Dict[str, Any] = {}
     if model_name not in _MODELS_CFG:
         raise ValueError(f"Model '{model_name}' not found in models.toml")
 
     # 1. Start with defaults
-    config = _GLOBAL_CFG.get("params", {}).copy()
-    config.update(_GLOBAL_CFG.get("project", {}))
+    final_config = _GLOBAL_CFG.copy()
+    final_config.update(final_config.pop("project", {}))
 
     # 2. Update with specific model config
     model_data = _MODELS_CFG[model_name].copy()
     
-    # Flatten nested specific params
+    # 3. Update params if present
     if "params" in model_data:
-        config.update(model_data.pop("params"))
-    
+        final_config["params"].update(model_data.pop("params").items())
+
     # Process Optuna params if present
     if "optuna" in model_data:
-        config["params_optuna"] = {
+        final_config["params_optuna"] = {
             k: _parse_optuna_param(v) for k, v in model_data.pop("optuna").items()
         }
     
-    config.update(model_data)
+    final_config.update(model_data)
     
     # 3. Validation
     required_keys = ["features", "targets"]
-    if not all(k in config for k in required_keys):
+    if not all(k in final_config for k in required_keys):
         raise ValueError(f"Model config requires {required_keys}")
 
-    return config
+    return final_config
 
 if __name__ == "__main__":
     print(f"Pharmagen Config Manager v{VERSION}")
     print(f"Root: {PROJECT_ROOT}")
     print(f"Available Models: {get_available_models()}")
+    model_choice = get_available_models()[0]
+    print(f"Sample Config for '{model_choice}':")
+    import pprint
+    print("=" * 40)
+    print("=" * 40)
+    pprint.pprint(get_model_config(model_choice))
+    

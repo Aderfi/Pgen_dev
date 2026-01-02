@@ -377,7 +377,7 @@ def smiles_to_graph_complete(smiles):
     # Convertir a Tensores
     if len(edge_indices) == 0:
         edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 6), dtype=torch.float)
+        edge_attr = torch.empty((0, 7), dtype=torch.float)
     else:
         edge_index = torch.tensor(edge_indices, dtype=torch.long).t().contiguous()
         edge_attr = torch.tensor(edge_attrs, dtype=torch.float)
@@ -1160,7 +1160,7 @@ class DrugGraphBuilder:
         self.illegal_chars = re.compile(r'[<>:"/\\|?*]')
 
     def run_pipeline(self, tsv_input: Path, output_dir: Path):
-        print(f"\n💊 [DRUGS] Iniciando pipeline de fármacos...")
+        print("\n💊 [DRUGS] Iniciando pipeline de fármacos...")
         if not tsv_input.exists():
             print(f"❌ Error: No se encuentra {tsv_input}")
             return
@@ -1190,11 +1190,11 @@ class DrugGraphBuilder:
             if out_f.exists(): continue
             
             try:
-                graph = smiles_to_graph_complete(cast(row.smiles, str).strip()) 
+                graph = smiles_to_graph_complete(str(row.smiles).strip()) 
                 if graph is not None:
                     graph.cid = row.cid
                     graph.name = row.cmpd_name_cleaned
-                    graph.smiles = row.smiles.strip()
+                    graph.smiles = str(row.smiles).strip()
                     torch.save(graph, out_f)
                     count += 1
                 else:
@@ -1286,12 +1286,12 @@ def main(args):
         return
 
     REF_DIR = BASE_DIR / "ref_genome"
-    LIB_DIR = Path("library")
+    LIB_DIR = Path("src/library")
 
     
     # Archivos de Entrada definidos por usuario
     GENE_VAR_TSV = BASE_DIR / "snp_data_output.tsv"
-    DRUGS_TSV = BASE_DIR / "drugs.tsv"
+    DRUGS_TSV = BASE_DIR / "drugs_cid.tsv"
     
     # Archivos de Referencia
     FASTA_FILE = REF_DIR / "genome.fna"
@@ -1333,7 +1333,7 @@ def main(args):
         else:
             print(f"❌ No se generó el grafo de prueba para {test_gene}.")
         return
-
+    """
     # ---------------- 1. Pipeline de Genes ----------------
     print(f"\n #### ➡️ Processing genome from: {REF_DIR}")
     gene_builder = GenomicGraphBuilderNEXTGEN(FASTA_FILE, GFF_FILE, PGX_FOLDER)
@@ -1346,7 +1346,7 @@ def main(args):
 
     print("\n✅ PROCESS COMPLETED SUCCESSFULLY.")
     print(f"📂 Library generated at: {LIB_DIR.resolve()}")
-    """
+    
 
 
 if __name__ == "__main__":

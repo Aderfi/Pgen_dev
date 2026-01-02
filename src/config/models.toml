@@ -10,8 +10,8 @@
 [TwoTowerGAT]
 # Features && Targets Definition
 
-features = ["drug_graph", "haplo_graph"]
-target = ["phenotype_effect_outcome"]
+features = ["drugs_cid", "genotype"]
+target = ["phenotype_category"]
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
@@ -20,7 +20,7 @@ drug_in_features = 25   # If you removed the duplicate line. Use 30 otherwise.
 drug_edge_dim = 7
 
 # Haplo Tower (From all_in_one.py)
-haplo_in_features = 5   # [backbone, split/merge, ref, alt, score]
+haplo_in_features = 9   # [backbone, split/merge, ref, alt, score]
 haplo_edge_dim = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
 # haplo_edge_dim = 0    # Use 0 if you did NOT apply the edge fix in all_in_one.py
 

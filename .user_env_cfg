@@ -1,6 +1,6 @@
 {
     "environment_manager": "uv",
     "environment_name": ".venv_pgen",
-    "os_system": "Windows",
+    "os_system": "Linux",
     "python_version": "3.10"
 }

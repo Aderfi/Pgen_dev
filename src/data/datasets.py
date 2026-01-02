@@ -196,8 +196,8 @@ class DoubleTowerDataset(Dataset):
             filename_clean = file_path.stem  # Nombre sin extensión
             
             gene_id, variant = filename_clean.split("_", 1)
-            if variant.startswith("star"):
-                variant = variant.replace("star", "*")
+            #if variant.startswith("star"):
+            #    variant = variant.replace("star", "*")
             
             if gene_id not in index_genes:
                 index_genes[gene_id] = {}
@@ -365,8 +365,8 @@ if __name__ == "__main__":
         
         dataset = DoubleTowerDataset(
             df=df_test,
-            drug_col='compound_id',
-            haplo_col='gene_id',
+            drug_col='drugs_cid',
+            haplo_col='genotype',
             target_cols=['metabolizer', 'side_effects'],
             multilabel_cols=['side_effects']
         )

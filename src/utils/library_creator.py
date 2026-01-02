@@ -78,14 +78,12 @@ DOC_USAGE = """
 try:
     import os
     import re
-    import json
     import subprocess
     import torch
-    import numpy as np
     import pandas as pd
     import networkx as nx
     from pathlib import Path
-    from typing import Dict, List, Any, Optional, cast
+    from typing import Dict, cast
     from tqdm import tqdm
     import argparse
 
@@ -100,6 +98,17 @@ except ImportError as e:
 
 
 # Importaciones del proyecto (Asumiendo estructura src/)
+
+# Intentar importar pandarallel
+try:
+    from pandarallel import pandarallel
+    pandarallel.initialize(progress_bar=True, verbose=1)
+except ImportError:
+    raise ImportError("pandarallel no está instalado. Por favor, instálalo para ejecutar este script.")
+
+# =============================================================================
+#  CONFIGURACIÓN GLOBAL Y MAPEOS
+# =============================================================================
 
 PGX_METADATA = {
     # --- ENZIMAS MAYORES (METABOLISMO DE FÁRMACOS) ---
@@ -249,16 +258,15 @@ PGX_METADATA = {
     }
 }
 
-# Intentar importar pandarallel
-try:
-    from pandarallel import pandarallel
-    pandarallel.initialize(progress_bar=True, verbose=1)
-except ImportError:
-    raise ImportError("pandarallel no está instalado. Por favor, instálalo para ejecutar este script.")
-
-# =============================================================================
-#  CONFIGURACIÓN GLOBAL Y MAPEOS
-# =============================================================================
+FXN_CATEGORIES = {
+    'coding': ['missense_variant', 'coding_sequence_variant', 'synonymous_variant', 
+               'stop_gained', 'frameshift_variant', 'stop_lost'],
+    'regulatory': ['3_prime_UTR_variant', '5_prime_UTR_variant', 'upstream_transcript_variant', 
+                   'downstream_transcript_variant', 'regulatory_region_variant'],
+    'splicing': ['intron_variant', 'splice_acceptor_variant', 'splice_donor_variant', 
+                 'splice_region_variant'],
+    'intergenic': ['intergenic_variant', '__INTERGENIC__']
+}
 
 DPYD_RS_MAP = {
     "rs3918290": "*2A", 
@@ -285,7 +293,7 @@ GLOBAL_CHROM_MAPPING = {
 }
 
 # =============================================================================
-#  HELPER FUNCTIONS (Global scope for Pickling)
+#  HELPER FUNCTIONS
 # =============================================================================
 
 def smiles_to_graph_complete(smiles):
@@ -334,7 +342,7 @@ def smiles_to_graph_complete(smiles):
     x = torch.tensor(atom_features, dtype=torch.float)
 
     # -----------------------------------------------------
-    # 2. ARISTAS (Enlaces) - Aquí está la novedad
+    # 2. ARISTAS (Enlaces)
     # -----------------------------------------------------
     edge_indices = []
     edge_attrs = []
@@ -382,6 +390,22 @@ def one_hot_encoding(value, possible_values):
         encoding[possible_values.index(value)] = 1
     return encoding
 
+def parse_fxn_class(fxn_str):
+    """Convierte la cadena CSV de FXN_CLASS en un vector de banderas."""
+    flags = {'coding': 0.0, 'regulatory': 0.0, 'splicing': 0.0, 'intergenic': 0.0}
+    
+    if pd.isna(fxn_str) or fxn_str == '':
+        return flags
+        
+    # El dataframe B usa comas para separar múltiples efectos
+    terms = [x.strip() for x in str(fxn_str).split(',')]
+    
+    for term in terms:
+        for cat, keywords in FXN_CATEGORIES.items():
+            if term in keywords:
+                flags[cat] = 1.0
+                
+    return flags
 
 def worker_validate_row(row):
     """
@@ -474,6 +498,91 @@ def worker_validate_row(row):
     row['CHROM'] = chrom_mapped
     return row
 
+def worker_validate_row_nextgen(row):
+    """
+    Validación adaptada al DATAFRAME B (Estructura VEP/Ensembl).
+    """
+    # 1. Mapeo de Cromosoma
+    c_str = str(row['chr']).strip()
+    chrom_mapped = c_str # Default fallback
+    
+    # Intento de mapeo usando GLOBAL_CHROM_MAPPING (si está definido en el script principal)
+    # Asumimos que GLOBAL_CHROM_MAPPING existe en el scope global como en tu script original
+    if 'GLOBAL_CHROM_MAPPING' in globals() and GLOBAL_CHROM_MAPPING:
+        if c_str in GLOBAL_CHROM_MAPPING:
+            chrom_mapped = GLOBAL_CHROM_MAPPING[c_str]
+        else:
+            clean = c_str.replace('chr', '').replace('Chr', '')
+            chrom_mapped = GLOBAL_CHROM_MAPPING.get(clean, c_str)
+
+    # 2. Extracción de Datos Básicos
+    # Dataframe B usa 'start_pos' (generalmente 1-based en VCF/Bioinf)
+    try:
+        pos_1based = int(row['start_pos'])
+        pos_0 = pos_1based - 1  # Convertir a 0-based para Python/Fasta
+        if pos_0 < 0: raise ValueError
+    except (ValueError, TypeError):
+        row['validation_error'] = "Bad POS"
+        row['validated'] = False
+        return row
+
+    ref_clean = str(row['Ref_Allele']).strip().upper()
+    alt_clean = str(row['Alt_Allele']).strip().upper()
+    
+    # Manejo de N/A o guiones en INDELs
+    if ref_clean in ['-', '.', 'N/A']: ref_clean = ""
+    if alt_clean in ['-', '.', 'N/A']: alt_clean = ""
+
+    # 3. Validación contra Genoma de Referencia (Si está cargado)
+    if 'GLOBAL_GENOME' in globals() and GLOBAL_GENOME:
+        if chrom_mapped not in GLOBAL_GENOME:
+            row['validation_error'] = f"Chr missing: {chrom_mapped}"
+            # En Dataframe B, a veces hay contigs extraños, podemos ser permisivos o estrictos
+            row['validated'] = False 
+            return row
+        try:
+            # Solo validamos si hay referencia explícita (no inserciones puras)
+            if len(ref_clean) > 0:
+                ref_fasta = GLOBAL_GENOME[chrom_mapped][pos_0 : pos_0 + len(ref_clean)].seq.upper()
+                if ref_fasta != ref_clean and 'N' not in ref_fasta:
+                    # A veces la hebra está invertida o la notación difiere, 
+                    # pero para este script estricto, marcamos error.
+                    row['validation_error'] = f"Ref Mismatch: TSV={ref_clean} vs FASTA={ref_fasta}"
+                    row['validated'] = False
+                    return row
+        except IndexError:
+            row['validation_error'] = "Out of bounds"
+            row['validated'] = False
+            return row
+
+    # 4. Enriquecimiento de Datos
+    row['gene_context'] = str(row['gene']) if pd.notna(row['gene']) else "Intergenic"
+    row['variant_name'] = str(row['snp']) if pd.notna(row['snp']) else f"var_{chrom_mapped}_{pos_1based}"
+    
+    # Determinar tipo si no viene claro, aunque DF B trae 'variant_type'
+    if pd.isna(row.get('variant_type')):
+        if len(ref_clean) == len(alt_clean): row['variant_type'] = 'snv'
+        elif len(ref_clean) > len(alt_clean): row['variant_type'] = 'del'
+        else: row['variant_type'] = 'ins'
+    
+    # Score por defecto (se puede mejorar cruzando con ClinVar si tienes ese dato)
+    row['activity_score'] = 0.5 
+
+    # Parsear FXN_CLASS para usarlos luego en el grafo
+    fxn_flags = parse_fxn_class(row.get('FXN_CLASS', ''))
+    row['is_coding'] = fxn_flags['coding']
+    row['is_regulatory'] = fxn_flags['regulatory']
+    row['is_splicing'] = fxn_flags['splicing']
+    row['is_intergenic'] = fxn_flags['intergenic']
+
+    row['validated'] = True
+    row['REF'] = ref_clean
+    row['ALT'] = alt_clean
+    row['CHROM'] = chrom_mapped
+    row['POS'] = int(pos_1based) # Guardamos 1-based para nombres, usamos pos_0 para lógica si hiciera falta
+    
+    return row
+
 # =============================================================================
 #  CLASE 1: CONSTRUCTOR DE GRAFOS GENÓMICOS
 # =============================================================================
@@ -485,7 +594,7 @@ class GenomicGraphBuilder:
         self.pgx_dir = pgx_dir
 
     def run_pipeline(self, tsv_input: Path, output_parquet: Path, output_graph_dir: Path):
-        print(f"\n🧬 [GENOMICS] Iniciando pipeline genómico...")
+        print("\n🧬 [GENOMICS] Iniciando pipeline genómico...")
         
         # 1. Construir Librería Parquet
         if self.fasta_path.exists() and self.gff_path.exists():
@@ -725,6 +834,323 @@ foreach ($file in $files) {
             with open(script_path, "w") as f: f.write(script_content)
             subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path.name], cwd=graph_dir, check=True)
 
+
+class GenomicGraphBuilderNEXTGEN:
+    def __init__(self, fasta_path: Path, gff_path: Path, pgx_dir: Path):
+        self.fasta_path = fasta_path
+        self.gff_path = gff_path
+        self.pgx_dir = pgx_dir
+        # Aseguramos que los directorios sean Path objects
+        if isinstance(self.fasta_path, str): self.fasta_path = Path(self.fasta_path)
+
+    def run_pipeline(self, tsv_input: Path, output_parquet: Path, output_graph_dir: Path):
+        print("\n🧬 [GENOMICS] Iniciando pipeline genómico (Structure B)...")
+        
+        # 1. Construir Librería Parquet
+        if self.fasta_path.exists():
+            clean_df = self._build_library(tsv_input)
+            if clean_df is not None and not clean_df.empty:
+                clean_df.to_parquet(output_parquet, index=False)
+                print(f"✅ Librería guardada en: {output_parquet} ({len(clean_df)} variantes)")
+                
+                # 2. Generar Grafos
+                self._generate_graphs(clean_df, output_graph_dir)
+                
+                # 3. Organizar Archivos
+                self._organize_files_os_specific(output_graph_dir)
+            else:
+                print("⚠️ No se generó dataframe limpio de variantes.")
+        else:
+            print(f"❌ Faltan archivos de referencia (FASTA) en {self.fasta_path.parent}")
+
+    def _build_library(self, tsv_input: Path) -> pd.DataFrame:
+        print("   🔹 Indexando genoma...")
+        genome = Fasta(str(self.fasta_path), key_function=lambda x: x.split()[0])
+        # Nota: Con Dataframe B, el GFF es menos crítico para asignar genes porque
+        # el dataframe ya trae la columna 'gene' muy bien definida, pero lo mantenemos
+        # si queremos validar intergénicos.
+        
+        dfs = []
+        # Cargar TSV Principal (Estructura B)
+        if tsv_input.exists():
+            print(f"   🔹 Cargando TSV: {tsv_input.name}...")
+            # Leemos todas las columnas, pandas infiere tipos
+            t_df = pd.read_csv(tsv_input, sep='\t', low_memory=False)
+            
+            # Verificación rápida de estructura B
+            required_cols = ['chr', 'start_pos', 'Ref_Allele', 'Alt_Allele']
+            if not all(col in t_df.columns for col in required_cols):
+                print(f"❌ Error: El TSV no parece tener la Estructura B. Columnas detectadas: {list(t_df.columns)}")
+                return None
+                
+            dfs.append(t_df)
+        
+        # Cargar Datos PGx (Si existen, asumimos que se adaptan al formato o se procesan aparte)
+        pgx_df = self._load_pgx_folder()
+        if not pgx_df.empty:
+            # Normalizar columnas de PGx para que coincidan con B
+            pgx_df['start_pos'] = pgx_df['POS']
+            pgx_df['chr'] = pgx_df['CHROM']
+            pgx_df['Ref_Allele'] = pgx_df['REF']
+            pgx_df['Alt_Allele'] = pgx_df['ALT']
+            pgx_df['gene'] = pgx_df['gene_provided']
+            pgx_df['snp'] = pgx_df['haplotype_label']
+            pgx_df['FXN_CLASS'] = 'pharmacogenomic_variant' # Etiqueta especial
+            dfs.append(pgx_df)
+
+        if not dfs: return None
+
+        master_df = pd.concat(dfs, ignore_index=True)
+        
+        # Configurar Globales para Workers (Multiprocessing en Linux)
+        global GLOBAL_GENOME, GLOBAL_CHROM_MAPPING
+        GLOBAL_GENOME = genome
+        # Aseguramos que el mapeo esté disponible (definido al inicio del script original)
+        
+        print(f"   ⚡ Validando {len(master_df)} variantes...")
+        
+        # Ejecución paralela o serial
+        if 'pandarallel' in sys.modules:
+            processed = master_df.parallel_apply(worker_validate_row_nextgen, axis=1)
+        else:
+            tqdm.pandas(desc="Validando filas")
+            processed = master_df.progress_apply(worker_validate_row_nextgen, axis=1)
+
+        # Limpiar referencias para liberar memoria
+        GLOBAL_GENOME = None
+
+        # Filtrado final
+        clean = processed[processed['validated'] == True].copy()
+        
+        # Eliminación de duplicados exactos
+        clean.drop_duplicates(subset=['CHROM', 'POS', 'REF', 'ALT', 'gene_context'], keep='first', inplace=True)
+        
+        return clean
+
+    def _load_pgx_folder(self) -> pd.DataFrame:
+        all_variants = []
+        if not self.pgx_dir.exists(): return pd.DataFrame()
+        
+        for gene_folder in self.pgx_dir.iterdir():
+            if gene_folder.is_dir():
+                gene_name = gene_folder.name
+                for vcf_file in gene_folder.glob("*.vcf"):
+                    haplo_label = self._parse_haplo_name(gene_name, vcf_file.stem)
+                    try:
+                        vcf_df = pd.read_csv(vcf_file, sep='\t', comment='#', header=None,
+                            names=['CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO'],
+                            dtype={'CHROM': str, 'REF': str, 'ALT': str})
+                        if vcf_df.empty: continue
+                        vcf_df['gene_provided'] = gene_name
+                        vcf_df['haplotype_label'] = haplo_label
+                        all_variants.append(vcf_df[['CHROM', 'POS', 'REF', 'ALT', 'gene_provided', 'haplotype_label']])
+                    except: continue
+        return pd.concat(all_variants, ignore_index=True) if all_variants else pd.DataFrame()
+
+    def _generate_graphs(self, library_df: pd.DataFrame, output_dir: Path):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        genes = library_df['gene_context'].dropna().unique()
+        print(f"   🚀 Generando grafos PyG enriquecidos para {len(genes)} genes...")
+        
+        count = 0
+        for gene in tqdm(genes, desc="Procesando Genes"):
+            df_gene = library_df[library_df['gene_context'] == gene]
+            
+            # Agrupar por variante (rsID). 
+            # Nota: En DF B, un rsID puede tener múltiples líneas si es multi-alélico 
+            # (aunque DF B parece tener una línea por alelo específico).
+            for var_name in df_gene['variant_name'].dropna().unique():
+                if str(var_name).strip() == "": continue
+                
+                # Sub-dataframe para este rsID específico
+                df_variant = df_gene[df_gene['variant_name'] == var_name]
+                
+                # Construimos el grafo
+                G = self._build_nx_graph(df_variant, gene, var_name)
+                
+                if G:
+                    pyg_data = self._to_pyg(G)
+                    # Nombre de archivo seguro
+                    safe_var = str(var_name).replace(":", "_").replace("/", "_").replace("|", "_")
+                    torch.save(pyg_data, output_dir / f"{gene}_{safe_var}.pt")
+                    count += 1
+
+    def _build_nx_graph(self, df, gene_name, var_name):
+        """
+        Construye el grafo NetworkX. 
+        Adaptado para usar los metadatos funcionales de DF B.
+        """
+        G = nx.MultiDiGraph(name=f"{gene_name}_{var_name}")
+        
+        # Asumimos que todas las filas de df_variant comparten POS (mismo SNP),
+        # pero podrían tener diferentes ALTs.
+        pos_val = df.iloc[0]['POS']
+        
+        prev_node = "start"
+        start_pos_g = pos_val - 100
+        G.add_node(prev_node, type="backbone", pos=start_pos_g)
+        
+        # Nodos Backbone y Split
+        bb_node = f"bb_{pos_val}"
+        G.add_node(bb_node, type="backbone", pos=pos_val)
+        G.add_edge(prev_node, bb_node, type="backbone_link")
+        
+        split = f"split_{pos_val}"
+        G.add_node(split, type="split", pos=pos_val)
+        G.add_edge(bb_node, split, type="link")
+        
+        merge = f"merge_{pos_val+1}"
+        G.add_node(merge, type="merge", pos=pos_val+1)
+        
+        # 1. Camino de Referencia (Solo necesitamos agregarlo una vez)
+        ref_seq = df.iloc[0]['REF']
+        ref_n = f"ref_{pos_val}"
+        G.add_node(ref_n, type="allele_ref", seq=ref_seq) # Ref no tiene FXN class específica usualmente
+        G.add_edge(split, ref_n, attr="ref")
+        G.add_edge(ref_n, merge, attr="join")
+        
+        # 2. Caminos Alternativos (Iteramos sobre las filas del DF B para este SNP)
+        # Cada fila es un alelo alternativo distinto con su propia consecuencia funcional
+        for idx, row in df.iterrows():
+            alt_seq = row['ALT']
+            if alt_seq == ref_seq: continue # Skip si por error hay ref==alt
+            
+            alt_n = f"alt_{pos_val}_{idx}" # ID único por si hay multialélicos
+            
+            # ATRIBUTOS ENRIQUECIDOS
+            G.add_node(alt_n, 
+                       type="allele_alt", 
+                       seq=alt_seq, 
+                       score=row['activity_score'], 
+                       variant_name=var_name,
+                       # Banderas funcionales extraídas en validación
+                       is_coding=row['is_coding'],
+                       is_regulatory=row['is_regulatory'],
+                       is_splicing=row['is_splicing'],
+                       is_intergenic=row['is_intergenic']
+                       )
+            
+            G.add_edge(split, alt_n, attr="alt")
+            G.add_edge(alt_n, merge, attr="join")
+
+        prev_node = merge
+        G.add_node("end", type="backbone_end", pos=pos_val + 100)
+        G.add_edge(prev_node, "end", type="backbone_link")
+        
+        return G
+
+    def _to_pyg(self, G: nx.MultiDiGraph) -> Data:
+        """
+        Conversión a PyTorch Geometric con vectores de características ampliados.
+        """
+        nodes = list(G.nodes(data=True))
+        node_idx = {n: i for i, (n, _) in enumerate(nodes)}
+        x_list = []
+        variant_name_str = "Unknown"
+        
+        for _, d in nodes:
+            t = d.get('type', '')
+            score = d.get('score', 0.5) if d.get('score') != -1.0 else 0.5
+            if 'variant_name' in d: variant_name_str = d['variant_name']
+            
+            # --- FEATURE VECTOR CONSTRUCTION (NUEVO DISEÑO: 9 Dimensiones) ---
+            # [Backbone, SplitMerge, Ref, Alt, Score, Coding, Regulatory, Splicing, Intergenic]
+            vec = [0.0] * 9
+            
+            if 'backbone' in t: 
+                vec[0] = 1.0
+            elif 'split' in t or 'merge' in t: 
+                vec[1] = 1.0
+            elif 'ref' in t: 
+                vec[2] = 1.0
+            elif 'allele_alt' in t: 
+                vec[3] = 1.0
+                vec[4] = float(score)
+                # Propiedades funcionales (solo presentes en nodos ALT generalmente)
+                vec[5] = float(d.get('is_coding', 0.0))
+                vec[6] = float(d.get('is_regulatory', 0.0))
+                vec[7] = float(d.get('is_splicing', 0.0))
+                vec[8] = float(d.get('is_intergenic', 0.0))
+            
+            x_list.append(vec)
+            
+        edge_index = [[node_idx[u], node_idx[v]] for u, v, _ in G.edges(data=True)]
+        edge_attr = []
+        for _, _, data in G.edges(data=True):
+            # Aristas simples: [BackboneLink, RefPath, AltPath]
+            vec = [0.0, 0.0, 0.0]
+            attr = data.get('attr', '')
+            if 'ref' in attr: vec[1] = 1.0
+            elif 'alt' in attr: vec[2] = 1.0
+            else: vec[0] = 1.0 # Backbone link o join
+            edge_attr.append(vec)
+            
+        data = Data(x=torch.tensor(x_list, dtype=torch.float32), 
+                    edge_index=torch.tensor(edge_index, dtype=torch.long).t().contiguous(),
+                    edge_attr=torch.tensor(edge_attr, dtype=torch.float32))
+        data.variant_name = variant_name_str
+        return data
+
+    def _organize_files_os_specific(self, graph_dir: Path):
+        # (Se mantiene igual, la lógica de bash/powershell es agnóstica al dataframe)
+        # Recomiendo solo verificar que el script detecta SO correctamente.
+        print(f"   📂 Organizando estructura de carpetas en {graph_dir}...")
+        
+        if os.name == 'posix':  # Debian 13
+            # Script Bash optimizado
+            script_content = """#!/bin/bash
+set -e
+cd $(dirname "$0")
+echo "Organizando grafos por gen..."
+mkdir -p UGT1A # Pre-create special case
+find . -maxdepth 1 -name "*.pt" -type f | while read filename; do
+    base=$(basename "$filename")
+    gene_name=$(echo "$base" | cut -d'_' -f1)
+    
+    # Manejo de casos especiales (genes superpuestos o familias)
+    if [[ "$gene_name" =~ ^UGT1A ]]; then 
+        mv "$filename" "UGT1A/"
+    else
+        mkdir -p "$gene_name"
+        mv "$filename" "$gene_name/"
+    fi
+done
+"""
+
+            script_path = graph_dir / "organize_genes.sh"
+            with open(script_path, "w") as f: 
+                f.write(script_content)
+            try:
+                os.chmod(script_path, 0o755)
+            except Exception as e:
+                print(f"Warning: Could not set execute permission on {script_path}: {e}")
+    
+            subprocess.run(["bash", script_path.name], cwd=graph_dir, check=True)
+            
+        elif os.name == 'nt':  # Windows
+            script_content = """
+$ErrorActionPreference = "Continue"
+$files = Get-ChildItem -Filter *.pt -File
+foreach ($file in $files) {
+    $rawGene = $file.BaseName.Split('_')[0]
+    $geneName = $rawGene.Split(';')[0]
+    if ($geneName -match '^UGT1A([1-9]|10)$') { $targetDirName = "UGT1A" } else { $targetDirName = $geneName }
+    $targetPath = Join-Path -Path $PWD -ChildPath $targetDirName
+    if (-not (Test-Path -Path $targetPath)) { New-Item -Path $targetPath -ItemType Directory -Force | Out-Null }
+    $file | Move-Item -Destination $targetPath -Force
+}
+"""
+            script_path = graph_dir / "organize_genes.ps1"
+            with open(script_path, "w") as f: f.write(script_content)
+            subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path.name], cwd=graph_dir, check=True)
+
+    def _parse_haplo_name(self, gene, fname):
+        if fname.startswith("rs"): return DPYD_RS_MAP.get(fname, fname)
+        clean = fname.replace(f"{gene}_", "").replace(gene, "")
+        base = clean.split('.')[0] if "." in clean else clean
+        return f"*{base}" if base.isdigit() or not base.startswith("*") else base
+
+
 # =============================================================================
 #  CLASE 2: CONSTRUCTOR DE GRAFOS DE FÁRMACOS
 # =============================================================================
@@ -833,6 +1259,7 @@ def args_parser():
     
     # Argumentos obligatorios / opcionales
     parser.add_argument('-h', '--help', action='store_true', help='Mostrar menú de documentación interactiva y salir.')
+    parser.add_argument('--verify', type=str, default=None, help='Genera salidas gráficas para un grafo de gen específico para pruebas.')
     #parser.add_argument('--data-dir', type=str, default='data', help='Directorio base de datos de entrada. DEFAULT: ./data')
     #parser.add_argument('--lib-dir', type=str, default='library', help='Directorio base de salida de la librería. DEFAULT: ./library')
     
@@ -863,7 +1290,7 @@ def main(args):
 
     
     # Archivos de Entrada definidos por usuario
-    GENE_VAR_TSV = BASE_DIR / "gene_var.tsv"
+    GENE_VAR_TSV = BASE_DIR / "snp_data_output.tsv"
     DRUGS_TSV = BASE_DIR / "drugs.tsv"
     
     # Archivos de Referencia
@@ -878,16 +1305,40 @@ def main(args):
 
     # Crear directorios base
     LIB_DIR.mkdir(exist_ok=True)
+    GENE_OUT_DIR.mkdir(exist_ok=True)
+    DRUG_OUT_DIR.mkdir(exist_ok=True)
 
     print("="*60)
     print("   🧬💊 UNIFIED GRAPH LIBRARY GENERATOR 💊🧬")
     print("="*60)
 
+    # ---------------- Modo de prueba (opcional) -----------
+    if args.verify:
+        test_gene: str = args.verify.strip()
+        print(f"\n🔍 Modo de prueba activado para el gen: {test_gene}")
+
+        if test_gene in [p.stem for p in GENE_OUT_DIR.glob("*.pt")]:
+            count_snps = len(list(GENE_OUT_DIR.glob(f"{test_gene}/*.pt")))
+            print(f"\t El gen {test_gene} tiene grafos generados para {count_snps} SNPs.")
+            with open(GENE_OUT_DIR / test_gene / ".txt", "r", encoding="utf-8") as info_f:
+                info_content = info_f.read()
+                print(f"\t Información del gen:\n{info_content}")
+
+
+        gene_builder = GenomicGraphBuilderNEXTGEN(FASTA_FILE, GFF_FILE, PGX_FOLDER)
+        gene_builder.run_pipeline(GENE_VAR_TSV, PARQUET_FILE, GENE_OUT_DIR)
+        test_graph_path = GENE_OUT_DIR / f"{test_gene}_test_graph.pt"
+        if test_graph_path.exists():
+            print(f"✅ Grafo de prueba generado en: {test_graph_path}")
+        else:
+            print(f"❌ No se generó el grafo de prueba para {test_gene}.")
+        return
+
     # ---------------- 1. Pipeline de Genes ----------------
     print(f"\n #### ➡️ Processing genome from: {REF_DIR}")
-    gene_builder = GenomicGraphBuilder(FASTA_FILE, GFF_FILE, PGX_FOLDER)
+    gene_builder = GenomicGraphBuilderNEXTGEN(FASTA_FILE, GFF_FILE, PGX_FOLDER)
     gene_builder.run_pipeline(GENE_VAR_TSV, PARQUET_FILE, GENE_OUT_DIR)
-
+    """
     # ---------------- 2. Pipeline de Fármacos -------------
     print(f"\n #### ➡️ Processing drugs from: {DRUGS_TSV}")
     drug_builder = DrugGraphBuilder()
@@ -895,7 +1346,7 @@ def main(args):
 
     print("\n✅ PROCESS COMPLETED SUCCESSFULLY.")
     print(f"📂 Library generated at: {LIB_DIR.resolve()}")
-    
+    """
 
 
 if __name__ == "__main__":

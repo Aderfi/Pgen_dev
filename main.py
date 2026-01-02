@@ -54,10 +54,6 @@ from pathlib import Path
 
 import pandas as pd
 
-# --- Setup de Rutas ---
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.append(str(PROJECT_ROOT))
-
 # --- Imports del Proyecto ---
 from src.config.manager import DIRS
 from src.interface.cli import main_menu_loop
@@ -66,6 +62,10 @@ from src.pipeline import train_pipeline
 from src.modeling.engine.predictor import PGenPredictor
 from src.utils.logger import setup_logging
 from src.utils.system import check_environment_and_setup
+
+# --- Setup de Rutas ---
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.append(str(PROJECT_ROOT))
 
 # Constantes
 DATE_STAMP = datetime.now().strftime('%Y-%m-%d')
@@ -79,11 +79,12 @@ def main():
     
     setup_logging()
     logger = logging.getLogger("Pharmagen")
+    logger.setLevel(logging.DEBUG)
     
     parser = argparse.ArgumentParser(description="Pharmagen CLI Manager")
     parser.add_argument("--mode", choices=["train", "predict", "menu"], default="menu", help="Modo de ejecución")
     parser.add_argument("--model", type=str, help="Nombre del modelo (para automatización)")
-    parser.add_argument("--input", type=str, help="Ruta al archivo de entrada (CSV/TSV)")
+    parser.add_argument("--input", type=str, default="train_data/train_data.tsv", help="Ruta al archivo de entrada (CSV/TSV)")
     parser.add_argument("--optuna", action="store_true", help="Activar optimización con Optuna (solo modo train)")
     
     args = parser.parse_args()

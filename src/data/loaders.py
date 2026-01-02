@@ -8,6 +8,7 @@ import numpy as np
 import re
 from typing import Dict, List, Union, Optional
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
+from src.config.manager import MULTI_LABEL_COLS
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -23,7 +24,9 @@ class DoubleTowerDataset(Dataset):
         encoders: Optional[dict] = None, # Pass pre-fitted encoders here to ensure consistency across Train/Val/Test
         drug_lib: Path = Path("./src/library/drugs"),
         variant_lib: Path = Path("./src/library/gene_graphs"),
-        preload_ram: bool = False
+        preload_ram: bool = False,
+        input_dimensions: Dict[str, int] = {},
+        type_data: str | None = None
     ):
         """
         Args:
@@ -31,10 +34,11 @@ class DoubleTowerDataset(Dataset):
             preload_ram: If True, loads all referenced .pt files into RAM during init.
         """
         self.df = df.reset_index(drop=True)
-        self.drug_col = drug_col
-        self.haplo_col = haplo_col
+        self.drug_col = "drugs_cid" #drug_col
+        self.haplo_col = "genotype" #haplo_col
         self.target_cols = target_cols
-        self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()        
+        self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()      
+        self.input_dims = input_dimensions  
         
         # Paths
         self.drug_lib = drug_lib
@@ -67,7 +71,7 @@ class DoubleTowerDataset(Dataset):
                 self.drug_cache[drug_id] = torch.load(self.drug_id_to_path[drug_id], weights_only=False)
         
         # Preload Variants
-        unique_haplos = self.df[self.haplo_col].unique().astype(str)
+        unique_haplos = self.df["haplo_key"].unique().astype(str)
         for haplo_str in unique_haplos:
             gene, variant = haplo_str.split("_", 1) # Split only on first underscore
             path = self.gene_variant_path.get(gene, {}).get(variant)
@@ -75,28 +79,99 @@ class DoubleTowerDataset(Dataset):
                 self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
         logger.info(f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants.")
 
-    def _get_empty_graph(self):
-        # Create a safe empty graph with necessary attributes for GATv2
-        # GATv2 requires x (features) and edge_index
-        return Data(x=torch.zeros((1, 1), dtype=torch.float), edge_index=torch.empty((2, 0), dtype=torch.long))
+    def _get_empty_graph(self, type_data: str, graph_id: str = "") -> Data:
+        """
+        Generates a dummy graph consistent with the library_creator.py dimensions.
+        Creates 1 isolated node (no edges) with zero-tensors.
+        """
+        # 1. Configuration Pattern
+        defaults = {
+            "drug": {"x": 25, "edge": 7}, 
+            "geno": {"x": 9,  "edge": 3}, 
+            "unknown": {"x": 10, "edge": 0}
+        }
 
-    def _load_graph(self, cache: dict, key: str, path: Path | None):
+        # 2. Resolve Dimensions
+        # (Lógica mantenida: Prioriza self.input_dims, fallback a defaults)
+        if type_data == "drug":
+            n_feats = self.input_dims.get("drug_feat", defaults["drug"]["x"])
+            n_edge_feats = self.input_dims.get("drug_edge", defaults["drug"]["edge"])
+        elif type_data == "geno":
+            n_feats = self.input_dims.get("haplo_feat", defaults["geno"]["x"])
+            n_edge_feats = self.input_dims.get("haplo_edge", defaults["geno"]["edge"])
+        else:
+            n_feats = defaults["unknown"]["x"]
+            n_edge_feats = defaults["unknown"]["edge"]
+
+        # 3. Construct Tensors
+        x = torch.zeros((1, n_feats), dtype=torch.float)
+        edge_index = torch.empty((2, 0), dtype=torch.long) # 0 edges
+
+        data = Data(x=x, edge_index=edge_index)
+
+        # 4. Handle Edge Attributes (CRITICAL FIX applied correctly here)
+        if n_edge_feats > 0:
+            data.edge_attr = torch.empty((0, n_edge_feats), dtype=torch.float)
+        
+        # 5. Metadata Assignment (ROBUSTNESS FIX)
+        # Asignamos 'cid' a AMBOS casos para garantizar que el Collater siempre encuentre un ID.
+        data.cid = str(graph_id) 
+        data.smiles = "" 
+        
+        
+        if type_data == "drug":
+            data.name = "dummy_drug"
+        elif type_data == "geno":
+            data.name = "dummy_variant"     # Agregado para simetría con drug
+            data.variant_name = str(graph_id) # Mantenemos tu campo específico
+            
+        # 6. Sanitize
+        if hasattr(self, '_sanitize_data'):
+            return self._sanitize_data(data)
+        return data
+
+    def _load_graph(self, cache: dict, key: str, path: Path | None, type_graph: str = "") -> Data:
         # 1. Check Cache
         if key in cache:
-            return cache[key]
+            return self._sanitize_data(cache[key].clone())
         
         # 2. Check Disk
         if path and path.exists():
             try:
                 data = torch.load(path, weights_only=False)
-                # Optional: Add to cache if using dynamic caching (not implemented here for simplicity)
-                return data
+
+                if not hasattr(data, 'cid'): 
+                    data.cid = str(key)
+
+                return self._sanitize_data(data)
+            
             except Exception as e:
                 logger.warning(f"Corrupt file {path}: {e}")
-                return self._get_empty_graph()
+                
+                return self._get_empty_graph(type_data=type_graph, graph_id=key)
         
         # 3. Return Empty
-        return self._get_empty_graph()
+        return self._get_empty_graph(type_data=type_graph, graph_id=key)
+    
+    def _sanitize_data(self, data: Data) -> Data:
+        """
+        Patrón: Memory Layout Enforcement.
+        Asegura que los tensores sean contiguos y 'dueños' de su memoria.
+        Esto previene el error 'storage not resizable' al usar DataLoaders con workers.
+        """
+        if hasattr(data, 'x') and data.x is not None:
+            # .contiguous() fuerza una copia en memoria si el tensor no es contiguo.
+            # .clone() es una alternativa más agresiva si .contiguous() no basta.
+            data.x = data.x.contiguous()
+            
+        if hasattr(data, 'edge_index') and data.edge_index is not None:
+            data.edge_index = data.edge_index.contiguous()
+
+        # Si tienes atributos de borde adicionales (edge_attr), haz lo mismo:
+        if hasattr(data, 'edge_attr') and data.edge_attr is not None:
+            data.edge_attr = data.edge_attr.contiguous()
+            
+        return data
 
     def __len__(self):
         return len(self.df)
@@ -107,13 +182,14 @@ class DoubleTowerDataset(Dataset):
         # --- Drug Loading ---
         drug_id = str(row[self.drug_col])
         drug_path = self.drug_id_to_path.get(drug_id)
-        drug_data = self._load_graph(self.drug_cache, drug_id, drug_path)
+        drug_data = self._load_graph(self.drug_cache, drug_id, drug_path, type_graph="drug")
 
         # --- Variant Loading ---
-        haplo_str = str(row[self.haplo_col])
+        #haplo_str = str(row[self.haplo_col])
+        haplo_str = str(row["haplo_key"])
         gene, variant = haplo_str.split("_", 1)
         haplo_path = self.gene_variant_path.get(gene, {}).get(variant)
-        haplo_data = self._load_graph(self.haplo_cache, haplo_str, haplo_path)
+        haplo_data = self._load_graph(self.haplo_cache, haplo_str, haplo_path, type_graph="geno")
 
         # --- Targets ---
         # Fetch pre-processed targets for this index
@@ -236,13 +312,75 @@ class DoubleTowerDataset(Dataset):
 
 class DataLoaderUtils:
     @staticmethod
-    def load_dataframe(csv_path: Union[str, Path]) -> pd.DataFrame:
+    def load_dataframe(csv_path: Union[str, Path], cols: list, stratify_col: Union[List[str], str, None] = None) -> pd.DataFrame:
         """Carga el DataFrame desde CSV."""
         if str(csv_path).endswith('.csv'):
             df = pd.read_csv(csv_path)
         else:
-            df = pd.read_csv(csv_path, sep='\t')   
+            df = pd.read_csv(csv_path, sep='\t', )
+        return DataLoaderUtils.clean_and_prepare_data(df, stratify_col=stratify_col)
+    
+    @staticmethod
+    def normalize_multilabel_col(series: pd.Series, delimiter: str = '|') -> pd.Series:
+        """
+        Patrón: String Normalization.
+        Asegura que las etiquetas multi-label sean consistentes, únicas y ordenadas.
+        """
+        def _clean_string(x):
+            if pd.isna(x) or str(x).strip() == "" or str(x).lower() == "unknown":
+                return ""
+            # 1. Split por el delimitador principal
+            parts = str(x).split(delimiter)
+            # 2. Limpieza de espacios, eliminación de duplicados y orden alfabético
+            cleaned_parts = sorted(list(set(p.strip() for p in parts if p.strip())))
+            # 3. Re-unión con delimitador estándar
+            return delimiter.join(cleaned_parts)
+
+        return series.apply(_clean_string)
+
+    @staticmethod
+    def add_stratify_column(df: pd.DataFrame, stratify_cols: List[str]) -> pd.DataFrame:
+        """
+        Agrega una columna '_stratify' al DataFrame para uso en train_test_split.
+        Combina múltiples columnas en una sola etiqueta estratificada.
+        """
+        if not stratify_cols:
+            return df
+
+        def _combine_stratify(row):
+            return "_".join(str(row[col]) for col in stratify_cols if col in row)
+        if len(stratify_cols) == 1 and stratify_cols[0] in df.columns:
+            df['_stratify'] = df[stratify_cols[0]].astype(str)
+        else:
+            df['_stratify'] = df.apply(_combine_stratify, axis=1)
         return df
+
+    @staticmethod
+    def clean_and_prepare_data(df: pd.DataFrame, stratify_col: Union[List[str], str, None] = None):
+    # 1. Cargar asumiendo tabuladores (TSV)
+        work_df = df.copy()
+
+        count_pre = len(work_df)
+        work_df = work_df.dropna(subset=['gene', 'genotype'])
+        count_post = len(work_df)
+        logger.info(f"Eliminadas {count_pre - count_post} filas con valores NaN en 'gene' o 'genotype'.")
+
+        # 3. FILTRADO DEFENSIVO: Eliminar filas con genes vacíos o espacios en blanco
+        work_df = work_df[work_df['gene'].str.strip() != '']
+        work_df = work_df[work_df['genotype'].str.strip() != '']
+        
+        # 4. CONSTRUCCIÓN DE LA LLAVE
+        work_df['haplo_key'] = work_df['gene'].astype(str) + '_' + work_df['genotype'].astype(str)
+        
+        # 5. (Opcional) Verificar que los archivos existen en el tree.txt (o disco) 
+        for col in MULTI_LABEL_COLS:
+            if col in work_df.columns:
+                work_df[col] = DataLoaderUtils.normalize_multilabel_col(work_df[col])
+        if stratify_col:
+            work_df = DataLoaderUtils.add_stratify_column(work_df, stratify_cols=[stratify_col] if isinstance(stratify_col, str) else stratify_col)
+
+        logger.info(f"Dataframe limpio: {len(work_df)} filas válidas generadas con keys tipo 'GENE_VARIANT'.")
+        return work_df
     
     @staticmethod
     def _build_drug_index(drug_lib: Path) -> Dict[str, Path]:
@@ -278,28 +416,70 @@ class DataLoaderUtils:
     
 
 class DoubleTowerCollater:
+    def __init__(self):
+        # 1. Definimos la estrategia de prioridad para encontrar el ID
+        # Buscará en orden: primero 'cid' (drogas), luego 'variant_name' (haplos), etc.
+        self.id_priority_keys = ['cid', 'variant_name', 'graph_id', 'name']
+        
+        # 2. Definimos qué atributos textuales deben ser PURGADOS antes de crear el Batch
+        # para evitar el TypeError: new(): invalid data type 'str'
+        self.keys_to_sanitize = ['cid', 'variant_name', 'name', 'smiles', 'gene_context', 'graph_id']
+    
+    def _extract_and_sanitize(self, graph_list: List[Data]) -> List[str]:
+        """
+        Extrae IDs y elimina atributos conflictivos (strings) de los objetos Data.
+        Modifica los objetos 'in-place'.
+        """
+        extracted_ids = []
+        
+        for data in graph_list:
+            # A. Extracción Polimórfica del ID
+            found_id = "Unknown"
+            for key in self.id_priority_keys:
+                if hasattr(data, key):
+                    val = getattr(data, key)
+                    if val is not None:
+                        found_id = str(val)
+                        break
+            extracted_ids.append(found_id)
+
+            # B. Sanitización (Borrado de strings)
+            # Es crítico borrar CUALQUIER atributo string antes de llamar a Batch.from_data_list
+            for key in self.keys_to_sanitize:
+                if hasattr(data, key):
+                    delattr(data, key)
+                    
+        return extracted_ids
+
     def __call__(self, batch_list):
         """
         Input: List of dicts from Dataset.__getitem__
-               [{'drug_data': Data, 'haplo_data': Data, 'targets': {...}}, ...]
         Output: Dict with Batched graphs and Stacked targets
         """
-        # 1. Separate the components
+        # 1. Separar componentes
         drug_graphs = [sample['drug_data'] for sample in batch_list]
         haplo_graphs = [sample['haplo_data'] for sample in batch_list]
         
-        # 2. Batch the Graphs using PyG's Batch.from_data_list
-        # This creates a super-graph with disconnected components, preserving edge_indices
+        # 2. Marshalling: Extraer IDs y limpiar strings
+        # Esto soluciona tanto el KeyError (busca varias claves) 
+        # como el TypeError (elimina los strings antes de batching)
+        drug_ids = self._extract_and_sanitize(drug_graphs)
+        haplo_ids = self._extract_and_sanitize(haplo_graphs)
+
+        # 3. Batching Seguro (Ahora los grafos solo tienen tensores numéricos)
         batch_drug = Batch.from_data_list(drug_graphs)
         batch_haplo = Batch.from_data_list(haplo_graphs)
 
-        # 3. Stack Targets
-        # We assume targets are already Tensors from the Dataset
+        # 4. Re-inyección de Metadatos (Opcional, pero útil para debug/logging)
+        # Los pegamos como listas de Python simples, fuera de la estructura tensorial de PyG
+        batch_drug.meta_ids = drug_ids
+        batch_haplo.meta_ids = haplo_ids
+
+        # 5. Stack Targets
         target_keys = batch_list[0]['targets'].keys()
         batched_targets = {}
         
         for key in target_keys:
-            # Stack creates (Batch_Size, ...)
             batched_targets[key] = torch.stack([sample['targets'][key] for sample in batch_list])
 
         return {

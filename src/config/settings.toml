@@ -2,18 +2,17 @@
 # Copyright (C) 2025 Adrim Hamed Outmani
 # Licensed under the GNU GPLv3. See LICENSE file in the project root.
 #
-# src/config/config.toml
+# src/config/settings.toml
 [metadata]
 project_name = "Pharmagen"
 version = "0.7"
 author = "Adrim Hamed Outmani"
 
 [project]
-multi_label_cols = ["phenotype_outcome"]
+multi_label_cols = ["phenotype_category"]
 seed = 711
 
-[defaults]
-[defaults.params]
+[params]
 embedding_dim = 128
 n_layers = 2
 hidden_dim = 2048

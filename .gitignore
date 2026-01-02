@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+dev_Pharmagen.code-workspace
 
 # --- Entornos Virtuales ---
 .env/
@@ -49,7 +50,7 @@ Thumbs.db
 # Queremos ignorar su contenido, pero quizás mantener la estructura si usas .gitkeep
 #data/raw/*
 #data/processed/*
-data/ref_genome/*
+#data
 #cache/*
 #results/*
 #logs/*
@@ -89,10 +90,13 @@ gemini*.json
 
 # --- Bibliotecas
 src/library/*
+data/*
+!data/dicts/
+!data/processed
+!data/raw
+!data/vcf
 
 .gemini/
 gha-creds-*.json
 
 train_data/var_anno/Pharmvar/pharmvar-6.2.18.zip
-data/ref_genome/*
-data/haplotype_variants/*

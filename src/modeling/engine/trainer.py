@@ -3,7 +3,6 @@
 # Handles Training, Validation, Metrics, and Checkpointing.
 
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import torch
@@ -15,7 +14,7 @@ from torch.amp.autocast_mode import autocast
 from tqdm.auto import tqdm
 
 from src.config.manager import DIRS
-from src.utils.losses import MultiTaskUncertaintyLoss, FocalLoss, AdaptiveFocalLoss, AsymmetricLoss, PolyLoss
+from src.utils.losses import MultiTaskUncertaintyLoss
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,8 @@ class PGenTrainer:
         target_cols: List[str],
         multi_label_cols: Set[str],
         params: Dict[str, Any],
-        uncertainty_module: Optional[MultiTaskUncertaintyLoss] = None
+        uncertainty_module: Optional[MultiTaskUncertaintyLoss] = None,
+        from_optuna: bool = False,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -47,21 +47,34 @@ class PGenTrainer:
         self.loss_fns = self._setup_criterions()
         self.best_loss = float("inf")
         self.patience_counter = 0
+        self.from_optuna = from_optuna
 
         # Ensure model directory exists
         DIRS["models"].mkdir(parents=True, exist_ok=True)
 
+        from src.utils.module_builder import LossFactory
+        self.loss_fns = LossFactory.create_task_criterions(
+            target_cols=target_cols,
+            multi_label_cols=multi_label_cols,
+            params=params,
+            device=device
+        )
+
     def _setup_criterions(self) -> Dict[str, nn.Module]:
-        """Initialize loss functions per target based on configuration."""
-        criterions = {}
-        # ... (Loss setup logic remains the same as your original file) ...
-        # For brevity, reusing the standard BCE/CrossEntropy setup
-        for col in self.target_cols:
-            if col in self.ml_cols:
-                criterions[col] = nn.BCEWithLogitsLoss().to(self.device)
-            else:
-                criterions[col] = nn.CrossEntropyLoss().to(self.device)
-        return criterions
+        """
+        Refactorización: Delegación a Factoría.
+        Ahora utiliza la lógica híbrida (Asymmetric/Focal) y los parámetros de Optuna.
+        """
+        from src.utils.module_builder import LossFactory
+        
+        # 1. Utilizamos la factoría para obtener el diccionario de pérdidas configurado
+        # Esto inyecta automáticamente 'gamma' y 'asl_clip' desde self.params
+        return LossFactory.create_task_criterions(
+            target_cols=self.target_cols,
+            multi_label_cols=self.ml_cols,
+            params=self.params,
+            device=self.device
+        )
 
     def _compute_step(self, batch: Dict[str, Any]) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
@@ -91,21 +104,17 @@ class PGenTrainer:
         outputs = self.model(drug_data, haplo_data)
         
         # 4. Loss & Metrics
-        return self._calculate_loss_and_metrics(outputs, targets)
+        return self._calculate_loss_and_metrics(outputs, targets) # type: ignore
 
-    def _calculate_loss_and_metrics(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]):
+    def _calculate_loss_and_metrics(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]) -> Tuple[Any, Dict[str, float]]:
         """Shared loss and metric calculation."""
         # 1. Compute Losses
         losses_per_task = {}
         for t_col, t_true in targets.items():
             pred = outputs[t_col]
             
-            # Ensure types match loss function requirements
-            if t_col in self.ml_cols:
-                target = t_true.float() # BCE requires float targets
-            else:
-                target = t_true.long()  # CE requires long targets
-                
+            target = t_true.float() if t_col in self.ml_cols else t_true.long()
+    
             losses_per_task[t_col] = self.loss_fns[t_col](pred, target)
             
         # Aggregate Loss
@@ -132,14 +141,19 @@ class PGenTrainer:
         
         avg_acc = sum(accuracies) / len(accuracies) if accuracies else 0.0
         
-        return total_loss, {"loss": total_loss.item(), "acc": avg_acc}
+        return total_loss, {"loss": total_loss.item(), "acc": avg_acc} # type: ignore
 
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
         self.model.train()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
         
-        for batch in tqdm(loader, desc="Train", leave=False):
+        if self.from_optuna == True:
+            progress_iteration = loader
+        else:
+            progress_iteration = tqdm(loader, desc="Train", leave=False):
+
+        for batch in progress_iteration:
             self.optimizer.zero_grad(set_to_none=True)
             
             # Use autocast for GATv2 mixed precision (Faster & Less Memory)
@@ -160,7 +174,8 @@ class PGenTrainer:
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
         
-        with torch.inference_mode():
+        # torch.inference_mode() es más rápido que no_grad()
+        with torch.inference_mode(), autocast(device_type=self.device.type):
             for batch in loader:
                 _, metrics = self._compute_step(batch)
                 for k, v in metrics.items():
@@ -170,7 +185,7 @@ class PGenTrainer:
 
     def fit(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, patience: int, trial: Optional[optuna.Trial] = None) -> float:
         # Standard fit loop (Same as provided, just ensuring it calls the updated train_epoch)
-        logger.info(f"Starting training on {self.device} for {epochs} epochs.")
+        logger.info(f" Starting training on {self.device} for {epochs} epochs.")
         
         for epoch in range(1, epochs + 1):
             t_metrics = self.train_epoch(train_loader)
@@ -179,7 +194,7 @@ class PGenTrainer:
             v_loss = v_metrics["loss"]
             
             logger.info(
-                f"Epoch {epoch:02d} | "
+                f" Epoch {epoch:02d} | "
                 f"Train Loss: {t_metrics['loss']:.4f} | "
                 f"Val Loss: {v_loss:.4f}"
             )

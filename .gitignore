@@ -92,3 +92,6 @@ src/library/*
 
 .gemini/
 gha-creds-*.json
+data/ref_genome
+data/haplotype_variants/
+train_data/Pharmvar

@@ -94,3 +94,5 @@ src/library/*
 gha-creds-*.json
 
 train_data/var_anno/Pharmvar/pharmvar-6.2.18.zip
+data/ref_genome/*
+data/haplotype_variants/*

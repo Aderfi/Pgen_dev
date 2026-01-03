@@ -3,9 +3,9 @@
 # Tower A: Drug (Molecular Graph)
 # Tower B: Haplotype/Genome (Interaction Graph using GATv2)
 
-from typing import Any, Dict
+from typing import Any
 
-import torch.nn as nn
+from torch import nn
 
 from .gnn import PharmagenTwoTower
 
@@ -17,21 +17,26 @@ MODEL_ARCHITECTURES = {
 
 def create_model(
     model_name: str,  # 'TwoTowerGAT'
-    drug_config: Dict[str, int],  # {num_features, edge_dim}
-    haplo_config: Dict[str, int],  # {num_features, edge_dim}
-    target_dims: Dict[str, int],
-    params: Dict[str, Any],
+    drug_config: dict[str, int],  # {num_features, edge_dim}
+    haplo_config: dict[str, int],  # {num_features, edge_dim}
+    target_dims: dict[str, int],
+    params: dict[str, Any],
 ) -> nn.Module:
     """
     Factory simplificada para instanciar el modelo Two-Tower.
     """
 
     # Extracción segura de parámetros con valores por defecto
-    embedding_dim = params.get("embedding_dim", 128)
-    hidden_dim = params.get("hidden_dim", 64)
-    dropout = params.get("dropout_rate", 0.1)
-    layers = params.get("n_layers", 3)
-    heads = params.get("heads", 4)
+    try:
+        embedding_dim = params.get("embedding_dim")
+        hidden_dim = params.get("hidden_dim")
+        dropout = params.get("dropout_rate")
+        layers = params.get("n_layers")
+        heads = params.get("heads")
+    except KeyError as e:
+        raise KeyError(f"Missing model parameter: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error: {e}")
 
     return PharmagenTwoTower(
         drug_in_features=drug_config["num_features"],
@@ -50,21 +55,25 @@ def create_model(
 
 def create_gnn_model(
     model_name: str,  # 'TwoTowerGAT'
-    drug_config: Dict[str, int],  # {num_features, edge_dim}
-    haplo_config: Dict[str, int],  # {num_features, edge_dim}
-    target_dims: Dict[str, int],
-    params: Dict[str, Any],
+    drug_config: dict[str, int],  # {num_features, edge_dim}
+    haplo_config: dict[str, int],  # {num_features, edge_dim}
+    target_dims: dict[str, int],
+    params: dict[str, Any],
 ) -> nn.Module:
     """
     Factory simplificada para instanciar el modelo Two-Tower.
     """
 
-    # Extracción segura de parámetros con valores por defecto
-    embedding_dim = params.get("embedding_dim", 128)
-    hidden_dim = params.get("hidden_dim", 64)
-    dropout = params.get("dropout_rate", 0.1)
-    layers = params.get("n_layers", 3)
-    heads = params.get("heads", 4)
+    try:
+        embedding_dim = params.get("embedding_dim")
+        hidden_dim = params.get("hidden_dim")
+        dropout = params.get("dropout_rate")
+        layers = params.get("n_layers")
+        heads = params.get("heads")
+    except KeyError as e:
+        raise KeyError(f"Missing model parameter: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error: {e}")
 
     return PharmagenTwoTower(
         drug_in_features=drug_config["num_features"],

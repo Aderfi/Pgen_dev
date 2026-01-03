@@ -1,0 +1,103 @@
+In Python 3.10+, choosing between `list` and `collections.abc.Sequence` for type hinting is a matter of **interface vs. implementation**.
+
+While `list` is a concrete class, `Sequence` is an Abstract Base Class (ABC) that defines a specific set of behaviors. Following your preference for structural patterns, we should view this through the lens of the **Liskov Substitution Principle** and **Interface Segregation**.
+
+---
+
+## 1. Structural Difference: Concrete vs. Abstract
+
+To understand when to use each, we must look at what they represent structurally:
+
+| Feature | `list` (Concrete) | `Sequence` (Protocol/ABC) |
+| --- | --- | --- |
+| **Mutability** | Mutable (supports `.append()`, `.pop()`, etc.) | **Immutable** (read-only interface) |
+| **Scope** | Only instances of `list`. | `list`, `tuple`, `str`, `range`, and custom sequences. |
+| **Requirement** | Needs a specific memory structure/type. | Needs `__getitem__` and `__len__`. |
+
+---
+
+## 2. When to use `collections.abc.Sequence`
+
+You should use `Sequence` for **function arguments (inputs)** whenever your code only needs to read data, not modify the container.
+
+### The "Pattern" of Covariance and Flexibility
+
+When you hint a parameter as `Sequence[T]`, you are telling the caller: *"I need something ordered where I can access elements by index and check the length. I promise not to change it."*
+
+```python
+from collections.abc import Sequence
+
+def calculate_total(prices: Sequence[float]) -> float:
+    """
+    Pattern: Read-only access.
+    Works with: list[float], tuple[float], range, or custom objects.
+    """
+    return sum(prices)
+
+# All of these are valid:
+calculate_total([10.5, 20.0])  # List
+calculate_total((10.5, 20.0))  # Tuple
+
+```
+
+**Why this is superior for inputs:**
+
+1. **Flexibility:** Your function becomes compatible with tuples and other sequence types.
+2. **Safety:** It signals to the user that the function won't perform side effects (like clearing the list).
+3. **Covariance:** In type theory, `Sequence` is covariant, meaning `Sequence[Employee]` can accept a `list[Manager]`. A `list` is invariant, which can sometimes cause strict type-checker errors in complex hierarchies.
+
+---
+
+## 3. When to use `list`
+
+You should use `list` when you specifically require the features of the `list` implementation, typically for **outputs** or **mutable state**.
+
+### The "Pattern" of Mutability and Specificity
+
+Use `list[T]` when the code logic depends on adding, removing, or updating elements in place.
+
+```python
+def filter_positive_numbers(numbers: Sequence[int]) -> list[int]:
+    """
+    Pattern: Returning a specific mutable container.
+    The caller expects a list they can continue to modify.
+    """
+    # We use list because we are creating a new, mutable collection
+    return [n for n in numbers if n > 0]
+
+def update_registry(registry: list[str], new_item: str) -> None:
+    """
+    Pattern: In-place mutation.
+    Sequence would be incorrect here because it lacks .append()
+    """
+    registry.append(new_item)
+
+```
+
+**Why use `list` for return types?**
+By returning `list`, you provide the caller with the most functionality. If you return `Sequence`, the caller’s IDE might complain if they try to `.append()` to the result, even if the underlying object is actually a list.
+
+---
+
+## 4. The Python 3.10+ Context
+
+Since Python 3.9 (and fully solidified in 3.10), you no longer need to import `List` (capitalized) from `typing`. You can use the built-in `list` generic. However, for `Sequence`, you should always import it from `collections.abc` rather than `typing`, as the latter is deprecated for these types.
+
+### Summary Checklist
+
+* **Use `collections.abc.Sequence**` when:
+* The parameter is an **input**.
+* You only need to iterate, index (`obj[0]`), or use `len()`.
+* You want to support tuples and lists interchangeably.
+
+
+* **Use `list**` when:
+* The variable is an **output** (return value).
+* You need to **mutate** the object (`append`, `extend`, `sort`).
+* The specific performance characteristics of a Python list are required.
+
+
+
+> **Note on `Iterable`:** If you don't even need indexing (e.g., `obj[i]`) and only need to loop through the items once, `collections.abc.Iterable` is even more abstract and flexible than `Sequence`.
+
+Would you like me to demonstrate how to implement a custom class that satisfies the `Sequence` protocol so it can be passed into functions hinted as such?

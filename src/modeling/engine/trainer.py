@@ -143,15 +143,12 @@ class PGenTrainer:
         
         return total_loss, {"loss": total_loss.item(), "acc": avg_acc} # type: ignore
 
-    def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
+    def train_epoch(self, loader: DataLoader) -> dict[str, float]:
         self.model.train()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
         
-        if self.from_optuna:
-            progress_iteration = loader
-        else:
-            progress_iteration = tqdm(loader, desc="Train", leave=False)
+        progress_iteration = loader if self.from_optuna else tqdm(loader, desc="Train", leave=False)
 
         for batch in progress_iteration:
             self.optimizer.zero_grad(set_to_none=True)
@@ -183,9 +180,10 @@ class PGenTrainer:
                 
         return {k: v / n_batches for k, v in total_metrics.items()}
 
-    def fit(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, patience: int, trial: Optional[optuna.Trial] = None) -> float:
+    def fit(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int, patience: int, trial: optuna.Trial | None) -> float:
         # Standard fit loop (Same as provided, just ensuring it calls the updated train_epoch)
-        logger.info(f" Starting training on {self.device} for {epochs} epochs.")
+        if not self.from_optuna:
+            logger.info(f" Starting training on {self.device} for {epochs} epochs.")
         
         for epoch in range(1, epochs + 1):
             t_metrics = self.train_epoch(train_loader)
@@ -193,11 +191,12 @@ class PGenTrainer:
             
             v_loss = v_metrics["loss"]
             
-            logger.info(
-                f" Epoch {epoch:02d} | "
-                f"Train Loss: {t_metrics['loss']:.4f} | "
-                f"Val Loss: {v_loss:.4f}"
-            )
+            if not self.from_optuna:
+                logger.info(
+                    f" Epoch {epoch:02d} | "
+                    f"Train Loss: {t_metrics['loss']:.4f} | "
+                    f"Val Loss: {v_loss:.4f}"
+                )
             
             if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 self.scheduler.step(v_loss)

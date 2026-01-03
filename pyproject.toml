@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Pharmagen"
-version = "0.7"
+version = "1.5b"
 description = "Software de predicción farmacogenética y eficacia terapéutica mediante Deep Learning."
 readme = "README.md"
 requires-python = ">=3.10, <3.11"
@@ -85,7 +85,7 @@ train = ["optuna>=3.0.0", "matplotlib>=3.7.0"]
 
 # Dependencias para desarrollo (formato, linting)
 # Se instalan con: pip install ".[dev]"
-dev = ["ruff"]
+dev = ["ruff>=0.5.0"]
 
 [project.urls]
 "Homepage" = "https://github.com/Aderfi/pharmagen_pmodel"           # Opcional
@@ -140,8 +140,20 @@ target-version = "py310"
 
 [tool.ruff.lint]
 # Habilitar reglas de Pyflakes (F), pycodestyle (E, W) e isort (I)
-select = ["E4", "E7", "E9", "F", "I"]
-ignore = []
+select = ["PL", "E", "W", "I", "F"]
+ignore = [
+    "E203",  # Espacio antes de ':', incompatible con Black
+    "E501",  # Longitud de línea, gestionado por Black
+    "F403",  # 'from module import *' usado, puede ser necesario en algunos casos
+    "F401",  # Importación no utilizada, puede ser necesario en algunos casos
+    "FIX003",
+    "EM101",
+    "D212",
+    #"TRY003",
+    #"EM101",
+    "PLC0415",  # Ignorar importaciones relativas en paquetes
+]
+
 
 # Permitir arreglos automáticos para todas las reglas habilitadas.
 fixable = ["ALL"]
@@ -152,31 +164,6 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 [tool.ruff.format]
 # Usar comillas dobles (estilo Black)
 quote-style = "double"
-# Indentar con espacios
 indent-style = "space"
-# Respetar comas finales
 skip-magic-trailing-comma = false
-# Detección automática de finales de línea
 line-ending = "auto"
-
-[tool.pyright]
-# 1. Scope
-include = ["src"]
-exclude = ["**/node_modules", "**/__pycache__"]
-
-# 2. Strictness Level
-# "basic" is standard. "strict" causes the errors you saw.
-typeCheckingMode = "basic"
-
-# 3. Rule Overrides (The "Fix")
-# Downgrade "Operator not supported" from Error to Warning or Information
-reportOperatorIssue = "warning"
-# Downgrade "Unknown type" issues (common in Pandas)
-reportUnknownMemberType = "none"
-reportUnknownVariableType = "none"
-reportUnknownArgumentType = "none"
-
-# 4. Environment
-# If you use a virtualenv, tell Pyright where it is (optional but recommended)
-venvPath = "."
-venv = ".venv_pgen"

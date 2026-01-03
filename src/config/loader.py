@@ -19,40 +19,38 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import tomli
 
-from src.config.manager import CFG_FILE, MODELS_FILE
+from src.config.manager import _GLOBAL_CFG, _MODELS_CFG
 
 logger = logging.getLogger(__name__)
 
 
 class ModelConfigLoader:
-    """
-    Responsible for loading, merging, and parsing model configurations.
-    """
+    """Responsible for loading, merging, and parsing model configurations."""
 
     @staticmethod
-    def _load_toml(path: Path) -> Dict[str, Any]:
+    def _load_toml(path: Path) -> dict[str, Any]:
         with open(path, "rb") as f:
             return tomli.load(f)
 
     @staticmethod
-    def get_available_models() -> List[str]:
-        data = ModelConfigLoader._load_toml(MODELS_FILE)
+    def get_available_models() -> list[str]:
+        """Retrieve a list of available model names from the models configuration."""
+        data = ModelConfigLoader._load_toml(_MODELS_CFG)
         return list(data.keys())
 
     @classmethod
-    def load_config(cls, model_name: str) -> Dict[str, Any]:
-        """
-        Loads and merges configuration: Defaults -> Project -> Model Specific.
-        """
-        global_conf = cls._load_toml(CFG_FILE)
-        models_data = cls._load_toml(MODELS_FILE)
+    def load_config(cls, model_name: str) -> dict[str, Any]:
+        """Load and merge configuration: Defaults -> Project -> Model Specific."""
+        global_conf = cls._load_toml(_GLOBAL_CFG)
+        models_data = cls._load_toml(_MODELS_CFG)
 
         if model_name not in models_data:
-            raise ValueError(f"Model '{model_name}' not found in {MODELS_FILE}")
+            msg = f"Model '{model_name}' not found in {_MODELS_CFG}"
+            raise ValueError(msg)
 
         # 1. Base Layer
         final_config = global_conf.get("defaults", {}).get("params", {}).copy()
@@ -77,7 +75,7 @@ class ModelConfigLoader:
         return final_config
 
     @staticmethod
-    def _parse_optuna_section(raw_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_optuna_section(raw_dict: dict[str, Any]) -> dict[str, Any]:
         parsed = {}
         for k, v in raw_dict.items():
             # Convert list [0.1, 0.5] to tuple for ranges
@@ -93,10 +91,10 @@ class ModelConfigLoader:
         return parsed
 
     @staticmethod
-    def _validate(config: Dict[str, Any], name: str):
+    def _validate(config: dict[str, Any], name: str) -> None:
+        """Validate that required fields are present in the configuration."""
         required = ["features", "targets"]
         for r in required:
             if r not in config:
-                raise ValueError(
-                    f"Config for '{name}' is missing required field: '{r}'"
-                )
+                msg = f"Config for '{name}' is missing required field: '{r}'"
+                raise ValueError(msg)

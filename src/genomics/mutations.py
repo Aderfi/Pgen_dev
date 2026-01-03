@@ -15,15 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import csv
-import glob
-import os
 import sys
-from pathlib import Path
-
-import Bio
-import namex
-import pandas as pd # O Polars. Segun datos.
-from Bio import SeqIO
 
 ### Importación de configuraciones y rutas desde el archivo config.py ###
 from src.cfg.config import *
@@ -130,30 +122,30 @@ Fase 4: Conclusión (Color Rojo)
 
 class ProcessRawGenome:
     """
---------------------------------------------------------------
-Fase 1: Procesamiento de Lecturas Crudas (Color Púrpura)
---------------------------------------------------------------
-    ### Secuenciador
-            input: genoteca
-            output: archivos FASTQ-raw
+    --------------------------------------------------------------
+    Fase 1: Procesamiento de Lecturas Crudas (Color Púrpura)
+    --------------------------------------------------------------
+        ### Secuenciador
+                input: genoteca
+                output: archivos FASTQ-raw
 
-    ### Análisis de calidad
-            input: archivos FASTQ-raw
-            output: archivos HTML
-            herramienta: FastQC
+        ### Análisis de calidad
+                input: archivos FASTQ-raw
+                output: archivos HTML
+                herramienta: FastQC
 
-    ### Limpieza de adaptadores y regiones de baja calidad
-            input: archivos FASTQ-raw
-            output: archivos FASTQ-clean
-            herramienta: FastP
+        ### Limpieza de adaptadores y regiones de baja calidad
+                input: archivos FASTQ-raw
+                output: archivos FASTQ-clean
+                herramienta: FastP
 
-    ### Revisión de calidad posprocesado
-            input: archivos FASTQ-clean
-            output: archivos HTML
-            herramienta: FastQC
+        ### Revisión de calidad posprocesado
+                input: archivos FASTQ-clean
+                output: archivos HTML
+                herramienta: FastQC
     """
 
-    # Necesitamos una secuenciación con elevada cobertura de secuenciación o 
+    # Necesitamos una secuenciación con elevada cobertura de secuenciación o
     # deep-coverage
 
     def __init__(self, raw_fastq_dir, processed_fastq_dir, cache_dir):
@@ -176,29 +168,30 @@ Fase 1: Procesamiento de Lecturas Crudas (Color Púrpura)
 
 class MappingAlignmentAnalysis:
     """
---------------------------------------------------------------
-Fase 2: Mapeo y Procesamiento de Alineamientos (Color Gris)
---------------------------------------------------------------
-    Mapeo a genoma de referencia
-        input: archivos FASTQ-clean + genoma referencia FASTA
-        output: archivo SAM
-        herramienta: BWA
+    --------------------------------------------------------------
+    Fase 2: Mapeo y Procesamiento de Alineamientos (Color Gris)
+    --------------------------------------------------------------
+        Mapeo a genoma de referencia
+            input: archivos FASTQ-clean + genoma referencia FASTA
+            output: archivo SAM
+            herramienta: BWA
 
-    Conversión de archivos y procesamiento
-        input: SAM
-        output: BAM/BAI
-        herramienta: SAMTOOLS
+        Conversión de archivos y procesamiento
+            input: SAM
+            output: BAM/BAI
+            herramienta: SAMTOOLS
 
-    Análisis de la calidad del mapeo
-        input: BAM
-        output: archivo HTML/PDF
-        herramienta: Qualimap
+        Análisis de la calidad del mapeo
+            input: BAM
+            output: archivo HTML/PDF
+            herramienta: Qualimap
 
-    Preprocesado: identificación de duplicados
-        input: BAM
-        output: BAM
-        herramienta: PicardTools
+        Preprocesado: identificación de duplicados
+            input: BAM
+            output: BAM
+            herramienta: PicardTools
     """
+
     def __init__(self, raw_fastq_dir, reference_genome, processed_bam_dir, cache_dir):
         self.raw_fastq_dir = raw_fastq_dir
         self.reference_genome = reference_genome
@@ -224,41 +217,42 @@ Fase 2: Mapeo y Procesamiento de Alineamientos (Color Gris)
 
 class VariantIdentificationAnalysis:
     """
---------------------------------------------------------------
-Fase 3: Identificación y Análisis de Variantes (Color Naranja)
---------------------------------------------------------------
-    Identificación de variantes
+    --------------------------------------------------------------
+    Fase 3: Identificación y Análisis de Variantes (Color Naranja)
+    --------------------------------------------------------------
+        Identificación de variantes
 
-        input: BAM
+            input: BAM
 
-        output: VCF
+            output: VCF
 
-        herramienta: Freebayes
+            herramienta: Freebayes
 
-    Filtrado de SNP/SNV y de indels
+        Filtrado de SNP/SNV y de indels
 
-        input: VCF
+            input: VCF
 
-        output: VCF
+            output: VCF
 
-        herramienta: VCFtools
+            herramienta: VCFtools
 
-    Visualización de variantes
+        Visualización de variantes
 
-        input: VCF
+            input: VCF
 
-        output: visual
+            output: visual
 
-        herramienta: IGV
+            herramienta: IGV
 
-    Anotación de variantes
+        Anotación de variantes
 
-        input: VCF
+            input: VCF
 
-        output: informe escrito
+            output: informe escrito
 
-        herramienta: VEP/Annovar
+            herramienta: VEP/Annovar
     """
+
     def __init__(self, processed_bam_dir, processed_vcf_dir, cache_dir):
         self.processed_bam_dir = processed_bam_dir
         self.processed_vcf_dir = processed_vcf_dir

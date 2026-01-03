@@ -15,22 +15,23 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import torch.nn
-
 from src.model import DeepFM_PGenModel  # Asumiendo tu estructura
-from src.performance_monitor import estimate_optimal_batch_size  # Asumiendo nombre del archivo
+from src.performance_monitor import (
+    estimate_optimal_batch_size,
+)  # Asumiendo nombre del archivo
 
 
 def test_hardware_capacity():
-    n_features = {"drug": 100, "gene": 50, "allele": 120, "genalle": 200} 
+    n_features = {"drug": 100, "gene": 50, "allele": 120, "genalle": 200}
     target_dims = {"outcome": 2, "type": 5, "variant": 10}
-    
+
     model = DeepFM_PGenModel(
         n_features=n_features,
         target_dims=target_dims,
         embedding_dim=128,
         hidden_dim=256,
         dropout_rate=0.1,
-        n_layers=2
+        n_layers=2,
     )
 
     # 2. Crear un input de muestra (una sola fila es suficiente, la función lo replica)
@@ -48,11 +49,11 @@ def test_hardware_capacity():
         model=model,
         sample_input=sample_input,
         max_batch_size=4096,  # Prueba hasta 4096 si cabe
-        device=torch.device("cuda")
+        device=torch.device("cuda"),
     )
 
     print(f"--> Configura tu 'batch_size' en config.toml a: {optimal_bs}")
 
+
 if __name__ == "__main__":
-    
     test_hardware_capacity()

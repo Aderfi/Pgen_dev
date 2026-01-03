@@ -1,12 +1,12 @@
 # tuner.py
 # Pharmagen - Optuna Hyperparameter Optimization
-# 
+#
 # Implements a comprehensive hyperparameter optimization pipeline using Optuna.
 # Supports multi-objective optimization and clean architecture.
 # Copyright (C) 2025 Adrim Hamed Outmani
 
-import json
 import datetime
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Union
@@ -14,49 +14,46 @@ from typing import Any, Dict, Union
 import matplotlib.pyplot as plt
 import optuna
 import torch
-from optuna.samplers import TPESampler
 from optuna.pruners import MedianPruner
+from optuna.samplers import TPESampler
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 # Project Imports
-from src.config.manager import get_model_config, DIRS
-from src.data.loaders import DoubleTowerDataset, DoubleTowerCollater, DataLoaderUtils
+from src.config.manager import DIRS, get_model_config
+from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
+from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
-
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+
 class PGenTuner:
     """
     Orchestrator Class for Hyperparameter Optimization.
-    
+
     Encapsula la complejidad de la preparación de datos, la definición del espacio de búsqueda,
     la ejecución del ciclo de vida de Optuna y la generación de reportes.
     """
 
     def __init__(
-        self, 
-        model_name: str, 
-        csv_path: Union[str, Path], 
-        random_seed: int = 711
+        self, model_name: str, csv_path: Union[str, Path], random_seed: int = 711
     ):
         self.model_name = model_name
         self.csv_path = Path(csv_path)
         self.timestamp = datetime.datetime.now().strftime("%d_%m__%H_%M")
         self.study_name = f"OPT_{self.model_name}_{self.timestamp}"
         self.seed = random_seed
-        
-        
+
         # 1. Configuración Global y Dispositivo
         self.cfg = get_model_config(model_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.patience = self.cfg["params_optuna"].get("patience", 5)
-        
+
         # Directorios de salida (Asegurar existencia)
         self.reports_dir = DIRS.get("reports", Path("./reports")) / "optuna_reports"
         self.figures_dir = DIRS.get("reports", Path("./reports")) / "figures"
@@ -66,20 +63,19 @@ class PGenTuner:
         # 2. Carga y Preparación de Datos (Solo una vez)
         logger.info(f"Loading data for tuning from {self.csv_path}...")
         self.full_df = DataLoaderUtils.load_dataframe(
-                self.csv_path, 
-                cols=self.cfg["cols"], 
-                stratify_col=self.cfg.get("stratify_col", None)
-            )
-        
-        #stratify = self.full_df["_stratify"] if "_stratify" in self.full_df.columns else None
+            self.csv_path,
+            cols=self.cfg["cols"],
+            stratify_col=self.cfg.get("stratify_col", None),
+        )
+
+        # stratify = self.full_df["_stratify"] if "_stratify" in self.full_df.columns else None
 
         self.train_df, self.val_df = train_test_split(
-            self.full_df, 
-            test_size=0.2, 
-            stratify=None, 
-            random_state=self.seed
+            self.full_df, test_size=0.2, stratify=None, random_state=self.seed
         )
-        logger.info(f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val")
+        logger.info(
+            f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
+        )
 
     def _suggest_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         """
@@ -95,16 +91,24 @@ class PGenTuner:
             try:
                 ptype = args[0]
                 if ptype == "categorical":
-                    suggestions[param_name] = trial.suggest_categorical(param_name, args[1:])
+                    suggestions[param_name] = trial.suggest_categorical(
+                        param_name, args[1:]
+                    )
                 elif ptype == "int":
-                    suggestions[param_name] = trial.suggest_int(param_name, args[1], args[2])
+                    suggestions[param_name] = trial.suggest_int(
+                        param_name, args[1], args[2]
+                    )
                 elif ptype == "float":
-                    suggestions[param_name] = trial.suggest_float(param_name, args[1], args[2])
+                    suggestions[param_name] = trial.suggest_float(
+                        param_name, args[1], args[2]
+                    )
                 elif ptype == "log":
-                    suggestions[param_name] = trial.suggest_float(param_name, args[1], args[2], log=True)
+                    suggestions[param_name] = trial.suggest_float(
+                        param_name, args[1], args[2], log=True
+                    )
             except Exception as e:
                 logger.warning(f"Error parsing param {param_name}: {e}. Using default.")
-        
+
         return suggestions
 
     def objective(self, trial: optuna.Trial) -> float:
@@ -115,83 +119,99 @@ class PGenTuner:
         # 1. Configuración de Hiperparámetros
         params = self.cfg["params"].copy()
         params.update(self._suggest_params(trial))
-        
+
         batch_size = int(params.get("batch_size", 32))
-        epochs = int(self.cfg["params_optuna"].get("epochs", 15)) # Epochs reducidos por defecto para tuning
+        epochs = int(
+            self.cfg["params_optuna"].get("epochs", 15)
+        )  # Epochs reducidos por defecto para tuning
 
         # 2. Construcción de Datasets (Reutilizando encoders para consistencia)
         # Nota: preload_ram=False ahorra memoria en la GPU si los grafos son muchos
         train_dataset = DoubleTowerDataset(
             df=self.train_df,
             drug_col=self.cfg["features"][0],
-            haplo_col='haplo_key',
+            haplo_col="haplo_key",
             target_cols=self.cfg["targets"],
             multilabel_cols=self.cfg.get("multi_label_cols", []),
-            preload_ram=False 
+            preload_ram=False,
         )
-        
+
         val_dataset = DoubleTowerDataset(
             df=self.val_df,
             drug_col=self.cfg["features"][0],
-            haplo_col='haplo_key',
+            haplo_col="haplo_key",
             target_cols=self.cfg["targets"],
             multilabel_cols=self.cfg.get("multi_label_cols", []),
-            encoders=train_dataset.encoders, # CRÍTICO: Compartir estado de encoders
-            preload_ram=False
+            encoders=train_dataset.encoders,  # CRÍTICO: Compartir estado de encoders
+            preload_ram=False,
         )
 
         # 3. Inferencia de Dimensiones
         try:
             sample = train_dataset[0]
-            drug_dim = sample['drug_data'].x.shape[1] # type: ignore
-            haplo_dim = sample['haplo_data'].x.shape[1] # type: ignore
+            drug_dim = sample["drug_data"].x.shape[1]  # type: ignore
+            haplo_dim = sample["haplo_data"].x.shape[1]  # type: ignore
         except Exception as e:
             logger.error(f"Dimension check failed: {e}")
             raise optuna.exceptions.TrialPruned()
 
         target_dims = {
-            col: len(train_dataset.encoders[col].classes_) 
-            for col in self.cfg["targets"] if col in train_dataset.encoders
+            col: len(train_dataset.encoders[col].classes_)
+            for col in self.cfg["targets"]
+            if col in train_dataset.encoders
         }
         # Fallback para dimensiones target si algo falla
         for t in self.cfg["targets"]:
-            if t not in target_dims: 
+            if t not in target_dims:
                 target_dims[t] = 1
 
         # 4. DataLoaders con Collater Especializado
         collater = DoubleTowerCollater()
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, 
-            collate_fn=collater, num_workers=0, pin_memory=True
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=collater,
+            num_workers=0,
+            pin_memory=True,
         )
         val_loader = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, 
-            collate_fn=collater, num_workers=0, pin_memory=True
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=collater,
+            num_workers=0,
+            pin_memory=True,
         )
 
         # 5. Instanciación del Modelo (Two-Tower GATv2)
         model = create_gnn_model(
             model_name=self.model_name,
-            drug_config={'num_features': drug_dim, 'edge_dim': self.cfg.get("drug_edge_dim", 0)},
-            haplo_config={'num_features': haplo_dim, 'edge_dim': self.cfg.get("haplo_edge_dim", 0)},
+            drug_config={
+                "num_features": drug_dim,
+                "edge_dim": self.cfg.get("drug_edge_dim", 0),
+            },
+            haplo_config={
+                "num_features": haplo_dim,
+                "edge_dim": self.cfg.get("haplo_edge_dim", 0),
+            },
             target_dims=target_dims,
-            params=params
+            params=params,
         ).to(self.device)
 
-        # 5. Loss & Uncertainty Setup (IMPORTANTE)        
+        # 5. Loss & Uncertainty Setup (IMPORTANTE)
         uncertainty_net = LossFactory.create_uncertainty_wrapper(
-            tasks=self.cfg["targets"], 
-            device=self.device
+            tasks=self.cfg["targets"], device=self.device
         )
         # 6. Optimizer & Scheduler (Usando la Factoría)
         optimizer = OptimizerFactory.create(
-            model=model, 
-            params=params, # Aquí se inyectan learning_rate y weight_decay de Optuna
-            uncertainty_module=uncertainty_net 
+            model=model,
+            params=params,  # Aquí se inyectan learning_rate y weight_decay de Optuna
+            uncertainty_module=uncertainty_net,
         )
-        
+
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.5, patience=3
+            optimizer, mode="min", factor=0.5, patience=3
         )
 
         # 7. Trainer Setup (Inyectando uncertainty_module)
@@ -202,15 +222,16 @@ class PGenTuner:
             device=self.device,
             target_cols=self.cfg["targets"],
             multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
-            params=params, # Pasa los parámetros para que LossFactory cree las pérdidas correctas
-            uncertainty_module=uncertainty_net # <--- FIX: Ahora el tuner usa incertidumbre
+            params=params,  # Pasa los parámetros para que LossFactory cree las pérdidas correctas
+            uncertainty_module=uncertainty_net,  # <--- FIX: Ahora el tuner usa incertidumbre
         )
         try:
             return trainer.fit(
-                train_loader, val_loader, 
-                epochs=epochs, 
-                patience=self.patience, 
-                trial=trial
+                train_loader,
+                val_loader,
+                epochs=epochs,
+                patience=self.patience,
+                trial=trial,
             )
         except optuna.exceptions.TrialPruned:
             raise
@@ -235,21 +256,27 @@ class PGenTuner:
             direction="minimize",
             sampler=sampler,
             pruner=pruner,
-            load_if_exists=True
+            load_if_exists=True,
         )
 
         # Barra de progreso externa
         with tqdm(total=n_trials, desc="Optuna Trials", colour="blue") as pbar:
+
             def callback(study, trial):
                 pbar.update(1)
                 if study.best_trials:
                     best_trial = study.best_trial
                     postfix = f" Trial: {best_trial.number} | Best Loss: {best_trial.value:.4f}"
-                    #pbar.set_postfix(best_loss=f" {study.best_value:.4f}")
+                    # pbar.set_postfix(best_loss=f" {study.best_value:.4f}")
                     pbar.set_postfix_str(postfix)
 
-            study.optimize(self.objective, n_trials=n_trials, callbacks=[callback], gc_after_trial=True)
-        
+            study.optimize(
+                self.objective,
+                n_trials=n_trials,
+                callbacks=[callback],
+                gc_after_trial=True,
+            )
+
         self._save_results(study)
         return study
 
@@ -264,24 +291,22 @@ class PGenTuner:
             "best_params": best_trial.params,
             "n_trials": len(study.trials),
             "datetime": self.timestamp,
-            "top_5_trials": [
-                {
-                    "value": t.value,
-                    "params": t.params
-                } for t in top_5
-            ]
+            "top_5_trials": [{"value": t.value, "params": t.params} for t in top_5],
         }
-        
+
         json_path = self.reports_dir / f"report_{self.study_name}.json"
         with open(json_path, "w") as f:
             json.dump(report, f, indent=2)
-        
+
         logger.info(f"Metrics saved to {json_path}")
 
         # 2. Visualizaciones (Si matplotlib está disponible)
         try:
-            from optuna.visualization.matplotlib import plot_optimization_history, plot_param_importances
-            
+            from optuna.visualization.matplotlib import (
+                plot_optimization_history,
+                plot_param_importances,
+            )
+
             # History
             plt.figure(figsize=(10, 6))
             plot_optimization_history(study)
@@ -291,28 +316,36 @@ class PGenTuner:
             plt.close()
 
             # Importance (Solo si hay suficientes trials completos)
-            if len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]) > 1:
+            if (
+                len(
+                    [
+                        t
+                        for t in study.trials
+                        if t.state == optuna.trial.TrialState.COMPLETE
+                    ]
+                )
+                > 1
+            ):
                 plt.figure(figsize=(10, 6))
                 plot_param_importances(study)
                 plt.title(f"Param Importance - {self.model_name}")
                 plt.tight_layout()
                 plt.savefig(self.figures_dir / f"{self.study_name}_importance.png")
                 plt.close()
-                
+
             logger.info("Optimization plots generated.")
-            
+
         except ImportError:
-            logger.warning("Matplotlib not found inside optuna.visualization, skipping plots.")
+            logger.warning(
+                "Matplotlib not found inside optuna.visualization, skipping plots."
+            )
         except Exception as e:
             logger.warning(f"Plot generation failed: {e}")
 
+
 # Entry Point Simplificado
-def run_optuna_study(
-    model_name: str, 
-    csv_path: Union[str, Path],
-    n_trials: int = 50
-):
+def run_optuna_study(model_name: str, csv_path: Union[str, Path], n_trials: int = 50):
     tuner = PGenTuner(model_name=model_name, csv_path=csv_path)
     study = tuner.run_tuning(n_trials=n_trials)
-    
+
     print(f"\n[Optuna] Best Params: {study.best_params}")

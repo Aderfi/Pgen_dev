@@ -15,7 +15,6 @@ import abc
 import argparse
 import json
 import logging
-import os
 import platform
 import shutil
 import subprocess
@@ -28,13 +27,14 @@ from typing import List, Optional
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("Setup")
 
 
 class EnvManagerType(Enum):
     """Supported environment managers."""
+
     UV = "uv"
     MAMBA = "mamba"
     CONDA = "conda"
@@ -43,7 +43,7 @@ class EnvManagerType(Enum):
 
 class SystemUtils:
     """Utilities for system-level operations."""
-    
+
     @staticmethod
     def get_os() -> str:
         return platform.system()
@@ -53,7 +53,9 @@ class SystemUtils:
         return shutil.which(command) is not None
 
     @staticmethod
-    def run_command(command: List[str], cwd: Optional[Path] = None, dry_run: bool = False) -> bool:
+    def run_command(
+        command: List[str], cwd: Optional[Path] = None, dry_run: bool = False
+    ) -> bool:
         cmd_str = " ".join(command)
         if dry_run:
             logger.info(f"[DRY-RUN] Would execute: {cmd_str}")
@@ -73,7 +75,7 @@ class SystemUtils:
 
 class DirectoryManager:
     """Responsibility: Managing the project file system structure."""
-    
+
     REQUIRED_DIRS = [
         "src/config",
         "src/data",
@@ -104,20 +106,22 @@ class DirectoryManager:
             dir_path = self.root_path / dir_rel
             if dry_run:
                 if not dir_path.exists():
-                     logger.info(f"[DRY-RUN] Would create directory: {dir_rel}")
+                    logger.info(f"[DRY-RUN] Would create directory: {dir_rel}")
             elif not dir_path.exists():
                 dir_path.mkdir(parents=True, exist_ok=True)
                 logger.info(f"Created directory: {dir_rel}")
             else:
                 logger.debug(f"Directory exists: {dir_rel}")
-        
+
         # Ensure __init__.py exists in src subdirs
         self._ensure_init_files(dry_run)
 
     def _ensure_init_files(self, dry_run: bool = False):
         """Ensures python packages are valid."""
         if dry_run:
-            logger.info("[DRY-RUN] Would ensure __init__.py files exist in src/ subdirectories.")
+            logger.info(
+                "[DRY-RUN] Would ensure __init__.py files exist in src/ subdirectories."
+            )
             return
 
         src_path = self.root_path / "src"
@@ -131,8 +135,14 @@ class DirectoryManager:
 
 class EnvStrategy(abc.ABC):
     """Abstract Strategy for Environment Creation and Package Installation."""
-    
-    def __init__(self, env_name: str, root_path: Path, python_version: str = "3.10", dry_run: bool = False):
+
+    def __init__(
+        self,
+        env_name: str,
+        root_path: Path,
+        python_version: str = "3.10",
+        dry_run: bool = False,
+    ):
         self.env_name = env_name
         self.root_path = root_path
         self.python_version = python_version
@@ -155,25 +165,42 @@ class UVStrategy(EnvStrategy):
         env_path = self.root_path / self.env_name
         cmd = ["uv", "venv", str(env_path), "--python", self.python_version]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
-    
+
     def install_packages(self) -> bool:
         logger.info(f"Installing packages using uv in '{self.env_name}'...")
         # With uv, you typically activate the venv or use `uv pip install` pointing to the venv
         # Assuming venv is created at root/env_name
         if SystemUtils.get_os() == "Windows":
-             python_executable = self.root_path / self.env_name / "Scripts" / "python.exe"
+            python_executable = (
+                self.root_path / self.env_name / "Scripts" / "python.exe"
+            )
         else:
-             python_executable = self.root_path / self.env_name / "bin" / "python"
-        
+            python_executable = self.root_path / self.env_name / "bin" / "python"
+
         # We can use 'uv pip install -p <python_path> -r requirements.txt'
-        cmd = ["uv", "pip", "install", "-p", str(python_executable), "-r", str(self.requirements_path)]
+        cmd = [
+            "uv",
+            "pip",
+            "install",
+            "-p",
+            str(python_executable),
+            "-r",
+            str(self.requirements_path),
+        ]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
 
 class MambaStrategy(EnvStrategy):
     def create_env(self) -> bool:
         logger.info(f"Creating environment '{self.env_name}' using mamba...")
-        cmd = ["mamba", "create", "-n", self.env_name, f"python={self.python_version}", "-y"]
+        cmd = [
+            "mamba",
+            "create",
+            "-n",
+            self.env_name,
+            f"python={self.python_version}",
+            "-y",
+        ]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
     def install_packages(self) -> bool:
@@ -184,43 +211,74 @@ class MambaStrategy(EnvStrategy):
         # Alternatively: mamba install --name env_name --file requirements.txt
         # Let's try mamba install first as it's faster, but if it fails (due to pip deps), we might need pip.
         # Given the requirements.txt structure (hashes), pip is safer.
-        
+
         if SystemUtils.get_os() == "Windows":
-             pip_executable = self.root_path / "envs" / self.env_name / "Scripts" / "pip.exe" # approximate path for conda
-             # Conda paths vary. Better to use 'mamba run -n env pip install ...'
-        
-        cmd = ["mamba", "run", "-n", self.env_name, "pip", "install", "-r", str(self.requirements_path)]
+            pip_executable = (
+                self.root_path / "envs" / self.env_name / "Scripts" / "pip.exe"
+            )  # approximate path for conda
+            # Conda paths vary. Better to use 'mamba run -n env pip install ...'
+
+        cmd = [
+            "mamba",
+            "run",
+            "-n",
+            self.env_name,
+            "pip",
+            "install",
+            "-r",
+            str(self.requirements_path),
+        ]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
 
 class CondaStrategy(EnvStrategy):
     def create_env(self) -> bool:
         logger.info(f"Creating environment '{self.env_name}' using conda...")
-        cmd = ["conda", "create", "-n", self.env_name, f"python={self.python_version}", "-y"]
+        cmd = [
+            "conda",
+            "create",
+            "-n",
+            self.env_name,
+            f"python={self.python_version}",
+            "-y",
+        ]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
     def install_packages(self) -> bool:
         logger.info(f"Installing packages using conda in '{self.env_name}'...")
-        cmd = ["conda", "run", "-n", self.env_name, "pip", "install", "-r", str(self.requirements_path)]
+        cmd = [
+            "conda",
+            "run",
+            "-n",
+            self.env_name,
+            "pip",
+            "install",
+            "-r",
+            str(self.requirements_path),
+        ]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
 
 class VenvStrategy(EnvStrategy):
     def create_env(self) -> bool:
         logger.info(f"Creating environment '{self.env_name}' using standard venv...")
-        
+
         if self.dry_run:
-             logger.info(f"[DRY-RUN] Would look for python{self.python_version} or fallback to system python.")
-             python_exec = f"python{self.python_version}"
+            logger.info(
+                f"[DRY-RUN] Would look for python{self.python_version} or fallback to system python."
+            )
+            python_exec = f"python{self.python_version}"
         else:
             python_exec = f"python{self.python_version}"
             if not SystemUtils.command_exists(python_exec):
                 if sys.version_info[:2] == (3, 10):
                     python_exec = sys.executable
                 else:
-                    logger.warning(f"Python {self.python_version} not found in PATH. Using system 'python'.")
+                    logger.warning(
+                        f"Python {self.python_version} not found in PATH. Using system 'python'."
+                    )
                     python_exec = "python"
-        
+
         env_path = self.root_path / self.env_name
         cmd = [python_exec, "-m", "venv", str(env_path)]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
@@ -228,17 +286,17 @@ class VenvStrategy(EnvStrategy):
     def install_packages(self) -> bool:
         logger.info(f"Installing packages using pip in '{self.env_name}'...")
         if SystemUtils.get_os() == "Windows":
-             pip_executable = self.root_path / self.env_name / "Scripts" / "pip.exe"
+            pip_executable = self.root_path / self.env_name / "Scripts" / "pip.exe"
         else:
-             pip_executable = self.root_path / self.env_name / "bin" / "pip"
-        
+            pip_executable = self.root_path / self.env_name / "bin" / "pip"
+
         cmd = [str(pip_executable), "install", "-r", str(self.requirements_path)]
         return SystemUtils.run_command(cmd, dry_run=self.dry_run)
 
 
 class ConfigManager:
     """Responsibility: Persisting user configuration."""
-    
+
     CONFIG_FILE = ".user_env_cfg"
 
     def __init__(self, root_path: Path):
@@ -253,10 +311,10 @@ class ConfigManager:
             "environment_manager": manager,
             "environment_name": env_name,
             "os_system": platform.system(),
-            "python_version": "3.10"
+            "python_version": "3.10",
         }
         try:
-            with open(self.config_path, 'w') as f:
+            with open(self.config_path, "w") as f:
                 json.dump(config, f, indent=4)
             logger.info(f"Configuration saved to {self.CONFIG_FILE}")
         except IOError as e:
@@ -271,10 +329,14 @@ class SetupOrchestrator:
         self.root_path = Path(__file__).resolve().parent.parent
         self.dir_manager = DirectoryManager(self.root_path)
         self.config_manager = ConfigManager(self.root_path)
-        
+
         # Parse arguments
         parser = argparse.ArgumentParser(description="Pharmagen Environment Setup")
-        parser.add_argument("--dry-run", action="store_true", help="Simulate execution without making changes.")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Simulate execution without making changes.",
+        )
         self.args = parser.parse_args()
         self.dry_run = self.args.dry_run
 
@@ -291,33 +353,43 @@ class SetupOrchestrator:
         print(f"Detected OS: {SystemUtils.get_os()}")
         if self.dry_run:
             print("⚠️  DRY-RUN MODE ACTIVE ⚠️")
-        
+
         # 1. Choose Manager
         print("\nSelect Environment Manager:")
         available_options = []
-        
+
         if SystemUtils.command_exists("uv"):
             available_options.append(("1", EnvManagerType.UV))
-            print(f"  1. uv (Recommended - Fast)")
-        
+            print("  1. uv (Recommended - Fast)")
+
         if SystemUtils.command_exists("mamba"):
             available_options.append(("2", EnvManagerType.MAMBA))
-            print(f"  2. mamba (Recommended - Fast)")
-            
+            print("  2. mamba (Recommended - Fast)")
+
         if SystemUtils.command_exists("conda"):
             available_options.append(("3", EnvManagerType.CONDA))
-            print(f"  3. conda")
-            
+            print("  3. conda")
+
         available_options.append(("4", EnvManagerType.VENV))
-        print(f"  4. venv (Standard)")
-        
+        print("  4. venv (Standard)")
+
         choice = input("\nEnter choice [number]: ").strip()
-        selected_manager = next((mgr for key, mgr in available_options if key == choice), EnvManagerType.VENV)
-        
+        selected_manager = next(
+            (mgr for key, mgr in available_options if key == choice),
+            EnvManagerType.VENV,
+        )
+
         # 2. Choose Name
-        default_name = ".venv" if selected_manager in [EnvManagerType.UV, EnvManagerType.VENV] else "pharmagen_env"
-        env_name = input(f"Enter environment name [default: {default_name}]: ").strip() or default_name
-        
+        default_name = (
+            ".venv"
+            if selected_manager in [EnvManagerType.UV, EnvManagerType.VENV]
+            else "pharmagen_env"
+        )
+        env_name = (
+            input(f"Enter environment name [default: {default_name}]: ").strip()
+            or default_name
+        )
+
         return selected_manager, env_name
 
     def _get_strategy(self, manager: EnvManagerType, env_name: str) -> EnvStrategy:
@@ -336,18 +408,20 @@ class SetupOrchestrator:
 
         # 1. Setup Directory Structure
         self.dir_manager.create_structure(dry_run=self.dry_run)
-        
+
         # 2. Get User Inputs
         manager, env_name = self._get_user_input()
-        
+
         # 3. Create Environment
         strategy = self._get_strategy(manager, env_name)
         success = strategy.create_env()
-        
+
         # 4. Save Config & Install Packages
         if success:
-            self.config_manager.save_config(manager.value, env_name, dry_run=self.dry_run)
-            
+            self.config_manager.save_config(
+                manager.value, env_name, dry_run=self.dry_run
+            )
+
             # 5. Install Packages
             self._setup_packages(strategy)
 
@@ -360,13 +434,13 @@ class SetupOrchestrator:
                     activate_cmd = f"source {env_name}/bin/activate"
             else:
                 activate_cmd = f"{manager.value} activate {env_name}"
-                
-            print("\n" + "="*40)
+
+            print("\n" + "=" * 40)
             if self.dry_run:
                 print("✅ Dry-Run Complete! No changes were made.")
             else:
                 print("✅ Setup & Installation Complete Successfully!")
-            print("="*40)
+            print("=" * 40)
             print(f"To activate your environment, run:\n  {activate_cmd}")
         else:
             print("\n❌ Environment creation failed.")

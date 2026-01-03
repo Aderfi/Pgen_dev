@@ -52,75 +52,98 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-
 # --- Imports del Proyecto ---
 from src.config.manager import DIRS
 from src.interface.cli import main_menu_loop
-from src.modeling.engine.tuner import run_optuna_study
-from src.pipeline import train_pipeline
-from src.modeling.engine.predictor import PGenPredictor
 from src.utils.logger import setup_logging
-from src.utils.system import check_environment_and_setup
+
+# from src.utils.system import check_environment_and_setup
 
 # --- Setup de Rutas ---
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(PROJECT_ROOT))
 
 # Constantes
-DATE_STAMP = datetime.now().strftime('%Y-%m-%d')
+DATE_STAMP = datetime.now().strftime("%Y-%m-%d")
 LOGS_DIR = DIRS["logs"]
 # ==============================================================================
 # MAIN ENTRY POINT
 # ==============================================================================
 
+
 def main():
-    #check_environment_and_setup()
-    
+    # check_environment_and_setup()
     setup_logging()
     logger = logging.getLogger("Pharmagen")
     logger.setLevel(logging.DEBUG)
-    
+
     parser = argparse.ArgumentParser(description="Pharmagen CLI Manager")
-    parser.add_argument("--mode", choices=["train", "predict", "menu"], default="menu", help="Modo de ejecución")
-    parser.add_argument("--model", type=str, help="Nombre del modelo (para automatización)")
-    parser.add_argument("--input", type=str, default="train_data/train_data.tsv", help="Ruta al archivo de entrada (CSV/TSV)")
-    parser.add_argument("--optuna", action="store_true", help="Activar optimización con Optuna (solo modo train)")
-    
+    parser.add_argument(
+        "--mode",
+        choices=["train", "infer", "menu", "optuna"],
+        default="menu",
+        help="Modo de ejecución",
+    )
+
+    parser.add_argument(
+        "--model", type=str, help="Nombre del modelo (para automatización)"
+    )
+
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=Path("train_data/train_data.tsv"),
+        help="Ruta al archivo de entrada (CSV/TSV)",
+    )
+
     args = parser.parse_args()
 
     try:
         # Modo Interactivo (Por defecto)
         if args.mode == "menu":
             main_menu_loop()
-            
+
         # Modo Entrenamiento (Headless/Automatizado)
         elif args.mode == "train":
-            if not args.model or not args.input:
+            if not args.model:
                 print("❌ Error: --model y --input son obligatorios en modo 'train'")
                 sys.exit(1)
-            
+            if not args.input:
+                args.input = Path("train_data/train_data.tsv")
+                print(
+                    f"⚠️ Aviso: --input no especificado. \n\t \
+                      -- Usando ruta por defecto: {args.input}"
+                )
+
             logger.info(f"Iniciando entrenamiento headless: {args.model}")
             if args.optuna:
+                from src.modeling.engine.tuner import run_optuna_study
+
                 run_optuna_study(args.model, args.input)
             else:
+                from src.pipeline import train_pipeline
+
                 train_pipeline(model_name=args.model, csv_path=Path(args.input))
-                
+
         # Modo Predicción (Headless/Automatizado)
         elif args.mode == "predict":
+            import pandas as pd
+
+            from src.modeling.engine.predictor import PGenPredictor
+
             if not args.model or not args.input:
                 print("❌ Error: --model y --input son obligatorios en modo 'predict'")
                 sys.exit(1)
-            
+
             logger.info("Iniciando predicción headless: {}".format(args.model))
             predictor = PGenPredictor(args.model)
             results = predictor.predict_file(args.input)
-            
+
             # Guardado automático
             out_name = f"{Path(args.input).stem}_preds_{DATE_STAMP}.csv"
             pd.DataFrame(results).to_csv(out_name, index=False)
             print(f"Predicciones guardadas en: {out_name}")
-            
+
     except KeyboardInterrupt:
         print("\nOperación cancelada por el usuario.")
         sys.exit(0)
@@ -129,6 +152,7 @@ def main():
         print(f"\n❌ Error crítico del sistema: {e}")
         print(f"Consulte el log para más detalles: {LOGS_DIR}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

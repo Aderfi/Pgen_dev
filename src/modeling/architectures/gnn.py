@@ -1,9 +1,5 @@
-from typing import Dict, Optional
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, cat, nn
+from torch.nn import functional as F
 from torch_geometric.data import Data
 from torch_geometric.nn import (
     GATv2Conv,
@@ -11,6 +7,7 @@ from torch_geometric.nn import (
     global_max_pool,
     global_mean_pool,
 )
+from torch_geometric.nn.norm import GraphNorm
 
 
 class GATv2Tower(nn.Module):
@@ -26,7 +23,7 @@ class GATv2Tower(nn.Module):
         num_layers: int = 3,
         heads: int = 4,
         dropout: float = 0.1,
-        edge_dim: Optional[int] = None,
+        edge_dim: int | None = None,
         pooling: str = "mean",
     ):
         super().__init__()
@@ -35,53 +32,34 @@ class GATv2Tower(nn.Module):
         self.dropout: float = dropout
 
         self.convs = nn.ModuleList()
-        self.bns = nn.ModuleList()
+        self.norms = nn.ModuleList() # Normalizaciones de grafo
         self.skips = nn.ModuleList()
 
-        # Input Layer
-        self.convs.append(
-            GATv2Conv(
-                in_channels,
-                hidden_channels,
-                heads=heads,
-                edge_dim=edge_dim,
-                concat=True,
-            )
-        )
-        self.bns.append(nn.BatchNorm1d(hidden_channels * heads))
-        self.skips.append(nn.Linear(in_channels, hidden_channels * heads))
-
-        # Hidden Layers
-        # Calculamos la dimensión de entrada de las capas ocultas basándonos en la concatenación de cabezas
-        hidden_input = hidden_channels * heads
-
-        for _ in range(num_layers - 1):
+        # Input ayer
+        curr_in = in_channels
+        for i in range(num_layers):
+            out_dim = hidden_channels * heads
             self.convs.append(
-                GATv2Conv(
-                    hidden_input,
-                    hidden_channels,
-                    heads=heads,
-                    edge_dim=edge_dim,
-                    concat=True,
-                )
+                GATv2Conv(curr_in, hidden_channels, heads=heads, edge_dim=edge_dim, concat=True)
             )
-            self.bns.append(nn.BatchNorm1d(hidden_input))
-            self.skips.append(nn.Linear(hidden_input, hidden_input))
+            self.norms.append(GraphNorm(out_dim))
+            self.skips.append(nn.Linear(curr_in, out_dim))
+            curr_in = out_dim
 
         # Proyección final post-pooling
         self.post_pool_mlp = nn.Sequential(
-            nn.Linear(hidden_input, hidden_input),
-            nn.ReLU(),
-            nn.Linear(hidden_input, out_channels),
+            nn.Linear(curr_in, curr_in),
+            nn.ELU(),
+            nn.Linear(curr_in, out_channels),
         )
 
     def forward(
         self,
-        x: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_attr: Optional[torch.Tensor],
-        batch: torch.Tensor,
-    ) -> torch.Tensor:
+        x: Tensor,
+        edge_index: Tensor,
+        edge_attr: Tensor | None,
+        batch: Tensor,
+    ) -> Tensor:
         """
         x: Características de los nodos [Num_Nodes, Num_Features]
         edge_index: Conectividad del grafo [2, Num_Edges]
@@ -101,8 +79,8 @@ class GATv2Tower(nn.Module):
                 x_in = self.skips[i](x_in)
 
             x = x + x_in
-            x = self.bns[i](x)
-            x = F.elu(x)  # ELU suele funcionar mejor con GATs que ReLU
+            x = self.norms[i](x, batch)
+            x = F.elu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
 
         # 3. Global Pooling (Readout) - Convierte nodo-level a grafo-level
@@ -126,13 +104,13 @@ class PharmagenTwoTower(nn.Module):
         drug_in_features: int,
         drug_edge_dim: int,
         drug_hidden_dim: int,
-        # Configuración Torre Haplotipo (GATv2)
+        # Configuración Torre Haplotipo
         haplo_in_features: int,
-        haplo_edge_dim: int,  # Ejemplo: peso de LD o distancia genómica
+        haplo_edge_dim: int,
         haplo_hidden_dim: int,
         # Configuración Global
-        embedding_dim: int,  # Dimensión del espacio latente compartido
-        target_dims: dict[str, int],  # { 'IC50': 1, 'SideEffect': 1, 'Class': 3 }
+        embedding_dim: int,
+        target_dims: dict[str, int],
         # Hiperparámetros
         num_layers: int = 3,
         heads: int = 4,
@@ -178,6 +156,8 @@ class PharmagenTwoTower(nn.Module):
             nn.LayerNorm(combined_dim),
             nn.ELU(),
             nn.Dropout(dropout),
+            nn.Linear(combined_dim, combined_dim),
+            nn.ELU(),
         )
 
         # Cabezales dinámicos (Multi-task)
@@ -193,11 +173,11 @@ class PharmagenTwoTower(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
+            nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, drug_data: Data, haplo_data: Data) -> Dict[str, Tensor]:
+    def forward(self, drug_data: Data, haplo_data: Data) -> dict[str, Tensor]:
         """
         Forward pass dinámico.
 
@@ -214,12 +194,11 @@ class PharmagenTwoTower(nn.Module):
 
         # 1. Forward Torre Fármaco
         # Extraemos atributos de aristas si existen, si no None
-        drug_edge_attr = getattr(drug_data, "edge_attr", None)
         drug_emb = self.drug_tower(
             x=drug_data.x,
             edge_index=drug_data.edge_index,
-            edge_attr=drug_edge_attr,
-            batch=getattr(drug_data, "batch", None),
+            edge_attr=getattr(drug_data, "edge_attr", None),
+            batch=drug_data.batch,
         )
 
         if not (hasattr(haplo_data, "x") and hasattr(haplo_data, "edge_index")):
@@ -228,17 +207,16 @@ class PharmagenTwoTower(nn.Module):
             )
 
         # 2. Forward Torre Haplotipo (GATv2)
-        haplo_edge_attr = getattr(haplo_data, "edge_attr", None)
         haplo_emb = self.haplo_tower(
             x=haplo_data.x,
             edge_index=haplo_data.edge_index,
-            edge_attr=haplo_edge_attr,
-            batch=getattr(haplo_data, "batch", None),
+            edge_attr=getattr(haplo_data, "edge_attr", None),
+            batch=haplo_data.batch,
         )
 
         # 3. Interacción (Concatenación)
         # Aquí se unen el espacio químico y el espacio biológico
-        combined = torch.cat([drug_emb, haplo_emb], dim=1)
+        combined = cat([drug_emb, haplo_emb], dim=1)
 
         # 4. Procesamiento conjunto
         interacted = self.interaction_mlp(combined)

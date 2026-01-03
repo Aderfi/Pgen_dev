@@ -1,0 +1,62 @@
+# Configuration for Ruff 0.x+
+# Target version corresponds to your pyproject.toml requirement
+target-version = "py310"
+line-length = 88
+indent-width = 4
+
+# Exclude directories (Standard pattern for Debian/Windows environments)
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv_pgen",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+[lint]
+# Patterns enabled: 
+# PL (Pylint), E/W (pycodestyle), I (isort), F (Pyflakes)
+select = ["PL", "E", "W", "I", "F", "TID253"]
+ignore = [
+    "E203",   # Conflicting with Black-style formatting
+    "E501",   # Line length handled by formatter
+    "F403",   # star imports
+    "F401",   # unused imports
+    "FIX003", # TODOs
+    "EM101",  # Raw string literals in exceptions
+    "D212",   # Multi-line docstring summary start
+    "PLC0415",
+]
+
+# Fix behavior
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[format]
+# Standard Black-compatible formatting
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

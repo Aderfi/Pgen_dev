@@ -31,11 +31,11 @@ haplo_idx = 2    # Use 0 if you did NOT apply the edge fix in all_in_one.py
 patience = 15
 epochs = 50
 # "categorical" 
-embedding_dim = ["categorical", 64, 128, 256]
+embedding_dim = ["categorical", 64, 128, 256, 512]
 hidden_dim = ["categorical", 128, 256, 512]
 
 # "int" 
-n_layers = ["int", 2, 4]
+n_layers = ["int", 2, 5]
 
 # Attention Heads (GATv2).
 heads = ["categorical", 2, 4, 8]
@@ -46,7 +46,7 @@ dropout_rate = ["float", 0.1, 0.5]
 ### --- Optimización (Training Loop) --- ###
 
 # "log"
-learning_rate = ["log", 1e-5, 1e-2]
+learning_rate = ["log", 1e-5, 5e-2]
 weight_decay = ["log", 1e-6, 1e-3]
 
 # Batch size afecta la generalización y el uso de VRAM.
@@ -55,9 +55,9 @@ batch_size = ["categorical", 64, 128, 256]
 # --- Función de Pérdida (Loss Hyperparams) ---
 # Si usas FocalLoss o AsymmetricLoss (definidas en losses.py), estos parámetros son críticos.
 # gamma: Controla qué tanto se penalizan los ejemplos difíciles.
-gamma = ["float", 1.0, 4.0] 
+gamma = ["float", 0.5, 4.0] 
 # asl_clip: Para AsymmetricLoss, controla el recorte de negativos fáciles.
-asl_clip = ["float", 0.0, 0.1]
+asl_clip = ["float", 0.0, 0.2]
 
 [TwoTowerGAT.params]
 # Architecture

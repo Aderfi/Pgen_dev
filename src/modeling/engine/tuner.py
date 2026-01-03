@@ -9,12 +9,13 @@ import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
-import optuna
+import optuna.logging
+import optuna.study as opt_study
 import torch
-from optuna.pruners import MedianPruner
+from optuna.pruners import HyperbandPruner, PatientPruner
 from optuna.samplers import TPESampler
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
@@ -31,7 +32,6 @@ from src.utils.module_builder import LossFactory, OptimizerFactory
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-
 class PGenTuner:
     """
     Orchestrator Class for Hyperparameter Optimization.
@@ -41,7 +41,7 @@ class PGenTuner:
     """
 
     def __init__(
-        self, model_name: str, csv_path: Union[str, Path], random_seed: int = 711
+        self, model_name: str, csv_path: str | Path, random_seed: int = 711
     ):
         self.model_name = model_name
         self.csv_path = Path(csv_path)
@@ -77,7 +77,7 @@ class PGenTuner:
             f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
 
-    def _suggest_params(self, trial: optuna.Trial) -> Dict[str, Any]:
+    def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """
         Parser dinámico del espacio de búsqueda definido en la configuración (JSON/TOML).
         Abstrae los métodos de sugerencia de Optuna.
@@ -120,7 +120,7 @@ class PGenTuner:
         params = self.cfg["params"].copy()
         params.update(self._suggest_params(trial))
 
-        batch_size = int(params.get("batch_size", 32))
+        batch_size = int(params.get("batch_size", 64))
         epochs = int(
             self.cfg["params_optuna"].get("epochs", 15)
         )  # Epochs reducidos por defecto para tuning
@@ -211,7 +211,7 @@ class PGenTuner:
         )
 
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=3
+            optimizer, mode="min", factor=0.5, patience=5
         )
 
         # 7. Trainer Setup (Inyectando uncertainty_module)
@@ -224,6 +224,7 @@ class PGenTuner:
             multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
             params=params,  # Pasa los parámetros para que LossFactory cree las pérdidas correctas
             uncertainty_module=uncertainty_net,  # <--- FIX: Ahora el tuner usa incertidumbre
+            from_optuna=True,
         )
         try:
             return trainer.fit(
@@ -244,15 +245,18 @@ class PGenTuner:
         Ejecuta el estudio completo.
         """
         logger.info(f"Starting Optuna Study: {self.study_name}")
-        storage_url = f"sqlite:///{self.reports_dir}/study_DBs/{self.study_name}.db"
 
         # Sampler TPE (Tree-structured Parzen Estimator) es ideal para hiperparámetros
         sampler = TPESampler(seed=self.seed, multivariate=True)
-        pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=3)
+        no_patience_pruner = HyperbandPruner(min_resource=5, max_resource=50, reduction_factor=3)
+        pruner = PatientPruner(no_patience_pruner, patience=5)
+
+        storage_url = self.reports_dir / "study_DBs" / f"{self.study_name}.db"
+        storage_url.parent.mkdir(parents=True, exist_ok=True)
 
         study = optuna.create_study(
             study_name=self.study_name,
-            storage=storage_url,
+            storage=f"sqlite:///{storage_url}",
             direction="minimize",
             sampler=sampler,
             pruner=pruner,
@@ -264,11 +268,22 @@ class PGenTuner:
 
             def callback(study, trial):
                 pbar.update(1)
-                if study.best_trials:
+                if study.best_trial:
                     best_trial = study.best_trial
-                    postfix = f" Trial: {best_trial.number} | Best Loss: {best_trial.value:.4f}"
-                    # pbar.set_postfix(best_loss=f" {study.best_value:.4f}")
-                    pbar.set_postfix_str(postfix)
+                    best_trial_params = [f"{k}: {v}" for k, v in best_trial.params.items()]
+                    postfix = {
+                        "Trial": best_trial.number,
+                        "Best Loss": f"{best_trial.value:.4f}",
+                        "Params": " ".join(best_trial_params),
+                    }
+                    pbar.set_postfix(postfix)
+
+
+                #if study.best_trials:
+                #    best_trial = study.best_trial
+                 #   postfix = f" Trial: {best_trial.number} | Best Loss: {best_trial.value:.4f}"
+                  #  # pbar.set_postfix(best_loss=f" {study.best_value:.4f}")
+                   # pbar.set_postfix_str(postfix)
 
             study.optimize(
                 self.objective,
@@ -344,7 +359,7 @@ class PGenTuner:
 
 
 # Entry Point Simplificado
-def run_optuna_study(model_name: str, csv_path: Union[str, Path], n_trials: int = 50):
+def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50):
     tuner = PGenTuner(model_name=model_name, csv_path=csv_path)
     study = tuner.run_tuning(n_trials=n_trials)
 

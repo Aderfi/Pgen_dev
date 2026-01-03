@@ -61,11 +61,10 @@ sys.path.append(str(PROJECT_ROOT))
 # --- Imports del Proyecto ---
 from src.config.manager import DIRS
 from src.interface.cli import main_menu_loop
+from src.modeling.engine.predictor import PGenPredictor
 from src.modeling.engine.tuner import run_optuna_study
 from src.pipeline import train_pipeline
-from src.modeling.engine.predictor import PGenPredictor
 from src.utils.logger import setup_logging
-from src.utils.system import check_environment_and_setup
 
 # Constantes
 DATE_STAMP = datetime.now().strftime("%Y-%m-%d")

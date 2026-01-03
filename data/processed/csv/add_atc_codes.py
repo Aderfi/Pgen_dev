@@ -1,9 +1,5 @@
-import csv
 import json
-import os
-import sys
 
-import numpy as np
 import pandas as pd
 
 # Configura tus rutas
@@ -41,9 +37,10 @@ pd.DataFrame(inversed_dictio)
 ################################## Hasta aqui todo funciona perfecto --------------------------------
 # print(inversed_dictio)
 
-with open(csv_input, "r", encoding="utf-8") as infile, open(
-    csv_output, "w", newline="", encoding="utf-8"
-) as outfile:
+with (
+    open(csv_input, "r", encoding="utf-8") as infile,
+    open(csv_output, "w", newline="", encoding="utf-8") as outfile,
+):
     data_df = pd.read_csv(infile, delimiter=";")
 
     data_df.insert(0, "ATC", "provis")  # Añade la nueva columna al DataFrame

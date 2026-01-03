@@ -18,19 +18,21 @@
 # Copyright (C) 2025 Adrim Hamed Outmani
 
 import logging
-from typing import Any, Dict, List, Optional
 from pathlib import Path
+from typing import Any, Dict, List
+
 import tomli
 
 from src.config.manager import CFG_FILE, MODELS_FILE
 
 logger = logging.getLogger(__name__)
 
+
 class ModelConfigLoader:
     """
     Responsible for loading, merging, and parsing model configurations.
     """
-    
+
     @staticmethod
     def _load_toml(path: Path) -> Dict[str, Any]:
         with open(path, "rb") as f:
@@ -58,16 +60,16 @@ class ModelConfigLoader:
 
         # 2. Specific Layer
         model_specific = models_data[model_name]
-        
+
         # Separate special sections
         optuna_params = model_specific.pop("optuna", {})
         params_override = model_specific.pop("params", {})
-        
+
         # Merge Top-level (features, targets)
         final_config.update(model_specific)
         # Merge Params
         final_config.update(params_override)
-        
+
         # 3. Parse Optuna
         final_config["params_optuna"] = cls._parse_optuna_section(optuna_params)
 
@@ -79,7 +81,12 @@ class ModelConfigLoader:
         parsed = {}
         for k, v in raw_dict.items():
             # Convert list [0.1, 0.5] to tuple for ranges
-            if isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) for x in v) and v[0] != "int":
+            if (
+                isinstance(v, list)
+                and len(v) == 2
+                and all(isinstance(x, (int, float)) for x in v)
+                and v[0] != "int"
+            ):
                 parsed[k] = tuple(v)
             else:
                 parsed[k] = v
@@ -90,4 +97,6 @@ class ModelConfigLoader:
         required = ["features", "targets"]
         for r in required:
             if r not in config:
-                raise ValueError(f"Config for '{name}' is missing required field: '{r}'")
+                raise ValueError(
+                    f"Config for '{name}' is missing required field: '{r}'"
+                )

@@ -5,12 +5,12 @@
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import optuna
 import torch
 import torch.nn as nn
-import optuna
-from torch.utils.data import DataLoader
-from torch.amp.grad_scaler import GradScaler
 from torch.amp.autocast_mode import autocast
+from torch.amp.grad_scaler import GradScaler
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.config.manager import DIRS
@@ -148,10 +148,10 @@ class PGenTrainer:
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
         
-        if self.from_optuna == True:
+        if self.from_optuna:
             progress_iteration = loader
         else:
-            progress_iteration = tqdm(loader, desc="Train", leave=False):
+            progress_iteration = tqdm(loader, desc="Train", leave=False)
 
         for batch in progress_iteration:
             self.optimizer.zero_grad(set_to_none=True)

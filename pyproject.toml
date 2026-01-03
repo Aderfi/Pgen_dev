@@ -85,7 +85,7 @@ train = ["optuna>=3.0.0", "matplotlib>=3.7.0"]
 
 # Dependencias para desarrollo (formato, linting)
 # Se instalan con: pip install ".[dev]"
-dev = ["black", "isort", "mypy", "pytest"]
+dev = ["ruff"]
 
 [project.urls]
 "Homepage" = "https://github.com/Aderfi/pharmagen_pmodel"           # Opcional
@@ -102,22 +102,81 @@ include = ["*"] # Incluye todos los paquetes encontrados dentro de src
 # CONFIGURACIÓN DE HERRAMIENTAS DE CALIDAD DE CÓDIGO
 # =============================================================================
 
-# Configuración para Black (Formateador de código)
-[tool.black]
-line-length = 100
-target-version = ['py310']
-include = '\.pyi?$'
+[tool.ruff]
+# Excluir directorios comúnmente ignorados.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv_pgen",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
 
-# Configuración para Isort (Ordenador de importaciones)
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 100
-known_first_party = ["src"]
+# Configuración básica (similar a Black)
+line-length = 88
+indent-width = 4
+target-version = "py310"
 
-# Configuración para Mypy (Chequeo de tipos estáticos)
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
+[tool.ruff.lint]
+# Habilitar reglas de Pyflakes (F), pycodestyle (E, W) e isort (I)
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = []
+
+# Permitir arreglos automáticos para todas las reglas habilitadas.
+fixable = ["ALL"]
+unfixable = []
+
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Usar comillas dobles (estilo Black)
+quote-style = "double"
+# Indentar con espacios
+indent-style = "space"
+# Respetar comas finales
+skip-magic-trailing-comma = false
+# Detección automática de finales de línea
+line-ending = "auto"
+
+[tool.pyright]
+# 1. Scope
+include = ["src"]
+exclude = ["**/node_modules", "**/__pycache__"]
+
+# 2. Strictness Level
+# "basic" is standard. "strict" causes the errors you saw.
+typeCheckingMode = "basic"
+
+# 3. Rule Overrides (The "Fix")
+# Downgrade "Operator not supported" from Error to Warning or Information
+reportOperatorIssue = "warning"
+# Downgrade "Unknown type" issues (common in Pandas)
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+
+# 4. Environment
+# If you use a virtualenv, tell Pyright where it is (optional but recommended)
+venvPath = "."
+venv = ".venv_pgen"

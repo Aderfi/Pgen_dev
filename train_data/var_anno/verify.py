@@ -1,5 +1,7 @@
-import pandas as pd
 from typing import cast
+
+import pandas as pd
+
 # Mapeo de Genotipos/Fenotipos a rsIDs (Marcadores principales)
 # Basado en PharmVar, CPIC y PharmGKB (Actualizado 2024-2025)
 
@@ -165,7 +167,7 @@ genotype_to_rsid = {
     "CYP2C9*49": "rs28371685",
     "TPMT*5": "rs1800462",
     "CYP2B6*9": "rs3211371",
-    "Panama": "rs1050828|rs1050829", # Referencia a G6PD
+    "Panama": "rs1050828|rs1050829",  # Referencia a G6PD
     "HLA-A*01:01": "rs2523589",
     "NAT2*16": "rs1799930",
     "UGT2B7": "rs7439366",
@@ -177,7 +179,7 @@ genotype_to_rsid = {
     "HLA-B*35:01": "rs2523589",
     "NUDT15*4": "rs116855232",
     "ABCG2 poor metabolizer": "rs2231142",
-    "CYP3A5 intermediate metabolizers": "rs776746", # Heterocigoto *1/*3
+    "CYP3A5 intermediate metabolizers": "rs776746",  # Heterocigoto *1/*3
     "CYP2D6 poor and ultrarapid metabolizers": "rs3892097|rs35742686|Structural_Duplication",
     "HLA-DPB1*10:01": "rs9277534",
     "TPMT*22": "rs146039121",
@@ -221,8 +223,8 @@ genotype_to_rsid = {
     "CYP2C9*50": "rs28371685",
     "CYP3A4*7": "rs28374030",
     "CYP2A6*46": "rs113710861",
-    "poor metabolizer genotype": "Check_Specific_Gene", # Genérico
-    "low activity": "Check_Specific_Gene", # Genérico
+    "poor metabolizer genotype": "Check_Specific_Gene",  # Genérico
+    "low activity": "Check_Specific_Gene",  # Genérico
     "CYP3A7*1C": "rs10211",
     "HLA-DRB5*01:01": "rs3129889",
     "CYP2D6*84": "rs121908999",
@@ -298,7 +300,7 @@ genotype_to_rsid = {
     "CYP2E1*7A": "rs2031920",
     "DPYD c.2872A>G": "rs1801160",
     "SLCO1B1 low activity": "rs4149056|rs2306283",
-    "Sassari": "rs1050828", # Variante G6PD
+    "Sassari": "rs1050828",  # Variante G6PD
     "CYP2C19*28": "rs12248560",
     "NAT2*30": "rs1801280",
     "CYP2D6 poor metabolizers": "rs3892097|rs35742686|rs5030655|rs5030656|rs5030657",
@@ -317,7 +319,7 @@ genotype_to_rsid = {
     "HLA-DRB1*14:05": "rs3129889",
     "NAT1*11A": "rs15561",
     "CYP3A4*13": "rs28374030",
-    "chr1:97306236 (GRCh38)": "rs3918290", # DPYD*2A
+    "chr1:97306236 (GRCh38)": "rs3918290",  # DPYD*2A
     "HLA-DRB1*04:10": "rs3129889",
     "HLA-B*13:02": "rs2523589",
     "CYP2C8*3": "rs11572080|rs10509681",
@@ -362,7 +364,7 @@ genotype_to_rsid = {
     "HLA-A*31:03": "rs2523589",
     "CYP3A4 low activity": "rs35599367",
     "CYP2D6 poor metabolizer": "rs3892097|rs35742686|rs5030655",
-    "Birmingham": "rs5030656", # Variante específica CYP2D6
+    "Birmingham": "rs5030656",  # Variante específica CYP2D6
     "HLA-A*32:01": "rs2523589",
     "TPMT*30": "rs146039121",
     "CYP2B6*19": "rs28399499",
@@ -612,8 +614,8 @@ genotype_to_rsid = {
     "NUDT15*3": "rs116855232",
     "NUDT15*9": "rs147390019",
     "UGT1A6*4a": "rs2288730",
-    "Dallas": "rs1050828", # Variante G6PD
-    "Cagliari": "rs5030868", # Variante G6PD
+    "Dallas": "rs1050828",  # Variante G6PD
+    "Cagliari": "rs5030868",  # Variante G6PD
     "CYP2C19*14": "rs4986893",
     "CYP3A7*1A": "REF_SEQ",
     "CYP2A6*19": "rs113710861",
@@ -627,7 +629,7 @@ genotype_to_rsid = {
     "CYP2D6*4x2": "rs3892097|Structural_Duplication",
     "CYP3A4*22": "rs35599367",
     "CYP2B6*17": "rs28399499",
-    "CYP2D6*15": "rs5030656", # Inserción característica
+    "CYP2D6*15": "rs5030656",  # Inserción característica
     "CYP2D6*11": "rs5030658",
     "Gene_Conversion": "Structural_Variation_CYP2D6_CYP2D7",
     "CYP2D6*41": "rs28371725",
@@ -654,8 +656,8 @@ genotype_to_rsid = {
     "CYP2D6*38": "rs1065852",
     "CYP2D6*34": "rs1065852",
     "CYP2D6*4": "rs3892097",
-    "UGT1A1*36": "rs3064744", # Variante de repeticiones TA (TA5)
-    "UGT1A1*28": "rs3064744", # Variante de repeticiones TA (TA7)
+    "UGT1A1*36": "rs3064744",  # Variante de repeticiones TA (TA5)
+    "UGT1A1*28": "rs3064744",  # Variante de repeticiones TA (TA7)
     "CYP2C9*3": "rs1057910",
     "CYP2C19*3": "rs4986893",
     "SLCO1B1*5": "rs4149056",
@@ -672,43 +674,57 @@ genotype_to_rsid = {
     "CYP2C9*24": "rs11523237",
     "CYP2D6*2x2": "rs16947|Structural_Duplication",
     "CYP2D6*69": "rs121908999",
-    "CYP2D6*39": "rs1065852"
+    "CYP2D6*39": "rs1065852",
 }
 
-IN_F='super_duper_ready_data.tsv'
-OUT_F="ultra_ready_data.tsv"
+IN_F = "super_duper_ready_data.tsv"
+OUT_F = "ultra_ready_data.tsv"
+
 
 def map_allele_to_rs(box_value):
     rsids = []
-    if '|' in box_value:
-        alleles = box_value.split('|')
+    if "|" in box_value:
+        alleles = box_value.split("|")
         rsids = [genotype_to_rsid.get(a, a) for a in alleles]
         rsids = cast(list[str], rsids)
-        return '|'.join(rsids)
+        return "|".join(rsids)
     else:
         return genotype_to_rsid.get(box_value, box_value)
 
-df = pd.read_csv(IN_F, sep='\t')
+
+df = pd.read_csv(IN_F, sep="\t")
 
 new_df = df.copy()
 new_df["genotype"] = df["genotype"].apply(map_allele_to_rs)
 
-print(new_df['genotype'].sample(10))
-new_df.to_csv(OUT_F, sep='\t', index=False)
+print(new_df["genotype"].sample(10))
+new_df.to_csv(OUT_F, sep="\t", index=False)
 
 lista_val = new_df["genotype"].unique().tolist()
 
 lista_cleaned = []
 for val in lista_val:
-    if '|' in val:
-        lista_cleaned.extend(val.split('|'))
+    if "|" in val:
+        lista_cleaned.extend(val.split("|"))
     else:
         lista_cleaned.append(val)
 
 lista_val = list(set(lista_cleaned))
-lista_not_mapped = [i for i in lista_val if i not in genotype_to_rsid.values() and not i.startswith('rs') and i not in ['REF_SEQ', 'Gene_Deletion', 'Gene_Presence', 'Structural_Duplication', 'Check_Specific_Gene']]
+lista_not_mapped = [
+    i
+    for i in lista_val
+    if i not in genotype_to_rsid.values()
+    and not i.startswith("rs")
+    and i
+    not in [
+        "REF_SEQ",
+        "Gene_Deletion",
+        "Gene_Presence",
+        "Structural_Duplication",
+        "Check_Specific_Gene",
+    ]
+]
 
-with open("not_mapped.txt", 'w') as f:
+with open("not_mapped.txt", "w") as f:
     for item in lista_not_mapped:
         f.write(f"{item}\n")
-

@@ -15,15 +15,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import json
-import logging
 import os
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
-from src.config.manager import DIRS, METADATA, PROJECT_ROOT, VERSION
+from src.config.manager import DIRS, PROJECT_ROOT, VERSION
 
 CONFIG_FILE = Path("asaver")
 
@@ -41,6 +39,7 @@ def welcome_message():
     """
     print(msg)
 
+
 def check_system_config() -> Dict[str, Any]:
     """Carga o crea el archivo de estado del sistema."""
     CONFIG_FILE = Path("asaver")
@@ -49,29 +48,28 @@ def check_system_config() -> Dict[str, Any]:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            pass # Si falla, recreamos
-            
+            pass  # Si falla, recreamos
+
     # Default Config
-    config = {
-        "version": VERSION,
-        "os": os.name,
-        "setup_completed": False
-    }
+    config = {"version": VERSION, "os": os.name, "setup_completed": False}
     save_system_config(config)
     return config
+
 
 def save_system_config(config: Dict[str, Any]):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 
+
 def is_venv_active() -> bool:
     """Detecta si estamos corriendo dentro de un entorno virtual (Venv o Conda)."""
     # Check standard venv
-    is_base = (sys.prefix == sys.base_prefix)
+    is_base = sys.prefix == sys.base_prefix
     # Check Conda
-    is_conda = 'CONDA_DEFAULT_ENV' in sys.modules.get('os').environ # type: ignore
-    
+    is_conda = "CONDA_DEFAULT_ENV" in sys.modules.get("os").environ  # type: ignore
+
     return (not is_base) or is_conda
+
 
 def check_environment_and_setup():
     """
@@ -80,18 +78,21 @@ def check_environment_and_setup():
     """
     # 1. Verificar si es la primera ejecución (Flag File)
     flag_file = PROJECT_ROOT / "src" / "cfg" / "venv_setup_true"
-    
+
     if not flag_file.exists():
-        print("\n" + "!"*60)
+        print("\n" + "!" * 60)
         print(" ⚠️  PRIMERA EJECUCIÓN DETECTADA O ENTORNO NO CONFIGURADO")
-        print("!"*60)
+        print("!" * 60)
         print("\nEs necesario configurar los directorios y dependencias.")
-        input(">> Pulse [ENTER] para iniciar el asistente de configuración (setup.py)...")
-        
+        input(
+            ">> Pulse [ENTER] para iniciar el asistente de configuración (setup.py)..."
+        )
+
         try:
             # Importación dinámica para evitar errores circulares o si setup no existe
             # Como main.py añade PROJECT_ROOT al path, esto debería funcionar
             import scripts.init_env
+
             scripts.init_env.main()
         except ImportError:
             print("❌ Error: No se encontró 'setup.py' en la raíz del proyecto.")
@@ -99,23 +100,30 @@ def check_environment_and_setup():
         except Exception as e:
             print(f"❌ Error crítico durante el setup: {e}")
             sys.exit(1)
-            
+
         print("\n✅ Setup finalizado. Iniciando Pharmagen...\n")
         time.sleep(1)
 
     # 2. Verificar Versión de Python (Warning)
     if sys.version_info < (3, 10) or sys.version_info >= (3, 11):
-        print(f"⚠️  ADVERTENCIA: Estás usando Python {sys.version_info.major}.{sys.version_info.minor}.")
-        print("   Este software fue diseñado para Python 3.10. Pueden ocurrir errores.\n")
+        print(
+            f"⚠️  ADVERTENCIA: Estás usando Python {sys.version_info.major}.{sys.version_info.minor}."
+        )
+        print(
+            "   Este software fue diseñado para Python 3.10. Pueden ocurrir errores.\n"
+        )
         time.sleep(2)
 
     # 3. Verificar Entorno Virtual Activo
     if not is_venv_active():
         print("⚠️  ADVERTENCIA: No se detectó un entorno virtual activo.")
-        print("   Se recomienda ejecutar este software dentro de un entorno 'venv' o 'conda'.")
+        print(
+            "   Se recomienda ejecutar este software dentro de un entorno 'venv' o 'conda'."
+        )
         choice = input("   ¿Desea continuar de todos modos? (s/n): ").lower()
-        if choice != 's':
+        if choice != "s":
             sys.exit(0)
+
 
 if __name__ == "__main__":
     welcome_message()

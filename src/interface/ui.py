@@ -24,21 +24,17 @@ from pathlib import Path
 from typing import Optional
 
 
-import sys
-import threading
-import time
-import itertools
-from pathlib import Path
-from typing import Optional
-
 class Spinner:
     """
     Context Manager for console loading animations.
     """
+
     def __init__(self, message: str = "Processing..."):
         self.message = message
         self.stop_running = False
-        self.spinner_chars = itertools.cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
+        self.spinner_chars = itertools.cycle(
+            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        )
         self.thread: Optional[threading.Thread] = None
 
     def _spin(self):
@@ -47,7 +43,7 @@ class Spinner:
             sys.stdout.flush()
             time.sleep(0.1)
         # Clear line
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')
+        sys.stdout.write("\r" + " " * (len(self.message) + 2) + "\r")
         sys.stdout.flush()
 
     def __enter__(self):
@@ -60,10 +56,12 @@ class Spinner:
         if self.thread:
             self.thread.join()
 
+
 class ConsoleIO:
     """
     Static helper for Console Input/Output operations.
     """
+
     @staticmethod
     def print_header(title: str):
         print("\n" + "═" * 60)
@@ -79,18 +77,20 @@ class ConsoleIO:
         print(f"❌ {msg}")
 
     @staticmethod
-    def input_path(prompt: str, default: Optional[Path] = None, must_exist: bool = True) -> Path:
+    def input_path(
+        prompt: str, default: Optional[Path] = None, must_exist: bool = True
+    ) -> Path:
         while True:
             default_str = f" [{default}]" if default else ""
             path_str = input(f"{prompt}{default_str}: ").strip()
-            
+
             if not path_str and default:
                 return default
-            
+
             if not path_str:
                 ConsoleIO.print_error("A path is required.")
                 continue
-                
+
             path = Path(path_str)
             if must_exist and not path.exists():
                 ConsoleIO.print_error(f"Path does not exist: {path}")

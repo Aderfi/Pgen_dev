@@ -1,6 +1,5 @@
 import json
 
-import numpy as np  # Es buena práctica importarlo
 import pandas as pd
 
 # 1. Cargar los datos

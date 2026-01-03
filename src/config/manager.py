@@ -1,10 +1,10 @@
 # Pharmagen - Configuration Manager
 # Adheres to Zen of Python: Explicit is better than implicit.
 
-import sys
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 # TOML Parser (Compatibility wrapper)
@@ -37,9 +37,11 @@ try:
 except FileNotFoundError as e:
     sys.exit(f"CRITICAL: Missing configuration file: {e}")
 
+
 def _resolve(path_str: str) -> Path:
     """Resolves paths relative to PROJECT_ROOT."""
     return PROJECT_ROOT / path_str
+
 
 # Exported Constants (Flat structure for easy import)
 METADATA = _GLOBAL_CFG.get("metadata", {})
@@ -49,7 +51,7 @@ DATE_STAMP = datetime.now().strftime("%Y_%m_%d")
 
 # Directory Map
 DIRS = {
-    "base": PROJECT_ROOT, # Added explicit base
+    "base": PROJECT_ROOT,  # Added explicit base
     "data": _resolve(_PATHS_CFG["base"]["data"]),
     "logs": _resolve(_PATHS_CFG["base"]["logs"]),
     "results": _resolve(_PATHS_CFG["base"]["results"]),
@@ -69,8 +71,10 @@ MULTI_LABEL_COLS = set(_GLOBAL_CFG.get("project", {}).get("multi_label_cols", []
 # 2. MODEL CONFIGURATION LOGIC
 # =============================================================================
 
+
 def get_available_models() -> List[str]:
     return list(_MODELS_CFG.keys())
+
 
 def _parse_optuna_param(val: Any) -> Any:
     """
@@ -85,6 +89,7 @@ def _parse_optuna_param(val: Any) -> Any:
         if len(val) == 2 and all(isinstance(x, (int, float)) for x in val):
             return tuple(val)
     return val
+
 
 def get_model_config(model_name: str) -> Dict[str, Any]:
     """
@@ -101,7 +106,7 @@ def get_model_config(model_name: str) -> Dict[str, Any]:
 
     # 2. Update with specific model config
     model_data = _MODELS_CFG[model_name].copy()
-    
+
     # 3. Update params if present
     if "params" in model_data:
         final_config["params"].update(model_data.pop("params").items())
@@ -111,15 +116,16 @@ def get_model_config(model_name: str) -> Dict[str, Any]:
         final_config["params_optuna"] = {
             k: _parse_optuna_param(v) for k, v in model_data.pop("optuna").items()
         }
-    
+
     final_config.update(model_data)
-    
+
     # 3. Validation
     required_keys = ["features", "targets"]
     if not all(k in final_config for k in required_keys):
         raise ValueError(f"Model config requires {required_keys}")
 
     return final_config
+
 
 if __name__ == "__main__":
     print(f"Pharmagen Config Manager v{VERSION}")
@@ -128,7 +134,7 @@ if __name__ == "__main__":
     model_choice = get_available_models()[0]
     print(f"Sample Config for '{model_choice}':")
     import pprint
+
     print("=" * 40)
     print("=" * 40)
     pprint.pprint(get_model_config(model_choice))
-    

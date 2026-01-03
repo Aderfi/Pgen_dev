@@ -31,7 +31,6 @@ print("Translation complete. Output saved to ATC_drugs_en.json.")
 """
 
 import csv
-import json
 
 with open("ATC_completo_ESP.csv", "r", encoding="utf-8") as f:
     ATC_farmaco = csv.reader(f, delimiter=";")
@@ -42,7 +41,6 @@ with open("list_drugs.txt", "w", encoding="utf-8") as f:
     f.write("\n".join(str(drug[0]) for drug in drugs_list))
 
 import csv
-import json
 
 """
 # Build translation dict from ESP_ENG_Drugs.csv

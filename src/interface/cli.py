@@ -112,7 +112,8 @@ def _run_standard_training(model_name: str, csv_path: Path):
 
 
 def _run_optuna_training(model_name: str, csv_path: Path):
-    from src.modeling.engine.tuner import run_optuna_study
+    from src.modeling.engine.tuner_paralel import run_optuna_study
+    #from src.modeling.engine.tuner import run_optuna_study
 
     trials_str = input("Number of Trials [default -> 50]: ").strip()
     n_trials = int(trials_str) if trials_str.isdigit() else 50

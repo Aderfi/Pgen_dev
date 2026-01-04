@@ -26,6 +26,8 @@ use_batch_norm = false
 use_layer_norm = false
 early_stopping_patience = 15
 scheduler_type = "plateau"
+
+[extended_params]
 #==== Paramétros de arquitectura extendida =========
 attention_dropout = 0.1
 num_attention_layers = 1

@@ -83,7 +83,7 @@ class PGenTuner:
         Abstrae los métodos de sugerencia de Optuna.
         """
         suggestions = {}
-        optuna_conf = self.cfg.get("optuna", {})
+        optuna_conf = self.cfg.get("params_optuna", {})
 
         for param_name, args in optuna_conf.items():
             if not isinstance(args, list) or len(args) == 0:
@@ -117,13 +117,11 @@ class PGenTuner:
         Instancia Modelo, Dataset y Trainer frescos para cada trial.
         """
         # 1. Configuración de Hiperparámetros
-        params = self.cfg["params"].copy()
-        params.update(self._suggest_params(trial))
+        params = self._suggest_params(trial)
+        #params.update(self._suggest_params(trial))
 
         batch_size = int(params.get("batch_size", 64))
-        epochs = int(
-            self.cfg["params_optuna"].get("epochs", 15)
-        )  # Epochs reducidos por defecto para tuning
+        epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
 
         # 2. Construcción de Datasets (Reutilizando encoders para consistencia)
         # Nota: preload_ram=False ahorra memoria en la GPU si los grafos son muchos

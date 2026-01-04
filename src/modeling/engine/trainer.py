@@ -211,14 +211,15 @@ class PGenTrainer:
             if v_loss < self.best_loss:
                 self.best_loss = v_loss
                 self.patience_counter = 0
-                self._save_checkpoint("best_model.pth")
+                if not self.from_optuna:
+                    self._save_checkpoint("best_model.pth")
             else:
                 self.patience_counter += 1
                 if self.patience_counter >= patience:
                     logger.info("Early stopping triggered.")
                     break
-        
-        self._load_checkpoint("best_model.pth")
+        if not self.from_optuna:
+            self._load_checkpoint("best_model.pth")
         return self.best_loss
 
     def _save_checkpoint(self, name: str):

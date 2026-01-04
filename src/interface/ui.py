@@ -35,7 +35,7 @@ class Spinner:
         self.spinner_chars = itertools.cycle(
             ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         )
-        self.thread: Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
 
     def _spin(self):
         while not self.stop_running:
@@ -78,7 +78,7 @@ class ConsoleIO:
 
     @staticmethod
     def input_path(
-        prompt: str, default: Optional[Path] = None, must_exist: bool = True
+        prompt: str, default: Path | None = None, must_exist: bool = True
     ) -> Path:
         while True:
             default_str = f" [{default}]" if default else ""

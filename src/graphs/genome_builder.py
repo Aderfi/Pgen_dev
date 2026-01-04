@@ -17,13 +17,13 @@ class GenomeGraphBuilder:
     Implementa lógica de agrupación por posición (groupby) para manejar sitios multi-alélicos.
     """
 
-    def __init__(self, parquet_path: Union[str, Path]):
+    def __init__(self, parquet_path: str | Path):
         print(f"📂 Cargando librería genómica: {parquet_path}")
         self.library = pd.read_parquet(parquet_path)
 
     def build_gene_graph(
-        self, gene_name: str, output_json_path: Optional[Union[str, Path]] = None
-    ) -> Optional[nx.MultiDiGraph]:
+        self, gene_name: str, output_json_path: str | Path | None = None
+    ) -> nx.MultiDiGraph | None:
         # 1. Filtrar variantes del gen
         df_gene = self.library[self.library["gene_context"] == gene_name].copy()
         if df_gene.empty:
@@ -134,9 +134,9 @@ class GenomeGraphBuilder:
     def build_denoised_gene_graph(
         self,
         gene_name: str,
-        output_json_path: Optional[Union[str, Path]] = None,
+        output_json_path: str | Path | None = None,
         only_functional: bool = True,
-    ) -> Optional[nx.MultiDiGraph]:
+    ) -> nx.MultiDiGraph | None:
         """
         only_functional: Si es True, filtra variantes con Activity Score == 1.0 (Benignas)
                          o que no sean exónicas/importantes.

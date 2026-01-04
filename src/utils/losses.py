@@ -115,13 +115,13 @@ class MultiTaskUncertaintyLoss(nn.Module):
     Loss = Loss_i * exp(-sigma_i) + sigma_i
     """
 
-    def __init__(self, tasks: List[str]):
+    def __init__(self, tasks: list[str]):
         super().__init__()
         self.log_sigmas = nn.ParameterDict(
             {t: nn.Parameter(torch.zeros(1)) for t in tasks}
         )
 
-    def forward(self, losses: Dict[str, torch.Tensor]):
+    def forward(self, losses: dict[str, torch.Tensor]):
         total_loss = 0.0
         for task, loss in losses.items():
             sigma = self.log_sigmas[task]

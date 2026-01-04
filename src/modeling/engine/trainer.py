@@ -28,10 +28,10 @@ class PGenTrainer:
         optimizer: torch.optim.Optimizer,
         scheduler: Any,
         device: torch.device,
-        target_cols: List[str],
-        multi_label_cols: Set[str],
-        params: Dict[str, Any],
-        uncertainty_module: Optional[MultiTaskUncertaintyLoss] = None,
+        target_cols: list[str],
+        multi_label_cols: set[str],
+        params: dict[str, Any],
+        uncertainty_module: MultiTaskUncertaintyLoss | None = None,
         from_optuna: bool = False,
     ):
         self.model = model
@@ -68,7 +68,7 @@ class PGenTrainer:
             device=device
         )
 
-    def _setup_criterions(self) -> Dict[str, nn.Module]:
+    def _setup_criterions(self) -> dict[str, nn.Module]:
         """
         Refactorización: Delegación a Factoría.
         Ahora utiliza la lógica híbrida (Asymmetric/Focal) y los parámetros de Optuna.
@@ -84,7 +84,7 @@ class PGenTrainer:
             device=self.device
         )
 
-    def _compute_step(self, batch: Dict[str, Any]) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def _compute_step(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
         """
         Computes forward pass, loss, and metrics for the Dual Graph model.
         Expects batch dict from DoubleTowerCollater:
@@ -114,7 +114,7 @@ class PGenTrainer:
         # 4. Loss & Metrics
         return self._calculate_loss_and_metrics(outputs, targets) # type: ignore
 
-    def _calculate_loss_and_metrics(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]) -> Tuple[Any, Dict[str, float]]:
+    def _calculate_loss_and_metrics(self, outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor]) -> tuple[Any, dict[str, float]]:
         """Shared loss and metric calculation."""
         # 1. Compute Losses
         losses_per_task = {}
@@ -177,7 +177,7 @@ class PGenTrainer:
             
         return {k: v / n_batches for k, v in total_metrics.items()}
 
-    def validate(self, loader: DataLoader) -> Dict[str, float]:
+    def validate(self, loader: DataLoader) -> dict[str, float]:
         self.model.eval()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)

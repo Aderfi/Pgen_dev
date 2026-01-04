@@ -100,7 +100,7 @@ def smiles_to_graph_complete(smiles):
     return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
 
 
-df_dict = json.load(open("cid_smiles_dict.json", "r"))
+df_dict = json.load(open("cid_smiles_dict.json"))
 
 
 def create_lmdb_library(json_path, lmdb_path, map_size=1099511627776):  # 1 TB
@@ -111,7 +111,7 @@ def create_lmdb_library(json_path, lmdb_path, map_size=1099511627776):  # 1 TB
 
     # 1. Cargar diccionario de SMILES
     print("Cargando diccionario JSON...")
-    with open(json_path, "r") as f:
+    with open(json_path) as f:
         df_dict = json.load(f)
 
     # 2. Abrir entorno LMDB

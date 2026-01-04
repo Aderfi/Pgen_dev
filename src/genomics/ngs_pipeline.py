@@ -48,8 +48,7 @@ class BioToolExecutor:
                 command,
                 shell=True,
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 cwd=str(PROJECT_ROOT),
             )
@@ -87,7 +86,7 @@ class ProcessRawGenome(BioToolExecutor):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def run_fastqc(self, fastq_files: List[Path], step_name: str = "pre_qc"):
+    def run_fastqc(self, fastq_files: list[Path], step_name: str = "pre_qc"):
         """Ejecuta FastQC para análisis de calidad."""
         out_dir = self.output_dir / step_name
         out_dir.mkdir(exist_ok=True)
@@ -98,7 +97,7 @@ class ProcessRawGenome(BioToolExecutor):
         self._run_cmd(cmd, f"FastQC ({step_name})")
         return out_dir
 
-    def run_fastp(self, r1: Path, r2: Path, sample_name: str) -> Dict[str, Path]:
+    def run_fastp(self, r1: Path, r2: Path, sample_name: str) -> dict[str, Path]:
         """Ejecuta FastP para limpieza de adaptadores y calidad."""
         clean_dir = self.output_dir / "clean_reads"
         clean_dir.mkdir(exist_ok=True)

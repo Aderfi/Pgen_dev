@@ -519,7 +519,7 @@ def worker_validate_row(row):
         if GLOBAL_GENE_TREES and chrom in GLOBAL_GENE_TREES:
             matches = GLOBAL_GENE_TREES[chrom].at(pos)
             if matches:
-                names = sorted(list(set([m.data["gene"] for m in matches])))
+                names = sorted(list({m.data["gene"] for m in matches}))
                 return names[0]
         return "Intergenic"
 
@@ -821,7 +821,7 @@ class GenomicGraphBuilder:
 
         return clean
 
-    def _build_gene_index(self) -> Dict:
+    def _build_gene_index(self) -> dict:
         comp = "gzip" if str(self.gff_path).endswith(".gz") else None
         try:
             df = pd.read_csv(
@@ -1648,7 +1648,7 @@ def main(args):
                 f"\t El gen {test_gene} tiene grafos generados para {count_snps} SNPs."
             )
             with open(
-                GENE_OUT_DIR / test_gene / ".txt", "r", encoding="utf-8"
+                GENE_OUT_DIR / test_gene / ".txt", encoding="utf-8"
             ) as info_f:
                 info_content = info_f.read()
                 print(f"\t Información del gen:\n{info_content}")

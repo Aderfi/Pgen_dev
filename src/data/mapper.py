@@ -17,10 +17,10 @@ class DrugLoader:
     """
 
     def __init__(
-        self, drugs_dir: Union[str, Path] = PROJECT_ROOT / "library" / "drugs"
+        self, drugs_dir: str | Path = PROJECT_ROOT / "library" / "drugs"
     ):
         self.drugs_dir = Path(drugs_dir)
-        self.cache: Dict[str, Data] = {}  # { 'drug_id': Data(...) }
+        self.cache: dict[str, Data] = {}  # { 'drug_id': Data(...) }
         self._load_all_drugs()
 
     def _load_all_drugs(self):
@@ -71,8 +71,8 @@ def map_variant_row_to_data(row: pd.Series, id_col: str = "variant_id") -> Data:
 
 
 def map_drugs_to_data(
-    df: pd.DataFrame, drug_col: str, drug_graphs_dir: Union[str, Path]
-) -> Dict[str, Data]:
+    df: pd.DataFrame, drug_col: str, drug_graphs_dir: str | Path
+) -> dict[str, Data]:
     """
     Mapea IDs de fármacos a sus respectivos objetos Data cargados desde disco.
 

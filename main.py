@@ -135,7 +135,7 @@ def main():
                 print("❌ Error: --model y --input son obligatorios en modo 'predict'")
                 sys.exit(1)
 
-            logger.info("Iniciando predicción headless: {}".format(args.model))
+            logger.info(f"Iniciando predicción headless: {args.model}")
             predictor = PGenPredictor(args.model)
             results = predictor.predict_file(args.input)
 

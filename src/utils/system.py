@@ -40,12 +40,12 @@ def welcome_message():
     print(msg)
 
 
-def check_system_config() -> Dict[str, Any]:
+def check_system_config() -> dict[str, Any]:
     """Carga o crea el archivo de estado del sistema."""
     CONFIG_FILE = Path("asaver")
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE) as f:
                 return json.load(f)
         except json.JSONDecodeError:
             pass  # Si falla, recreamos
@@ -56,7 +56,7 @@ def check_system_config() -> Dict[str, Any]:
     return config
 
 
-def save_system_config(config: Dict[str, Any]):
+def save_system_config(config: dict[str, Any]):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 

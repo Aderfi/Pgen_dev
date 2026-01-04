@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def train_pipeline(
-    model_name: str, csv_path: Union[str, Path], epochs: int = 50, batch_size: int = 32
+    model_name: str, csv_path: str | Path, epochs: int = 50, batch_size: int = 32
 ):
     """
     Standard training pipeline

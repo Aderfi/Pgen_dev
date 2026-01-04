@@ -4,12 +4,11 @@ from functools import lru_cache
 from rapidfuzz import fuzz, process
 
 
-@lru_cache(maxsize=512)  # Reduced from 1024 to prevent memory issues
+@lru_cache(maxsize=512)
 def normalize_drug_names(name: str) -> str:
     """
     Optimized: Normalize drug names with caching for repeated lookups.
-    Cache size of 512 balances performance and memory usage.
-    Cache stores up to 512 unique drug names which is sufficient for most databases.
+    Cache size of 512 balances performance and memory usage for typical drug databases.
     """
     return name.strip().lower().replace(" ", "_")
 

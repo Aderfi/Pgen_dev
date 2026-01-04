@@ -311,11 +311,11 @@ class DoubleTowerDataset(Dataset):
                 if col in self.encoders:
                     # TRANSFORM MODE
                     le = self.encoders[col]
-                    known_classes = set(le.classes_)
+                    known_classes_set = set(le.classes_)
                     
                     # Vectorized unknown class handling
                     processed_data = raw_series.where(
-                        raw_series.isin(known_classes), "Unknown"
+                        raw_series.isin(known_classes_set), "Unknown"
                     ).values
 
                     try:

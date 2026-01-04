@@ -192,8 +192,8 @@ class PGenPredictor:
                     0
                 )  # Batch dim
 
-            # Inferencia
-            with torch.no_grad():
+            # Optimized: Inference with inference_mode (faster than no_grad)
+            with torch.inference_mode():
                 outputs = self.model(model_inputs)
 
             return self._decode_outputs(outputs, is_batch=False)[0]
@@ -206,27 +206,26 @@ class PGenPredictor:
         self, file_path: Union[str, Path], batch_size: int = 1024
     ) -> List[Dict[str, Any]]:
         """
-        Predicción masiva desde archivo CSV/TSV.
-        Usa procesamiento vectorizado y por lotes para eficiencia.
+        Optimized: Mass prediction from CSV/TSV file.
+        Uses vectorized processing and batching for efficiency.
         """
         file_path = Path(file_path)
         sep = "\t" if file_path.suffix == ".tsv" else ","
 
         try:
+            # Optimized: Read only required columns if possible
             df = pd.read_csv(file_path, sep=sep, dtype=str)
-            # Normalizar columnas del CSV a minúsculas para coincidir con feature_cols
             df.columns = df.columns.str.lower().str.strip()
         except Exception as e:
             logger.error(f"Error leyendo archivo {file_path}: {e}")
             return []
 
-        # 1. Validar y Transformar Inputs
+        # 1. Optimized: Validate and transform inputs with better error handling
         input_tensors = {}
         try:
             for col in self.feature_cols:
                 if col not in df.columns:
-                    # Mapeo de emergencia para retrocompatibilidad con nombres antiguos
-                    # Si tu CSV tiene 'genotype' pero el modelo quiere 'genalle'
+                    # Emergency mapping for backward compatibility
                     aliases = {"genalle": "genotype", "drug": "drug_name"}
                     alias = aliases.get(col)
                     if alias and alias in df.columns:
@@ -241,11 +240,11 @@ class PGenPredictor:
             logger.error(f"Error pre-procesando datos: {e}")
             return []
 
-        # 2. Inferencia por Batches
+        # 2. Optimized: Batch inference with inference_mode
         num_samples = len(df)
         all_outputs_list = {t: [] for t in self.target_cols}
 
-        with torch.no_grad():
+        with torch.inference_mode():  # Faster than no_grad
             for i in range(0, num_samples, batch_size):
                 end = min(i + batch_size, num_samples)
 

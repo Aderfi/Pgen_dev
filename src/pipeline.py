@@ -88,23 +88,30 @@ def train_pipeline(
     logger.info(f"Dimensions Detected -> Drug: {drug_dim}, Haplo: {haplo_dim}")
     logger.info(f"Target Dimensions: {target_dims}")
 
-    # 5. DataLoaders
+    # 5. DataLoaders - Optimized settings
     collater = DoubleTowerCollater()
+    
+    # Optimized: Use persistent_workers and prefetch_factor for better throughput
+    # Adjust num_workers based on CPU cores (4 is good for most systems)
+    dataloader_kwargs = {
+        "collate_fn": collater,
+        "num_workers": 4,
+        "pin_memory": True,
+        "persistent_workers": True,  # Keeps workers alive between epochs
+        "prefetch_factor": 2,  # Preload 2 batches per worker
+    }
+    
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collater,
-        num_workers=4,
-        pin_memory=True,
+        **dataloader_kwargs,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=collater,
-        num_workers=4,
-        pin_memory=True,
+        **dataloader_kwargs,
     )
 
     # 6. Model Initialization
@@ -125,9 +132,16 @@ def train_pipeline(
         target_dims=target_dims,
         params=cfg["params"],
     ).to(device)
+    
+    # Optimized: Compile model for PyTorch 2.0+ (significant speedup)
+    # Comment out if using PyTorch < 2.0
+    # try:
+    #     model = torch.compile(model, mode="default")
+    #     logger.info("Model compiled with torch.compile for better performance")
+    # except Exception as e:
+    #     logger.warning(f"torch.compile not available: {e}")
 
     # 7. Trainer Setup
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["params"]["learning_rate"])
     uncertainty_net = LossFactory.create_uncertainty_wrapper(
         tasks=cfg["targets"], device=device
     )

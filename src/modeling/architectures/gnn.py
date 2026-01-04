@@ -73,25 +73,24 @@ class GATv2Tower(nn.Module):
             # 1. Message Passing (Attention)
             x = self.convs[i](x, edge_index, edge_attr=edge_attr)
 
-            # 2. Skip Connection (Residual) + BatchNorm + Activation
-            # Proyectamos la entrada original si las dimensiones no coinciden para la suma residual
+            # 2. Optimized: Skip Connection (Residual) + BatchNorm + Activation
+            # Use inplace operations where safe for memory efficiency
             if self.skips[i] is not None:
                 x_in = self.skips[i](x_in)
 
             x = x + x_in
             x = self.norms[i](x, batch)
-            x = F.elu(x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = F.elu(x, inplace=True)  # Inplace operation for memory efficiency
+            x = F.dropout(x, p=self.dropout, training=self.training, inplace=False)
 
-        # 3. Global Pooling (Readout) - Convierte nodo-level a grafo-level
-        if self.pooling == "mean":
-            x_graph = global_mean_pool(x, batch)
-        elif self.pooling == "add":
-            x_graph = global_add_pool(x, batch)
-        elif self.pooling == "max":
-            x_graph = global_max_pool(x, batch)
-        else:
-            x_graph = global_mean_pool(x, batch)
+        # 3. Optimized: Global Pooling with dictionary lookup
+        pooling_ops = {
+            "mean": global_mean_pool,
+            "add": global_add_pool,
+            "max": global_max_pool,
+        }
+        pool_fn = pooling_ops.get(self.pooling, global_mean_pool)
+        x_graph = pool_fn(x, batch)
 
         # 4. Final Projection
         return self.post_pool_mlp(x_graph)

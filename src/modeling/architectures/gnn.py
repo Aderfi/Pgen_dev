@@ -187,10 +187,10 @@ class PharmagenTwoTower(nn.Module):
         """
 
         # Validaciones básicas
-        if not (hasattr(drug_data, "x") and hasattr(drug_data, "edge_index")):
-            raise ValueError(
-                "El objeto drug_data no tiene la estructura de grafo necesaria (x, edge_index)"
-            )
+        #if not (hasattr(drug_data, "x") and hasattr(drug_data, "edge_index")):
+        #    raise ValueError(
+        #        "El objeto drug_data no tiene la estructura de grafo necesaria (x, edge_index)"
+        #    )
 
         # 1. Forward Torre Fármaco
         # Extraemos atributos de aristas si existen, si no None
@@ -201,10 +201,10 @@ class PharmagenTwoTower(nn.Module):
             batch=drug_data.batch,
         )
 
-        if not (hasattr(haplo_data, "x") and hasattr(haplo_data, "edge_index")):
-            raise ValueError(
-                "El objeto haplo_data no tiene la estructura de grafo necesaria (x, edge_index)"
-            )
+        #if not (hasattr(haplo_data, "x") and hasattr(haplo_data, "edge_index")):
+        #    raise ValueError(
+        #        "El objeto haplo_data no tiene la estructura de grafo necesaria (x, edge_index)"
+        #    )
 
         # 2. Forward Torre Haplotipo (GATv2)
         haplo_emb = self.haplo_tower(

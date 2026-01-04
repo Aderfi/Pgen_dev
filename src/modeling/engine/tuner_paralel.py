@@ -79,7 +79,7 @@ class PGenTuner:
             f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
 
-    def _calculate_parallel_jobs(self, estimated_vram_per_trial_gb: float = 3.5) -> int:
+    def _calculate_parallel_jobs(self, estimated_vram_per_trial_gb: float = 2.3) -> int:
         """
         Calcula n_jobs basado en la RTX 4070 Ti Super (16GB) y CPU disponible.
         """
@@ -393,7 +393,7 @@ def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50):
     print(os.getcwd())
 
     tuner = PGenTuner(model_name=model_name, csv_path=csv_path)
-    study = tuner.run_tuning(n_trials=n_trials, n_jobs=None)
+    study = tuner.run_tuning(n_trials=n_trials, n_jobs=6)
 
     print(f"\n[Optuna] Best Params: {study.best_params}")
 

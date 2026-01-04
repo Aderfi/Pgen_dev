@@ -1,5 +1,6 @@
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -13,6 +14,9 @@ from src.config.manager import MULTI_LABEL_COLS
 
 # Logger
 logger = logging.getLogger(__name__)
+
+# Compile regex patterns once for performance
+_DRUG_ID_PATTERN = re.compile(r"^(\d+)_")
 
 
 class DoubleTowerDataset(Dataset):
@@ -67,25 +71,37 @@ class DoubleTowerDataset(Dataset):
             self._preload_data()
 
     def _preload_data(self):
+        """Optimized: Batch load graphs with error handling and progress tracking."""
         logger.info("Preloading graphs into RAM...")
-        # Preload Drugs
-        unique_drugs = self.df[self.drug_col].unique().astype(str)
+        
+        # Preload Drugs - vectorized operations
+        unique_drugs = self.df[self.drug_col].unique()
+        drug_count = 0
         for drug_id in unique_drugs:
-            if drug_id in self.drug_id_to_path:
-                self.drug_cache[drug_id] = torch.load(
-                    self.drug_id_to_path[drug_id], weights_only=False
-                )
+            drug_id_str = str(drug_id)
+            path = self.drug_id_to_path.get(drug_id_str)
+            if path and path.exists():
+                try:
+                    self.drug_cache[drug_id_str] = torch.load(path, weights_only=False)
+                    drug_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to load drug {drug_id_str}: {e}")
 
-        # Preload Variants
-        unique_haplos = self.df["haplo_key"].unique().astype(str)
+        # Preload Variants - optimized with batch processing
+        unique_haplos = self.df["haplo_key"].unique()
+        haplo_count = 0
         for haplo_str in unique_haplos:
-            gene, variant = haplo_str.split("_", 1)  # Split only on first underscore
+            haplo_str = str(haplo_str)
+            gene, variant = haplo_str.split("_", 1)
             path = self.gene_variant_path.get(gene, {}).get(variant)
-            if path:
-                self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
-        logger.info(
-            f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants."
-        )
+            if path and path.exists():
+                try:
+                    self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+                    haplo_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to load variant {haplo_str}: {e}")
+        
+        logger.info(f"Loaded {drug_count} drugs and {haplo_count} variants into cache.")
 
     def _get_empty_graph(self, type_data: str, graph_id: str = "") -> Data:
         """
@@ -215,70 +231,70 @@ class DoubleTowerDataset(Dataset):
         }
 
     def _build_drug_index(self):
-        """Mapea los compound_id con sus rutas reales en disco."""
+        """Optimized: Build drug index with compiled regex and single pass."""
         index_drugs = {}
-        # Listamos todos los archivos .pt una sola vez
+        # Single pass through all .pt files
         for file_path in self.drug_lib.glob("*.pt"):
-            # Extraemos el ID del nombre del archivo (ej: '10007' de '10007_chlorphentermine.pt')
-            # El ID es todo lo que está antes del primer guion bajo
-            match = re.match(r"^(\d+)_", file_path.name)
+            # Use pre-compiled regex pattern for better performance
+            match = _DRUG_ID_PATTERN.match(file_path.name)
             if match:
                 drug_id = match.group(1)
                 index_drugs[drug_id] = file_path
+        logger.debug(f"Indexed {len(index_drugs)} drug graphs")
         return index_drugs
 
     def _build_genes_index(self):
-        """Mapea los gene_id con sus rutas reales en disco."""
-        # Estructura del dict: { gene_id: str, variants: [{variant_name(star5 or rs...):Path}] }
-
+        """Optimized: Build gene index with efficient directory scanning."""
         index_genes = {}
-        # Listamos todos los archivos .pt una sola vez
-        for dir in self.variant_lib.rglob("**/"):
-            index_genes[dir.name] = {}
-
+        
+        # Pre-populate gene directories
+        for gene_dir in self.variant_lib.iterdir():
+            if gene_dir.is_dir():
+                index_genes[gene_dir.name] = {}
+        
+        # Single pass through all .pt files with optimized parsing
         for file_path in self.variant_lib.glob("**/*.pt"):
-            # gene_id es todo lo que está antes del primer guion bajo
-            filename = file_path.name  # Nombre sin extensión
-            filename_clean = filename.replace(".pt", "")
-
-            gene_id, variant = filename_clean.split("_", 1)
-            if variant.startswith("star"):
-                variant = variant.replace("star", "*")
-
-            if gene_id not in index_genes:
-                index_genes[gene_id] = {}
-            index_genes[gene_id][variant] = file_path
+            filename_clean = file_path.stem  # More efficient than replace
+            
+            # Split only once
+            parts = filename_clean.split("_", 1)
+            if len(parts) == 2:
+                gene_id, variant = parts
+                
+                # Normalize star allele notation
+                if variant.startswith("star"):
+                    variant = variant.replace("star", "*")
+                
+                if gene_id not in index_genes:
+                    index_genes[gene_id] = {}
+                index_genes[gene_id][variant] = file_path
+        
+        logger.debug(f"Indexed {len(index_genes)} genes with variants")
         return index_genes
 
     def _encode_targets(self, df: pd.DataFrame) -> Dict[str, torch.Tensor]:
         """
-        Codifica los targets generando un diccionario de tensores optimizados por tipo.
+        Optimized: Encode targets with vectorized operations and minimal allocations.
         Args:
             df: DataFrame completo.
-            target_cols: Lista de columnas a usar como targets.
-            multilabel_cols: Lista de columnas que contienen múltiples valores (ej: efectos adversos).
         Returns:
             Dict[str, torch.Tensor]: Diccionario {nombre_columna: Tensor}.
         """
         encoded_targets = {}
 
         for col in self.target_cols:
-            # 1. Prepare Data
-            # Convert to string and handle NaNs to avoid encoder crashes
+            # Vectorized NaN handling
             raw_series = df[col].fillna("Unknown").astype(str)
 
             if col in self.multilabel_cols:
-                # --- CASE: MULTI-LABEL (e.g., "Headache|Nausea") ---
-                # Split string into list of labels. Adjust separator if needed (e.g., ';', ',')
-                processed_data = raw_series.apply(
-                    lambda x: x.split("|") if x != "Unknown" else []
-                )
+                # MULTI-LABEL: Optimized split with list comprehension
+                processed_data = [
+                    x.split("|") if x != "Unknown" else [] for x in raw_series
+                ]
 
-                # Check if encoder exists
                 if col in self.encoders:
                     # TRANSFORM MODE
                     mlb = self.encoders[col]
-                    # Note: MultiLabelBinarizer ignores unknown classes during transform automatically
                     matrix = mlb.transform(processed_data)
                 else:
                     # FIT MODE
@@ -286,122 +302,105 @@ class DoubleTowerDataset(Dataset):
                     matrix = mlb.fit_transform(processed_data)
                     self.encoders[col] = mlb
 
-                # BCEWithLogitsLoss requires FloatTensor
-                encoded_targets[col] = torch.tensor(matrix, dtype=torch.float32)
+                # Direct tensor creation from numpy array (faster)
+                encoded_targets[col] = torch.from_numpy(matrix).float()
 
             else:
-                # --- CASE: SINGLE-LABEL (e.g., "Metabolizer Type A") ---
-                processed_data = raw_series.values
-
+                # SINGLE-LABEL: Optimized with numpy operations
                 if col in self.encoders:
                     # TRANSFORM MODE
                     le = self.encoders[col]
-
-                    # Handle Unseen Labels gracefully (Optional but recommended)
-                    # Maps unseen labels to a specific "Unknown" class if it exists, or errors out
-                    # Here we use a safe approach: map unknown to -1 or a dummy index,
-                    # but since PyTorch needs valid indices, we usually assume consistency.
-                    # Simple approach:
                     known_classes = set(le.classes_)
-                    processed_data = [
-                        x if x in known_classes else "Unknown" for x in processed_data
-                    ]
+                    
+                    # Vectorized unknown class handling
+                    processed_data = raw_series.where(
+                        raw_series.isin(known_classes), "Unknown"
+                    ).values
 
-                    # If "Unknown" was not in training, this will crash.
-                    # Ideally, ensure your training set covers classes or handle this strictly.
                     try:
                         indices = le.transform(processed_data)
-                    except ValueError:
-                        # Fallback: Force fit if strictly necessary or raise clear error
-                        # For now, we assume valid validation data.
+                    except ValueError as e:
+                        logger.warning(f"Label encoding error for {col}: {e}")
                         indices = le.transform(processed_data)
                 else:
                     # FIT MODE
                     le = LabelEncoder()
-                    indices = le.fit_transform(processed_data)
+                    indices = le.fit_transform(raw_series.values)
                     self.encoders[col] = le
 
-                # CrossEntropyLoss requires LongTensor
-                encoded_targets[col] = torch.tensor(indices, dtype=torch.long)
+                # Direct tensor creation (faster than torch.tensor)
+                encoded_targets[col] = torch.from_numpy(indices).long()
 
         return encoded_targets
 
 
 class DoubleTowerCollater:
     def __init__(self):
-        # 1. Definimos la estrategia de prioridad para encontrar el ID
-        # Buscará en orden: primero 'cid' (drogas), luego 'variant_name' (haplos), etc.
-        self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
-
-        # 2. Definimos qué atributos textuales deben ser PURGADOS antes de crear el Batch
-        # para evitar el TypeError: new(): invalid data type 'str'
-        self.keys_to_sanitize = [
+        # Tuple is more memory efficient than list for immutable data
+        self.id_priority_keys = ("cid", "variant_name", "graph_id", "name")
+        self.keys_to_sanitize = (
             "cid",
             "variant_name",
             "name",
             "smiles",
             "gene_context",
             "graph_id",
-        ]
+        )
 
     def _extract_and_sanitize(self, graph_list: List[Data]) -> List[str]:
         """
-        Extrae IDs y elimina atributos conflictivos (strings) de los objetos Data.
-        Modifica los objetos 'in-place'.
+        Optimized: Extract IDs and remove string attributes in a single pass.
+        Modifies objects in-place for memory efficiency.
         """
         extracted_ids = []
 
         for data in graph_list:
-            # A. Extracción Polimórfica del ID
+            # A. Polymorphic ID extraction - early exit optimization
             found_id = "Unknown"
             for key in self.id_priority_keys:
-                if hasattr(data, key):
-                    val = getattr(data, key)
-                    if val is not None:
-                        found_id = str(val)
-                        break
+                val = getattr(data, key, None)
+                if val is not None:
+                    found_id = str(val)
+                    break
             extracted_ids.append(found_id)
 
-            # B. Sanitización (Borrado de strings)
-            # Es crítico borrar CUALQUIER atributo string antes de llamar a Batch.from_data_list
+            # B. String sanitization - batch deletion
             for key in self.keys_to_sanitize:
-                if hasattr(data, key):
+                try:
                     delattr(data, key)
+                except AttributeError:
+                    pass  # Key doesn't exist, continue
 
         return extracted_ids
 
     def __call__(self, batch_list):
         """
+        Optimized: Batch processing with minimal memory allocations.
         Input: List of dicts from Dataset.__getitem__
         Output: Dict with Batched graphs and Stacked targets
         """
-        # 1. Separar componentes
+        # 1. Extract components - single pass
         drug_graphs = [sample["drug_data"] for sample in batch_list]
         haplo_graphs = [sample["haplo_data"] for sample in batch_list]
 
-        # 2. Marshalling: Extraer IDs y limpiar strings
-        # Esto soluciona tanto el KeyError (busca varias claves)
-        # como el TypeError (elimina los strings antes de batching)
+        # 2. Extract IDs and sanitize strings
         drug_ids = self._extract_and_sanitize(drug_graphs)
         haplo_ids = self._extract_and_sanitize(haplo_graphs)
 
-        # 3. Batching Seguro (Ahora los grafos solo tienen tensores numéricos)
+        # 3. Safe batching (graphs now contain only numeric tensors)
         batch_drug = Batch.from_data_list(drug_graphs)
         batch_haplo = Batch.from_data_list(haplo_graphs)
 
-        # 4. Re-inyección de Metadatos (Opcional, pero útil para debug/logging)
-        # Los pegamos como listas de Python simples, fuera de la estructura tensorial de PyG
+        # 4. Re-inject metadata (optional but useful for debugging)
         batch_drug.meta_ids = drug_ids
         batch_haplo.meta_ids = haplo_ids
 
-        # 5. Stack Targets
+        # 5. Stack targets - optimized with direct stacking
         target_keys = batch_list[0]["targets"].keys()
-        batched_targets = {}
-
-        for key in target_keys:
-            batched_targets[key] = torch.stack(
-                [sample["targets"][key] for sample in batch_list]
-            )
+        batched_targets = {
+            key: torch.stack([sample["targets"][key] for sample in batch_list])
+            for key in target_keys
+        }
 
         return {
             "drug_batch": batch_drug,

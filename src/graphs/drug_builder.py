@@ -1,4 +1,5 @@
 import io
+from functools import lru_cache
 from typing import cast
 
 import matplotlib.pyplot as plt
@@ -12,51 +13,46 @@ from rdkit.Chem import Atom, rdchem
 from rdkit.Chem.Draw import rdMolDraw2D
 from torch_geometric.data import Data
 
-# Definición de valores permitidos para las características atómicas y de enlace
+# Pre-define allowed values as constants for reuse
+ALLOWED_DEGREES = [0, 1, 2, 3, 4]
+ALLOWED_CHARGES = [-2, -1, 0, 1, 2]
+ALLOWED_HYBRIDIZATIONS = [
+    rdchem.HybridizationType.SP,
+    rdchem.HybridizationType.SP2,
+    rdchem.HybridizationType.SP3,
+    rdchem.HybridizationType.SP3D,
+    rdchem.HybridizationType.SP3D2,
+]
+ALLOWED_TOTAL_HS = [0, 1, 2, 3, 4]
+ALLOWED_CHIRAL_TAGS = [
+    rdchem.ChiralType.CHI_UNSPECIFIED,
+    rdchem.ChiralType.CHI_TETRAHEDRAL_CW,
+    rdchem.ChiralType.CHI_TETRAHEDRAL_CCW,
+]
+ALLOWED_BOND_TYPES = [
+    rdchem.BondType.SINGLE,
+    rdchem.BondType.DOUBLE,
+    rdchem.BondType.TRIPLE,
+    rdchem.BondType.AROMATIC,
+]
 
 
 def one_hot_encoding(value, options, allow_unknown=True):
+    """Optimized: Pre-allocate list for better performance."""
     if value not in options:
         if allow_unknown:
-            # Todo ceros y un 1 al final para 'Desconocido'
             return [0] * len(options) + [1]
-        else:
-            # Comportamiento fallback: Asumir el último o el primero (según preferencia)
-            # Aquí optamos por devolver todo ceros si no es estricto
-            return [0] * len(options)
+        return [0] * len(options)
 
-    encoded = [0] * len(options)
-    if allow_unknown:
-        encoded.append(0)  # Espacio para el bit de 'unknown'
-
+    # Optimized: Use list comprehension with enumerate
+    size = len(options) + (1 if allow_unknown else 0)
+    encoded = [0] * size
     encoded[options.index(value)] = 1
     return encoded
 
 
 def smiles_to_graph_complete(smiles) -> None | Data:
-    # Definición de valores permitidos
-    ALLOWED_DEGREES = [0, 1, 2, 3, 4]
-    ALLOWED_CHARGES = [-2, -1, 0, 1, 2]
-    ALLOWED_HYBRIDIZATIONS = [
-        rdchem.HybridizationType.SP,
-        rdchem.HybridizationType.SP2,
-        rdchem.HybridizationType.SP3,
-        rdchem.HybridizationType.SP3D,
-        rdchem.HybridizationType.SP3D2,
-    ]
-    ALLOWED_TOTAL_HS = [0, 1, 2, 3, 4]
-    ALLOWED_CHIRAL_TAGS = [
-        rdchem.ChiralType.CHI_UNSPECIFIED,
-        rdchem.ChiralType.CHI_TETRAHEDRAL_CW,
-        rdchem.ChiralType.CHI_TETRAHEDRAL_CCW,
-    ]
-    ALLOWED_BOND_TYPES = [
-        rdchem.BondType.SINGLE,
-        rdchem.BondType.DOUBLE,
-        rdchem.BondType.TRIPLE,
-        rdchem.BondType.AROMATIC,
-    ]
-
+    """Optimized: Use pre-defined constants and efficient tensor operations."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None

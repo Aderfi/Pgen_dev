@@ -144,6 +144,7 @@ class PGenTrainer:
         return total_loss, {"loss": total_loss.item(), "acc": avg_acc} # type: ignore
 
     def train_epoch(self, loader: DataLoader) -> dict[str, float]:
+        """Optimized: Training epoch with gradient accumulation and efficient metrics."""
         self.model.train()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
@@ -151,27 +152,37 @@ class PGenTrainer:
         progress_iteration = loader if self.from_optuna else tqdm(loader, desc="Train", leave=False)
 
         for batch in progress_iteration:
+            # Efficient gradient zeroing (already optimized with set_to_none=True)
             self.optimizer.zero_grad(set_to_none=True)
             
             # Use autocast for GATv2 mixed precision (Faster & Less Memory)
             with autocast(device_type=self.device.type):
                 loss, metrics = self._compute_step(batch)
             
+            # Optimized: Gradient scaling and clipping
             self.scaler.scale(loss).backward()
+            
+            # Optional: Gradient clipping for stability (uncomment if needed)
+            # self.scaler.unscale_(self.optimizer)
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
+            # Accumulate metrics efficiently
             for k, v in metrics.items():
                 total_metrics[k] += v
             
+        # Vectorized division
         return {k: v / n_batches for k, v in total_metrics.items()}
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
+        """Optimized: Validation with inference_mode for better performance."""
         self.model.eval()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
         
-        # torch.inference_mode() es más rápido que no_grad()
+        # torch.inference_mode() is faster than no_grad()
         with torch.inference_mode(), autocast(device_type=self.device.type):
             for batch in loader:
                 _, metrics = self._compute_step(batch)

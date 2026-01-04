@@ -43,9 +43,8 @@ class GenomeGraphBuilder:
 
         print(f"🧬 Construyendo grafo para {gene_name}...")
 
-        # 2. AGRUPAR POR POSICIÓN (Core Logic para MultiDiGraph)
-        # Agrupamos todas las variantes que ocurren en la misma coordenada POS
-        grouped_variants = df_gene.groupby("POS")
+        # 2. OPTIMIZED: Group by position without sorting for better performance
+        grouped_variants = df_gene.groupby("POS", sort=False)
 
         for pos, group in grouped_variants:
             pos = cast(int, pos)
@@ -185,9 +184,8 @@ class GenomeGraphBuilder:
 
         print(f"🧬 Construyendo grafo para {gene_name}...")
 
-        # 2. AGRUPAR POR POSICIÓN (Core Logic para MultiDiGraph)
-        # Agrupamos todas las variantes que ocurren en la misma coordenada POS
-        grouped_variants = df_gene.groupby("POS")
+        # 2. OPTIMIZED: Group by position without sorting for better performance
+        grouped_variants = df_gene.groupby("POS", sort=False)
 
         for pos, group in grouped_variants:
             pos = cast(int, pos)

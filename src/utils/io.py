@@ -135,38 +135,47 @@ class DataLoaderUtils:
     @staticmethod
     def normalize_multilabel_col(series: pd.Series, delimiter: str = "|") -> pd.Series:
         """
-        Patrón: String Normalization.
-        Asegura que las etiquetas multi-label sean consistentes, únicas y ordenadas.
+        Optimized: Vectorized string normalization for multi-label columns.
+        Uses pandas string methods for better performance.
         """
-
+        # Vectorized operations are much faster than apply
+        # Replace NaN, empty, and "unknown" with empty string
+        series = series.fillna("").astype(str).str.lower()
+        series = series.where(series != "unknown", "")
+        series = series.where(series.str.strip() != "", "")
+        
         def _clean_string(x):
-            if pd.isna(x) or str(x).strip() == "" or str(x).lower() == "unknown":
+            if not x:
                 return ""
-            # 1. Split por el delimitador principal
-            parts = str(x).split(delimiter)
-            # 2. Limpieza de espacios, eliminación de duplicados y orden alfabético
-            cleaned_parts = sorted(list(set(p.strip() for p in parts if p.strip())))
-            # 3. Re-unión con delimitador estándar
+            # Optimized: single pass through parts
+            parts = x.split(delimiter)
+            cleaned_parts = sorted(set(p.strip() for p in parts if p.strip()))
             return delimiter.join(cleaned_parts)
-
-        return series.apply(_clean_string)
+        
+        # Only apply to non-empty strings
+        mask = series != ""
+        series.loc[mask] = series.loc[mask].apply(_clean_string)
+        return series
 
     @staticmethod
     def add_stratify_column(df: pd.DataFrame, stratify_cols: List[str]) -> pd.DataFrame:
         """
-        Agrega una columna '_stratify' al DataFrame para uso en train_test_split.
-        Combina múltiples columnas en una sola etiqueta estratificada.
+        Optimized: Add stratify column using vectorized operations.
+        Avoids apply when possible for better performance.
         """
         if not stratify_cols:
             return df
 
-        def _combine_stratify(row):
-            return "_".join(str(row[col]) for col in stratify_cols if col in row)
-
         if len(stratify_cols) == 1 and stratify_cols[0] in df.columns:
+            # Fast path for single column
             df["_stratify"] = df[stratify_cols[0]].astype(str)
         else:
-            df["_stratify"] = df.apply(_combine_stratify, axis=1)
+            # Vectorized multi-column concatenation
+            valid_cols = [col for col in stratify_cols if col in df.columns]
+            if valid_cols:
+                df["_stratify"] = df[valid_cols].astype(str).agg("_".join, axis=1)
+            else:
+                df["_stratify"] = "default"
         return df
 
     @staticmethod

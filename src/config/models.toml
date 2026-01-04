@@ -46,7 +46,7 @@ dropout_rate = ["float", 0.1, 0.5]
 ### --- Optimización (Training Loop) --- ###
 
 # "log"
-learning_rate = ["log", 1e-5, 5e-2]
+learning_rate = ["log", 1e-5, 1e-3]
 weight_decay = ["log", 1e-6, 1e-3]
 
 # Batch size afecta la generalización y el uso de VRAM.

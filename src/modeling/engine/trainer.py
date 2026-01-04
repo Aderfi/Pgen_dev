@@ -34,7 +34,13 @@ class PGenTrainer:
         uncertainty_module: Optional[MultiTaskUncertaintyLoss] = None,
         from_optuna: bool = False,
     ):
-        self.model = model
+        self.model = torch.compile(
+                model, 
+                mode="default", 
+                dynamic=True,
+                backend="inductor" # Explícito para Linux/Debian
+            )
+        
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.device = device
@@ -158,6 +164,9 @@ class PGenTrainer:
                 loss, metrics = self._compute_step(batch)
             
             self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
+            nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
@@ -187,6 +196,15 @@ class PGenTrainer:
         
         for epoch in range(1, epochs + 1):
             t_metrics = self.train_epoch(train_loader)
+            
+            # Deteccion temprana de fallo int y purgado del mismo.
+            if torch.isnan(torch.tensor(t_metrics["loss"])):
+                logger.warning(f"Trial pruned due to NaN loss at epoch {epoch}")
+                if trial:
+                    raise optuna.TrialPruned("Loss is NaN")
+                else:
+                    return float("inf")
+                        
             v_metrics = self.validate(val_loader)
             
             v_loss = v_metrics["loss"]

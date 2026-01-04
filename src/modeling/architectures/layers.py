@@ -3,11 +3,14 @@
 # Tower A: Drug (Molecular Graph)
 # Tower B: Haplotype/Genome (Interaction Graph using GATv2)
 
+import logging
 from typing import Any
 
 from torch import nn
 
 from .gnn import PharmagenTwoTower
+
+logger = logging.getLogger(__name__)
 
 MODEL_ARCHITECTURES = {
     "DeepFM": None,  # Placeholder for other models
@@ -28,11 +31,11 @@ def create_model(
 
     # Extracción segura de parámetros con valores por defecto
     try:
-        embedding_dim = params.get("embedding_dim")
-        hidden_dim = params.get("hidden_dim")
-        dropout = params.get("dropout_rate")
-        layers = params.get("n_layers")
-        heads = params.get("heads")
+        embedding_dim: int = params.get("embedding_dim")
+        hidden_dim: int = params.get("hidden_dim")
+        dropout: float = params.get("dropout_rate")
+        layers: int = params.get("n_layers")
+        heads: int = params.get("heads")
     except KeyError as e:
         raise KeyError(f"Missing model parameter: {e}")
     except Exception as e:
@@ -65,11 +68,12 @@ def create_gnn_model(
     """
 
     try:
-        embedding_dim = params.get("embedding_dim")
-        hidden_dim = params.get("hidden_dim")
-        dropout = params.get("dropout_rate")
-        layers = params.get("n_layers")
-        heads = params.get("heads")
+        embedding_dim: int = params.get("embedding_dim")
+        hidden_dim: int = params.get("hidden_dim")
+        dropout: float = params.get("dropout_rate")
+        layers: int = params.get("n_layers")
+        heads: int = params.get("heads")
+
     except KeyError as e:
         raise KeyError(f"Missing model parameter: {e}")
     except Exception as e:

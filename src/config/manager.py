@@ -180,7 +180,7 @@ def get_model_config(model_name: str) -> dict[str, Any]:
     # Process Optuna params if present
     if "optuna" in model_data:
         final_config["params_optuna"] = {
-            k: _parse_optuna_param(v) for k, v in model_data.pop("optuna").items()
+            k: v for k, v in model_data.pop("optuna").items()
         }
 
     final_config.update(model_data)
@@ -205,3 +205,5 @@ if __name__ == "__main__":
     logger.debug("=" * 40)
     config = get_model_config(model_choice)
     logger.debug(config)
+    logger.debug("=" * 40)
+    logger.debug("\n\n\tOptuna Params: \n %s", config["params"])  # For quick inspection

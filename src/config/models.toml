@@ -28,7 +28,7 @@ haplo_idx = 2    # Use 0 if you did NOT apply the edge fix in all_in_one.py
 # These define the range/choices for the Tuner
 [TwoTowerGAT.optuna]
 ### --- Arquitectura (GNN & Towers) --- ###
-patience = 15
+patience = 5
 epochs = 50
 # "categorical" 
 embedding_dim = ["categorical", 64, 128, 256, 512]

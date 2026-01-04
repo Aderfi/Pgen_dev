@@ -21,15 +21,15 @@ class DoubleTowerDataset(Dataset):
         df: pd.DataFrame,
         drug_col: str,
         haplo_col: str,
-        target_cols: List[str],
-        multilabel_cols: List[str],
-        encoders: Optional[
+        target_cols: list[str],
+        multilabel_cols: list[str],
+        encoders: None | (
             dict
-        ] = None,  # Pass pre-fitted encoders here to ensure consistency across Train/Val/Test
+        ) = None,  # Pass pre-fitted encoders here to ensure consistency across Train/Val/Test
         drug_lib: Path = Path("./src/library/drugs"),
         variant_lib: Path = Path("./src/library/gene_graphs"),
         preload_ram: bool = False,
-        input_dimensions: Dict[str, int] = {},
+        input_dimensions: dict[str, int] = {},
         type_data: str | None = None,
         inference_mode: bool = False,
     ):
@@ -258,7 +258,7 @@ class DoubleTowerDataset(Dataset):
             index_genes[gene_id][variant] = file_path
         return index_genes
 
-    def _encode_targets(self, df: pd.DataFrame) -> Dict[str, torch.Tensor]:
+    def _encode_targets(self, df: pd.DataFrame) -> dict[str, torch.Tensor]:
         """
         Codifica los targets generando un diccionario de tensores optimizados por tipo.
         Args:
@@ -348,7 +348,7 @@ class DoubleTowerCollater:
         self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
         self.keys_to_sanitize = ["cid", "variant_name", "name", "smiles", "gene_context", "graph_id"]
 
-    def _sanitize_fast(self, graph_list: List[Data]) -> List[str]:
+    def _sanitize_fast(self, graph_list: list[Data]) -> list[str]:
         """
         Extrae IDs y elimina atributos conflictivos (strings) de los objetos Data.
         Modifica los objetos 'in-place'.

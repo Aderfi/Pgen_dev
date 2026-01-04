@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 
-def create_drug_cache(library_path: Optional[Path]) -> dict:
+def create_drug_cache(library_path: Path | None) -> dict:
     drug_name_cache = {}
 
     library_path = Path("library/drugs") if not library_path else library_path

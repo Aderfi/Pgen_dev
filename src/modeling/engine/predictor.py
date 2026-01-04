@@ -46,7 +46,7 @@ class PGenPredictor:
     Carga el modelo y los encoders una sola vez para realizar predicciones eficientes.
     """
 
-    def __init__(self, model_name: str, device: Optional[str] = None):
+    def __init__(self, model_name: str, device: str | None = None):
         self.model_name = model_name
         self.device = torch.device(
             device if device else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -69,7 +69,7 @@ class PGenPredictor:
         self.model = self._load_model()
         self.model.eval()
 
-    def _load_encoders(self) -> Dict[str, Union[LabelEncoder, MultiLabelBinarizer]]:
+    def _load_encoders(self) -> dict[str, LabelEncoder | MultiLabelBinarizer]:
         """Carga los encoders y parchea el token desconocido."""
         enc_path = Path(MODEL_ENCODERS_DIR) / f"encoders_{self.model_name}.pkl"
 
@@ -171,7 +171,7 @@ class PGenPredictor:
             encoded, dtype=torch.long
         )  # Se mueve a GPU por batches luego
 
-    def predict_single(self, input_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def predict_single(self, input_dict: dict[str, Any]) -> dict[str, Any] | None:
         """
         Predicción para una sola muestra (input_dict).
         Ej: {'drug': 'Aspirin', 'gene': 'CYP2D6', ...}
@@ -203,8 +203,8 @@ class PGenPredictor:
             return None
 
     def predict_file(
-        self, file_path: Union[str, Path], batch_size: int = 1024
-    ) -> List[Dict[str, Any]]:
+        self, file_path: str | Path, batch_size: int = 1024
+    ) -> list[dict[str, Any]]:
         """
         Predicción masiva desde archivo CSV/TSV.
         Usa procesamiento vectorizado y por lotes para eficiencia.
@@ -279,8 +279,8 @@ class PGenPredictor:
         return final_df.to_dict(orient="records", into=dict)
 
     def _decode_outputs(
-        self, outputs: Dict[str, torch.Tensor], is_batch: bool
-    ) -> List[Dict[str, Any]]:
+        self, outputs: dict[str, torch.Tensor], is_batch: bool
+    ) -> list[dict[str, Any]]:
         """
         Convierte Logits -> Etiquetas legibles.
         Maneja Single-label y Multi-label.

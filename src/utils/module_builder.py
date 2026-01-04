@@ -24,7 +24,7 @@ class ComponentFactory:
     Adheres to OCP: New components can be registered without modifying the factory logic.
     """
 
-    _registry: Dict[str, Any] = {}
+    _registry: dict[str, Any] = {}
 
     @classmethod
     def register(cls, name: str, component: Any) -> None:
@@ -46,8 +46,8 @@ class OptimizerFactory(ComponentFactory):
     @staticmethod
     def create(
         model: nn.Module,
-        params: Dict[str, Any],
-        uncertainty_module: Optional[nn.Module] = None,
+        params: dict[str, Any],
+        uncertainty_module: nn.Module | None = None,
     ) -> torch.optim.Optimizer:
         lr = params.get("learning_rate", 1e-3)
         wd = params.get("weight_decay", 1e-4)
@@ -83,8 +83,8 @@ class SchedulerFactory(ComponentFactory):
 
     @staticmethod
     def create(
-        optimizer: torch.optim.Optimizer, params: Dict[str, Any]
-    ) -> Optional[torch.optim.lr_scheduler.LRScheduler]:
+        optimizer: torch.optim.Optimizer, params: dict[str, Any]
+    ) -> torch.optim.lr_scheduler.LRScheduler | None:
         stype = params.get("scheduler_type", "plateau").lower()
 
         if stype == "plateau":
@@ -113,11 +113,11 @@ class LossFactory(ComponentFactory):
 
     @staticmethod
     def create_task_criterions(
-        target_cols: List[str],
-        multi_label_cols: Set[str],
-        params: Dict[str, Any],
+        target_cols: list[str],
+        multi_label_cols: set[str],
+        params: dict[str, Any],
         device: torch.device,
-    ) -> Dict[str, nn.Module]:
+    ) -> dict[str, nn.Module]:
         """
         Orquesta la creación de múltiples funciones de pérdida basadas en la configuración.
         """
@@ -149,7 +149,7 @@ class LossFactory(ComponentFactory):
 
     @staticmethod
     def create_uncertainty_wrapper(
-        tasks: List[str], device: torch.device
+        tasks: list[str], device: torch.device
     ) -> MultiTaskUncertaintyLoss:
         """
         Instancia el contenedor de incertidumbre para el aprendizaje multi-tarea.

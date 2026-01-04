@@ -24,7 +24,7 @@ class TaskEvaluator:
 
     def _compute_single_task_metrics(
         self, y_true: np.ndarray, y_pred: np.ndarray, is_multilabel: bool
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calcula métricas estandarizadas.
         """
@@ -50,18 +50,18 @@ class TaskEvaluator:
         self,
         model: nn.Module,
         data_loader: torch.utils.data.DataLoader,
-        target_cols: List[str],
-        multi_label_cols: Set[str],
+        target_cols: list[str],
+        multi_label_cols: set[str],
         threshold: float = 0.5,
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> dict[str, dict[str, float]]:
         """
         Ejecuta el loop de evaluación respetando la estructura de grafos Two-Tower.
         """
         model.eval()
 
         # Contenedores para acumular predicciones y targets por tarea
-        all_preds: Dict[str, List[torch.Tensor]] = {c: [] for c in target_cols}
-        all_targets: Dict[str, List[torch.Tensor]] = {c: [] for c in target_cols}
+        all_preds: dict[str, list[torch.Tensor]] = {c: [] for c in target_cols}
+        all_targets: dict[str, list[torch.Tensor]] = {c: [] for c in target_cols}
 
         with torch.no_grad():
             for batch in data_loader:

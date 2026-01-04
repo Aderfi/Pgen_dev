@@ -12,7 +12,7 @@ class DynamicTargetEncoder:
     Maneja columnas mixtas (Single-Label y Multi-Label) y valores nulos.
     """
 
-    def __init__(self, task_config: Dict[str, str]):
+    def __init__(self, task_config: dict[str, str]):
         """
         :param task_config: Diccionario {nombre_columna: tipo_tarea}
                             Tipos: 'multiclass' (Single-Label) o 'multilabel'.
@@ -49,7 +49,7 @@ class DynamicTargetEncoder:
                 self.encoders[col] = mlb
                 self.output_dims[col] = len(mlb.classes_)
 
-    def transform(self, df: pd.DataFrame) -> Dict[str, torch.Tensor]:
+    def transform(self, df: pd.DataFrame) -> dict[str, torch.Tensor]:
         """
         Convierte el DF en un diccionario de tensores listos para el modelo.
         Genera máscaras para ignorar datos faltantes durante el entrenamiento.

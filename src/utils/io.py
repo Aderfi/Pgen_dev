@@ -19,15 +19,15 @@ logger = logging.getLogger(__name__)
 ##############################################################################
 
 
-def save_json(data: Dict[str, Any], path: Union[str, Path]):
+def save_json(data: dict[str, Any], path: str | Path):
     """Saves a dictionary to a JSON file."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
-def load_json(path: Union[str, Path]) -> Dict[str, Any]:
+def load_json(path: str | Path) -> dict[str, Any]:
     """Loads a JSON file into a dictionary."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -118,9 +118,9 @@ def print_conditions_details():
 class DataLoaderUtils:
     @staticmethod
     def load_dataframe(
-        csv_path: Union[str, Path],
+        csv_path: str | Path,
         cols: list,
-        stratify_col: Union[List[str], str, None] = None,
+        stratify_col: list[str] | str | None = None,
     ) -> pd.DataFrame:
         """Carga el DataFrame desde CSV."""
         if str(csv_path).endswith(".csv"):
@@ -145,14 +145,14 @@ class DataLoaderUtils:
             # 1. Split por el delimitador principal
             parts = str(x).split(delimiter)
             # 2. Limpieza de espacios, eliminación de duplicados y orden alfabético
-            cleaned_parts = sorted(list(set(p.strip() for p in parts if p.strip())))
+            cleaned_parts = sorted(list({p.strip() for p in parts if p.strip()}))
             # 3. Re-unión con delimitador estándar
             return delimiter.join(cleaned_parts)
 
         return series.apply(_clean_string)
 
     @staticmethod
-    def add_stratify_column(df: pd.DataFrame, stratify_cols: List[str]) -> pd.DataFrame:
+    def add_stratify_column(df: pd.DataFrame, stratify_cols: list[str]) -> pd.DataFrame:
         """
         Agrega una columna '_stratify' al DataFrame para uso en train_test_split.
         Combina múltiples columnas en una sola etiqueta estratificada.
@@ -171,7 +171,7 @@ class DataLoaderUtils:
 
     @staticmethod
     def clean_and_prepare_data(
-        df: pd.DataFrame, stratify_col: Union[List[str], str, None] = None
+        df: pd.DataFrame, stratify_col: list[str] | str | None = None
     ):
         # 1. Cargar asumiendo tabuladores (TSV)
         work_df = df.copy()
@@ -210,7 +210,7 @@ class DataLoaderUtils:
         return work_df
 
     @staticmethod
-    def _build_drug_index(drug_lib: Path) -> Dict[str, Path]:
+    def _build_drug_index(drug_lib: Path) -> dict[str, Path]:
         """Mapea los compound_id con sus rutas reales en disco."""
         index_drugs = {}
         # Listamos todos los archivos .pt una sola vez
@@ -224,7 +224,7 @@ class DataLoaderUtils:
         return index_drugs
 
     @staticmethod
-    def _build_genes_index(variant_lib: Path) -> Dict[str, Dict[str, Path]]:
+    def _build_genes_index(variant_lib: Path) -> dict[str, dict[str, Path]]:
         """Mapea los gene_id con sus rutas reales en disco."""
         # Estructura del dict: { gene_id: str, variants: [{variant_name(star5 or rs...):Path}] }
 

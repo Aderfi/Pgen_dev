@@ -15,7 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Optional
+from collections.abc import Generator
 
 import pysam  # type: ignore      # Biblioteca solo disponible en Linux/Unix
 
@@ -26,7 +27,7 @@ RUTA_FASTA = cfg.REF_GENOME_FASTA
 RUTA_VCF_DIR = Path(cfg.DATA_DIR, "raw")
 
 
-def seleccionar_vcf(vcf_path: Path = RUTA_VCF_DIR) -> Optional[Path]:
+def seleccionar_vcf(vcf_path: Path = RUTA_VCF_DIR) -> Path | None:
     """
     Lista y permite seleccionar un archivo VCF.gz del directorio.
     """
@@ -55,7 +56,7 @@ def seleccionar_vcf(vcf_path: Path = RUTA_VCF_DIR) -> Optional[Path]:
             print("⚠️ Por favor, introduce un número válido.")
 
 
-def decodificar_genotipo(record, sample_id: str) -> Dict[str, Any]:
+def decodificar_genotipo(record, sample_id: str) -> dict[str, Any]:
     """
     Interpreta dinámicamente el genotipo, manejando multialélicos y nulos.
     """
@@ -90,8 +91,8 @@ def decodificar_genotipo(record, sample_id: str) -> Dict[str, Any]:
 
 
 def procesar_paciente(
-    vcf_path: Path, fasta_path: Path, region: Optional[str] = None
-) -> Generator[Dict, None, None]:
+    vcf_path: Path, fasta_path: Path, region: str | None = None
+) -> Generator[dict, None, None]:
     """
     Generador que procesa variantes. Usa 'yield' para eficiencia de memoria.
     Permite filtrar por región (ej: 'chr1:1000-2000').

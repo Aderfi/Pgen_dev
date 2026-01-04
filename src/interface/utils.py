@@ -57,7 +57,7 @@ class Spinner:
 
 
 def input_path(
-    prompt: str, default: Optional[Path] = None, must_exist: bool = True
+    prompt: str, default: Path | None = None, must_exist: bool = True
 ) -> Path:
     """
     Solicita una ruta al usuario con validación.

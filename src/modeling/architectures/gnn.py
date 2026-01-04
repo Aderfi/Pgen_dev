@@ -74,13 +74,13 @@ class GATv2Tower(nn.Module):
             x = self.convs[i](x, edge_index, edge_attr=edge_attr)
 
             # 2. Optimized: Skip Connection (Residual) + BatchNorm + Activation
-            # Use inplace operations where safe for memory efficiency
+            # Note: ELU not inplace to ensure proper gradient computation with dropout
             if self.skips[i] is not None:
                 x_in = self.skips[i](x_in)
 
             x = x + x_in
             x = self.norms[i](x, batch)
-            x = F.elu(x, inplace=True)  # Inplace operation for memory efficiency
+            x = F.elu(x)  # Non-inplace to preserve values for gradient computation
             x = F.dropout(x, p=self.dropout, training=self.training, inplace=False)
 
         # 3. Optimized: Global Pooling with dictionary lookup

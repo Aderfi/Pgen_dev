@@ -287,7 +287,7 @@ class DoubleTowerDataset(Dataset):
             raw_series = df[col].fillna("Unknown").astype(str)
 
             if col in self.multilabel_cols:
-                # MULTI-LABEL: Optimized split with list comprehension
+                # Optimized: Use list comprehension instead of apply
                 processed_data = [
                     x.split("|") if x != "Unknown" else [] for x in raw_series
                 ]
@@ -302,7 +302,9 @@ class DoubleTowerDataset(Dataset):
                     matrix = mlb.fit_transform(processed_data)
                     self.encoders[col] = mlb
 
-                # Direct tensor creation from numpy array (faster)
+                # Handle both sparse and dense matrices from MultiLabelBinarizer
+                if hasattr(matrix, 'toarray'):  # Sparse matrix
+                    matrix = matrix.toarray()
                 encoded_targets[col] = torch.from_numpy(matrix).float()
 
             else:

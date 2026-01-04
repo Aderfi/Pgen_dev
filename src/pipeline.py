@@ -134,12 +134,12 @@ def train_pipeline(
     ).to(device)
     
     # Optimized: Compile model for PyTorch 2.0+ (significant speedup)
-    # Comment out if using PyTorch < 2.0
+    # Uncomment for PyTorch 2.0+ (can provide 30-200% speedup)
     # try:
     #     model = torch.compile(model, mode="default")
     #     logger.info("Model compiled with torch.compile for better performance")
-    # except Exception as e:
-    #     logger.warning(f"torch.compile not available: {e}")
+    # except (AttributeError, RuntimeError) as e:
+    #     logger.warning(f"torch.compile not available or failed: {e}")
 
     # 7. Trainer Setup
     uncertainty_net = LossFactory.create_uncertainty_wrapper(

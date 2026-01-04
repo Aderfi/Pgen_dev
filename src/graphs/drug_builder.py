@@ -1,5 +1,4 @@
 import io
-from functools import lru_cache
 from typing import cast
 
 import matplotlib.pyplot as plt

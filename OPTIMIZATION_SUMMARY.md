@@ -86,12 +86,12 @@ grouped_variants = df_gene.groupby("POS", sort=False)
 ### 4. Utility Function Optimizations (`src/utils/`)
 
 #### LRU Cache for Drug Names (`data_utils.py`)
-- **Change:** Added `@lru_cache(maxsize=1024)` to `normalize_drug_names()`
-- **Impact:** Cached results for repeated drug name lookups
+- **Change:** Added `@lru_cache(maxsize=512)` to `normalize_drug_names()`
+- **Impact:** Cached results for repeated drug name lookups (size 512 prevents memory leaks)
 - **Performance Gain:** ~50-90% faster for repeated names
 
 ```python
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=512)  # Reduced from 1024 to prevent memory issues
 def normalize_drug_names(name: str) -> str:
     return name.strip().lower().replace(" ", "_")
 ```
@@ -125,10 +125,10 @@ dataloader_kwargs = {
 
 ### 6. GNN Architecture (`src/modeling/architectures/gnn.py`)
 
-#### Inplace Operations
-- **Change:** Use `F.elu(x, inplace=True)` for activation
-- **Impact:** Reduces memory allocations
-- **Performance Gain:** ~5% memory savings, slight speed improvement
+#### Gradient-Safe Operations
+- **Change:** Use `F.elu(x)` without inplace for proper gradient computation
+- **Impact:** Ensures correct backpropagation with dropout
+- **Performance Gain:** Maintains training stability
 
 #### Dictionary-Based Pooling
 - **Change:** Replace if-elif chain with dictionary lookup

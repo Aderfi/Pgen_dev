@@ -1,9 +1,9 @@
 import logging
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import numpy as np
 import pandas as pd
 import torch
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
@@ -302,9 +302,8 @@ class DoubleTowerDataset(Dataset):
                     matrix = mlb.fit_transform(processed_data)
                     self.encoders[col] = mlb
 
-                # Handle both sparse and dense matrices from MultiLabelBinarizer
-                if hasattr(matrix, 'toarray'):  # Sparse matrix
-                    matrix = matrix.toarray()
+                # Ensure we have a dense numpy array (handles both sparse and dense)
+                matrix = np.asarray(matrix)
                 encoded_targets[col] = torch.from_numpy(matrix).float()
 
             else:

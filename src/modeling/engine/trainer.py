@@ -34,13 +34,7 @@ class PGenTrainer:
         uncertainty_module: Optional[MultiTaskUncertaintyLoss] = None,
         from_optuna: bool = False,
     ):
-        self.model = torch.compile(
-                model, 
-                mode="default", 
-                dynamic=True,
-                backend="inductor" # Explícito para Linux/Debian
-            )
-        
+        self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.device = device
@@ -54,6 +48,14 @@ class PGenTrainer:
         self.best_loss = float("inf")
         self.patience_counter = 0
         self.from_optuna = from_optuna
+        
+        if not from_optuna:
+            self.model = torch.compile(
+                model, 
+                mode="default", 
+                dynamic=True,
+                backend="inductor" # Explícito para Linux/Debian
+                )
 
         # Ensure model directory exists
         DIRS["models"].mkdir(parents=True, exist_ok=True)

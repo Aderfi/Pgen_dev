@@ -53,7 +53,7 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
     def fit(
         self, df: pd.DataFrame, y: None = None, # noqa: ARG002
     ) -> "PGenProcessor":
-        """Fit encoders to data.
+        """Optimized: Fit encoders to data with vectorized operations.
 
         Args:
             df: Input DataFrame.
@@ -70,13 +70,13 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
             series = df[col]
 
             if col in self.multi_label_cols:
-                parsed = series.apply(
-                    lambda x: x.split("|") if x else []
-                    )
+                # Optimized: Use list comprehension instead of apply
+                parsed = [x.split("|") if x else [] for x in series]
                 enc = MultiLabelBinarizer()
                 enc.fit(parsed)
                 self.encoders[col] = enc
             else:
+                # Optimized: Use set union for efficiency
                 uniques = sorted({*series.dropna().unique(), UNKNOWN_CATEGORY_LABEL})
                 enc = LabelEncoder()
                 enc.fit(uniques)

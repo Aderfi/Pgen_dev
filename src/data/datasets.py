@@ -70,9 +70,8 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
             series = df[col]
 
             if col in self.multi_label_cols:
-                parsed = series.apply(
-                    lambda x: x.split("|") if x else []
-                    )
+                # Optimized: Use list comprehension instead of apply
+                parsed = [x.split("|") if x else [] for x in series]
                 enc = MultiLabelBinarizer()
                 enc.fit(parsed)
                 self.encoders[col] = enc
@@ -106,11 +105,11 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
                 continue
 
             if isinstance(enc, MultiLabelBinarizer):
-                parsed = df_out[col].apply(
-                    lambda x: (
-                        x.split("|") if isinstance(x, str) and x else []
-                    ),
-                )
+                # Optimized: Use list comprehension instead of apply
+                parsed = [
+                    x.split("|") if isinstance(x, str) and x else []
+                    for x in df_out[col]
+                ]
                 encoded = list(enc.transform(parsed))
                 df_out[col] = pd.Series(encoded, index=df_out.index)
             else:
@@ -371,12 +370,9 @@ class DoubleTowerDataset(Dataset):
 
         for col in target_cols:
             if col in multilabel_set:
-                raw_data = (
-                    df[col]
-                    .fillna(pd.NA)
-                    .astype(str)
-                    .apply(lambda x: x.split("|") if x else [])
-                )
+                # Optimized: Use list comprehension instead of apply
+                raw_series = df[col].fillna(pd.NA).astype(str)
+                raw_data = [x.split("|") if x and x != 'nan' else [] for x in raw_series]
 
                 mlb = MultiLabelBinarizer()
                 matrix = mlb.fit_transform(raw_data)

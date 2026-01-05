@@ -281,10 +281,14 @@ class DoubleTowerDataset(Dataset):
 
             if col in self.multilabel_cols:
                 # --- CASE: MULTI-LABEL (e.g., "Headache|Nausea") ---
+                # Optimized: Use vectorized string operations instead of apply
                 # Split string into list of labels. Adjust separator if needed (e.g., ';', ',')
-                processed_data = raw_series.apply(
-                    lambda x: x.split("|") if x != "Unknown" else []
-                )
+                processed_data = raw_series.str.split("|").tolist()
+                # Filter out 'Unknown' values and empty strings
+                processed_data = [
+                    [label for label in labels if label and label != "Unknown"] if isinstance(labels, list) else []
+                    for labels in processed_data
+                ]
 
                 # Check if encoder exists
                 if col in self.encoders:

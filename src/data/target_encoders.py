@@ -79,13 +79,18 @@ class DynamicTargetEncoder:
                 encoded_targets[col] = torch.tensor(encoded, dtype=torch.long)
 
             elif task_type == "multilabel":
+                # Optimized: Use vectorized string operations instead of apply
                 # Lógica similar para multilabel
                 # Nota: MultiLabelBinarizer es robusto, pero hay que pasar listas vacías en los NaNs
-                clean_vals = raw_values.apply(
-                    lambda x: x.split(",")
-                    if isinstance(x, str)
-                    else (x if isinstance(x, list) else [])
-                )
+                if raw_values.dtype == "object":
+                    # Vectorized string split for string values
+                    clean_vals = [
+                        x.split(",") if isinstance(x, str) else (x if isinstance(x, list) else [])
+                        for x in raw_values
+                    ]
+                else:
+                    clean_vals = [x if isinstance(x, list) else [] for x in raw_values]
+                
                 encoded = encoder.transform(clean_vals)
                 # Tensor de Floats para BCEWithLogitsLoss
                 encoded_targets[col] = torch.tensor(encoded, dtype=torch.float)

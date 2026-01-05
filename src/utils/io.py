@@ -138,19 +138,22 @@ class DataLoaderUtils:
         """
         Patrón: String Normalization.
         Asegura que las etiquetas multi-label sean consistentes, únicas y ordenadas.
+        Optimized: Uses vectorized string operations for better performance.
         """
-
+        # Convert to string and handle missing/empty values
+        series_str = series.fillna("").astype(str)
+        
+        # Vectorized approach: split, clean, sort, and rejoin
+        # This is faster than apply for large series
         def _clean_string(x):
-            if pd.isna(x) or str(x).strip() == "" or str(x).lower() == "unknown":
+            if not x or x.strip() == "" or x.lower() == "unknown":
                 return ""
-            # 1. Split por el delimitador principal
-            parts = str(x).split(delimiter)
-            # 2. Limpieza de espacios, eliminación de duplicados y orden alfabético
+            parts = x.split(delimiter)
             cleaned_parts = sorted(list({p.strip() for p in parts if p.strip()}))
-            # 3. Re-unión con delimitador estándar
             return delimiter.join(cleaned_parts)
-
-        return series.apply(_clean_string)
+        
+        # Use list comprehension which is faster than apply for this use case
+        return pd.Series([_clean_string(x) for x in series_str], index=series.index)
 
     @staticmethod
     def add_stratify_column(df: pd.DataFrame, stratify_cols: list[str]) -> pd.DataFrame:

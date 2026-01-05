@@ -53,7 +53,6 @@ class PGenTrainer:
         self.uncertainty_module = uncertainty_module
 
         self.scaler = GradScaler()
-        self.loss_fns = self._setup_criterions()
         self.best_loss = float("inf")
         self.patience_counter = 0
         self.from_optuna = config.from_optuna
@@ -70,13 +69,8 @@ class PGenTrainer:
         # Ensure model directory exists
         DIRS["models"].mkdir(parents=True, exist_ok=True)
 
-        from src.utils.module_builder import LossFactory
-        self.loss_fns = LossFactory.create_task_criterions(
-            target_cols=config.target_cols,
-            multi_label_cols=config.multi_label_cols,
-            params=config.params,
-            device=config.device
-        )
+        # Setup loss functions using factory
+        self.loss_fns = self._setup_criterions()
 
     def _setup_criterions(self) -> dict[str, nn.Module]:
         """

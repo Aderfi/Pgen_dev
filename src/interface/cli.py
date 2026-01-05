@@ -9,12 +9,9 @@ from pathlib import Path
 
 # Project Imports
 from src.config.manager import DIRS, PROJECT_ROOT, get_available_models
-from src.interface.utils import (
+from src.interface.ui import (
+    ConsoleIO,
     Spinner,
-    input_path,
-    print_error,
-    print_header,
-    print_success,
 )
 from src.utils.io import (
     print_conditions_details,
@@ -34,7 +31,7 @@ def _select_model() -> str:
     """Interactively select a model from configuration."""
     models = get_available_models()
     if not models:
-        print_error("No models found in models.toml")
+        ConsoleIO.print_error("No models found in models.toml")
         sys.exit(1)
 
     print("\nAvailable Models:")
@@ -47,7 +44,7 @@ def _select_model() -> str:
             idx = int(choice) - 1
             if 0 <= idx < len(models):
                 return models[idx]
-        print_error("Invalid selection.")
+        ConsoleIO.print_error("Invalid selection.")
 
 
 # ==============================================================================
@@ -57,18 +54,18 @@ def _select_model() -> str:
 
 def run_genomic_processing():
     """Simulation of Genomic ETL."""
-    print_header("Genomic Processing Module")
+    ConsoleIO.print_header("Genomic Processing Module")
     logger.info("Starting interactive genomic module.")
 
     with Spinner("Analyzing VCF files..."):
         time.sleep(2)
 
-    print_success("Processing completed (Simulated).")
+    ConsoleIO.print_success("Processing completed (Simulated).")
 
 
 def run_training_flow():
     """Interactive Training Workflow."""
-    print_header("Training Module")
+    ConsoleIO.print_header("Training Module")
 
     # 1. Select Model
     model_name = _select_model()
@@ -83,7 +80,7 @@ def run_training_flow():
         else:
             default_data = None
 
-    csv_path = input_path("Training Data Path (CSV/TSV)", default=default_data)
+    csv_path = ConsoleIO.input_path("Training Data Path (CSV/TSV)", default=default_data)
 
     # 3. Select Mode
     print("\nTraining Mode:")
@@ -97,7 +94,7 @@ def run_training_flow():
     elif mode == "2":
         _run_optuna_training(model_name, csv_path)
     else:
-        print_error("Invalid option.")
+        ConsoleIO.print_error("Invalid option.")
 
 
 def _run_standard_training(model_name: str, csv_path: Path):
@@ -108,33 +105,32 @@ def _run_standard_training(model_name: str, csv_path: Path):
 
     print(f"\nStarting Standard Training: '{model_name}'")
     train_pipeline(model_name=model_name, csv_path=str(csv_path), epochs=epochs)
-    print_success("Training finished.")
+    ConsoleIO.print_success("Training finished.")
 
 
 def _run_optuna_training(model_name: str, csv_path: Path):
-    from src.modeling.engine.tuner_paralel import run_optuna_study
-    #from src.modeling.engine.tuner import run_optuna_study
+    from src.modeling.engine.tuner import run_optuna_study
 
     trials_str = input("Number of Trials [default -> 50]: ").strip()
     n_trials = int(trials_str) if trials_str.isdigit() else 50
 
     print(f"\nStarting Optuna Optimization: '{model_name}' ({n_trials} trials)")
     run_optuna_study(model_name=model_name, csv_path=csv_path, n_trials=n_trials)
-    print_success("Optimization finished.")
+    ConsoleIO.print_success("Optimization finished.")
 
 
 def run_prediction_flow():
     """Interactive Prediction Workflow."""
     from src.modeling.engine.predictor import PGenPredictor
 
-    print_header("Prediction Module")
+    ConsoleIO.print_header("Prediction Module")
 
     model_name = _select_model()
 
     try:
         with Spinner("Loading model..."):
             predictor = PGenPredictor(model_name)
-        print_success("Model loaded.")
+        ConsoleIO.print_success("Model loaded.")
 
         while True:
             print("\n--- Prediction Menu ---")
@@ -153,11 +149,11 @@ def run_prediction_flow():
 
     except FileNotFoundError as e:
         logger.error(f"Model loading failed: {e}")
-        print_error(f"Could not load model: {e}")
+        ConsoleIO.print_error(f"Could not load model: {e}")
         print("Tip: Train the model first.")
     except Exception as e:
         logger.error(f"Critical prediction error: {e}", exc_info=True)
-        print_error(f"Unexpected error: {e}")
+        ConsoleIO.print_error(f"Unexpected error: {e}")
 
 
 def _interactive_predict_loop(predictor):
@@ -178,13 +174,13 @@ def _interactive_predict_loop(predictor):
         for k, v in result.items():
             print(f"  🔹 {k}: {v}")
     else:
-        print_error("Prediction failed.")
+        ConsoleIO.print_error("Prediction failed.")
 
 
 def _batch_predict_flow(predictor):
     import pandas as pd
 
-    path = input_path("Input CSV/TSV Path")
+    path = ConsoleIO.input_path("Input CSV/TSV Path")
 
     with Spinner(f"Processing {path.name}..."):
         results = predictor.predict_file(path)
@@ -195,11 +191,11 @@ def _batch_predict_flow(predictor):
 
     out_path = path.parent / f"{path.stem}_predictions_{DATE_STAMP}.csv"
     pd.DataFrame(results).to_csv(out_path, index=False)
-    print_success(f"Predictions saved to: {out_path}")
+    ConsoleIO.print_success(f"Predictions saved to: {out_path}")
 
 
 def run_advanced_analysis():
-    print_header("Advanced Analysis")
+    ConsoleIO.print_header("Advanced Analysis")
     print("Generating interpretability reports...")
     print("(Under Construction)")
 
@@ -214,7 +210,7 @@ def main_menu_loop():
     print_gnu_notice()
 
     while True:
-        print_header("Pharmagen - Main Menu")
+        ConsoleIO.print_header("Pharmagen - Main Menu")
         print("  1. Genomic Processing (ETL)")
         print("  2. Train Models (Deep Learning)")
         print("  3. Predict (Inference)")

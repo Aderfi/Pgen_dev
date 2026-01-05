@@ -8,15 +8,7 @@ from torch_geometric.data import Batch, Data
 
 
 class DoubleTowerCollater:
-    """
-    Collates drug and haplotype graph data into batches.
-
-    This collator handles the batching of paired drug-haplotype graph data,
-    extracting IDs, sanitizing string attributes, and creating PyTorch
-    Geometric batches.
-
-    """
-    def __init__(self, inference_mode: bool = False) -> None:
+    def __init__(self, inference_mode=False):
         # Si es True, guardamos IDs (lento). Si es False, velocidad máxima.
         self.inference_mode = inference_mode
 
@@ -28,7 +20,7 @@ class DoubleTowerCollater:
         self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
         self.keys_to_sanitize = ["cid", "variant_name", "name", "smiles", "gene_context", "graph_id"]
 
-    def _sanitize_fast(self, graph_list: MutableSequence[Data]) -> None:
+    def _sanitize_fast(self, graph_list: list[Data]) -> list[str]:
         """
         Extrae IDs y elimina atributos conflictivos (strings) de los objetos Data.
         Modifica los objetos 'in-place'.
@@ -37,6 +29,8 @@ class DoubleTowerCollater:
             for key in self.keys_to_sanitize:
                 if hasattr(data, key):
                     delattr(data, key)
+
+        return graph_list
 
     def __call__(self, batch_list):
         """

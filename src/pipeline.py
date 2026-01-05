@@ -10,7 +10,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 from src.config.manager import MULTI_LABEL_COLS, SEED, get_model_config
-from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
+from src.data.collator import DoubleTowerCollater
+from src.data.datasets import DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils

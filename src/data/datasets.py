@@ -2,6 +2,7 @@
 
 Unified Data Loading, Preprocessing, and Dataset definition.
 Adheres to Zen of Python: Sparse is better than dense.
+Follows SOLID principles: Single Responsibility, Open/Closed.
 """
 
 import logging
@@ -18,6 +19,7 @@ from torch.utils.data import Dataset
 from torch_geometric.data import Data
 
 from src.config.manager import LIBRARY, MULTI_LABEL_COLS
+from src.data.graph_indexing import GraphIndexBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -245,9 +247,9 @@ class DoubleTowerDataset(Dataset):
         self.drug_lib = drug_lib
         self.variant_lib = variant_lib
 
-        # Indexing
-        self.drug_id_to_path = self._build_drug_index()
-        self.gene_variant_path = self._build_genes_index()
+        # Indexing - Using dedicated builder for SRP
+        self.drug_id_to_path = GraphIndexBuilder.build_drug_index(drug_lib)
+        self.gene_variant_path = GraphIndexBuilder.build_gene_variant_index(variant_lib)
 
         self.encoders = encoders if encoders is not None else {}
 
@@ -444,42 +446,6 @@ class DoubleTowerDataset(Dataset):
             "haplo_data": haplo_data,
             "targets": target_dict,
         }
-
-    def _build_drug_index(self):
-        """Mapea los compound_id con sus rutas reales en disco."""
-        index_drugs = {}
-        # Listamos todos los archivos .pt una sola vez
-        for file_path in self.drug_lib.glob("*.pt"):
-            # Extraemos el ID del nombre del archivo (ej: '10007' de '10007_chlorphentermine.pt')
-            # El ID es todo lo que está antes del primer guion bajo
-            match = re.match(r"^(\d+)_", file_path.name)
-            if match:
-                drug_id = match.group(1)
-                index_drugs[drug_id] = file_path
-        return index_drugs
-
-    def _build_genes_index(self):
-        """Mapea los gene_id con sus rutas reales en disco."""
-        # Estructura del dict: { gene_id: str, variants: [{variant_name(star5 or rs...):Path}] }
-
-        index_genes = {}
-        # Listamos todos los archivos .pt una sola vez
-        for dir in self.variant_lib.rglob("**/"):
-            index_genes[dir.name] = {}
-
-        for file_path in self.variant_lib.glob("**/*.pt"):
-            # gene_id es todo lo que está antes del primer guion bajo
-            filename = file_path.name  # Nombre sin extensión
-            filename_clean = filename.replace(".pt", "")
-
-            gene_id, variant = filename_clean.split("_", 1)
-            if variant.startswith("star"):
-                variant = variant.replace("star", "*")
-
-            if gene_id not in index_genes:
-                index_genes[gene_id] = {}
-            index_genes[gene_id][variant] = file_path
-        return index_genes
 
     def _encode_targets(self, df: pd.DataFrame) -> dict[str, torch.Tensor]:
         """

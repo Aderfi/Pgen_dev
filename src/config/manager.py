@@ -25,6 +25,8 @@ This module provides centralized configuration management including:
 - Model configuration loading and merging
 - Global settings and constants
 - TOML configuration file parsing
+
+Follows SOLID principles with validation and error handling.
 """
 
 import logging
@@ -37,6 +39,8 @@ if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
+
+from src.utils.validation import ConfigValidator
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +93,12 @@ DIRS = {
 # Ensure directories exist
 for d in DIRS.values():
     d.mkdir(parents=True, exist_ok=True)
+
+# Validate paths configuration
+ConfigValidator.validate_paths_config(
+    {k: str(v) for k, v in DIRS.items()},
+    create_missing=True
+)
 
 # Helpers
 MULTI_LABEL_COLS = set(_GLOBAL_CFG.get("project", {}).get("multi_label_cols", []))
@@ -183,6 +193,13 @@ def get_model_config(model_name: str) -> dict[str, Any]:
     if not all(k in final_config for k in required_keys):
         msg = f"Model config requires {required_keys}"
         raise ValueError(msg)
+    
+    # Validate the complete configuration
+    ConfigValidator.validate_model_config(final_config, model_name)
+    
+    # Validate Optuna params if present
+    if "params_optuna" in final_config:
+        ConfigValidator.validate_optuna_params(final_config["params_optuna"])
 
     return final_config
 

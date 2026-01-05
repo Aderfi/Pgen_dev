@@ -14,9 +14,11 @@ from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
+from src.utils.exceptions import ConfigurationError, DataError, MemoryError as PharmagenMemoryError
 from src.utils.io import DataLoaderUtils
 from src.utils.memory import MemoryMonitor, estimate_batch_memory_mb, estimate_model_memory_mb
 from src.utils.module_builder import LossFactory, OptimizerFactory
+from src.utils.validation import ConfigValidator, DataValidator
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,16 @@ def train_pipeline(
         batch_size: Batch size for training.
         
     Raises:
-        ValueError: If configuration is invalid.
-        RuntimeError: If insufficient memory is available.
+        ConfigurationError: If model configuration is invalid.
+        DataError: If data is invalid or incompatible.
+        PharmagenMemoryError: If insufficient memory is available.
     """
-    # 1. Configuration & Setup
-    cfg = get_model_config(model_name)
+    try:
+        # 1. Configuration & Setup
+        cfg = get_model_config(model_name)
+    except Exception as e:
+        raise ConfigurationError(f"Failed to load configuration for '{model_name}': {e}")
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Starting pipeline for {model_name} on {device}")
     
@@ -52,9 +59,12 @@ def train_pipeline(
     dims["haplo_edge"] = cfg.get("haplo_edge_dim", 3)
 
     # 2. Data Loading (Raw)
-    df = DataLoaderUtils.load_dataframe(
-        csv_path, cols=cfg["cols"], stratify_col=cfg.get("stratify_col", None)
-    )
+    try:
+        df = DataLoaderUtils.load_dataframe(
+            csv_path, cols=cfg["cols"], stratify_col=cfg.get("stratify_col", None)
+        )
+    except Exception as e:
+        raise DataError(f"Failed to load data from {csv_path}: {e}")
 
     logger.debug(
         f"Loaded dataframe with cols: {df.columns.tolist()} and shape: {df.shape}"
@@ -62,7 +72,24 @@ def train_pipeline(
     
     # Validate dataset size
     if len(df) < 100:
-        raise ValueError(f"Dataset too small: {len(df)} samples. Need at least 100.")
+        raise DataError(f"Dataset too small: {len(df)} samples. Need at least 100.")
+    
+    # Validate data columns
+    try:
+        ConfigValidator.validate_data_columns(
+            df.columns.tolist(),
+            cfg["features"],
+            cfg["targets"]
+        )
+    except ValueError as e:
+        raise DataError(str(e))
+    
+    # Check data quality
+    DataValidator.check_missing_values(
+        df,
+        cfg["features"] + cfg["targets"],
+        threshold=0.5
+    )
     
     # Estimate memory requirements
     estimated_batch_mem = estimate_batch_memory_mb(

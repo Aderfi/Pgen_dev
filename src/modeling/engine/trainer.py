@@ -4,6 +4,7 @@
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import Any, cast
 
 import optuna
@@ -19,6 +20,17 @@ from src.utils.losses import MultiTaskUncertaintyLoss
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class TrainerConfig:
+    """Configuration for PGenTrainer to reduce parameter count."""
+
+    device: torch.device
+    target_cols: list[str]
+    multi_label_cols: set[str]
+    params: dict[str, Any]
+    from_optuna: bool = False
+
 class PGenTrainer:
     """
     Handles the training lifecycle of the PharmagenTwoTower model.
@@ -28,29 +40,25 @@ class PGenTrainer:
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: Any,
-        device: torch.device,
-        target_cols: list[str],
-        multi_label_cols: set[str],
-        params: dict[str, Any],
+        config: TrainerConfig,
         uncertainty_module: MultiTaskUncertaintyLoss | None = None,
-        from_optuna: bool = False,
     ):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.device = device
-        self.target_cols = target_cols
-        self.ml_cols = multi_label_cols
-        self.params = params
+        self.device = config.device
+        self.target_cols = config.target_cols
+        self.ml_cols = config.multi_label_cols
+        self.params = config.params
         self.uncertainty_module = uncertainty_module
 
         self.scaler = GradScaler()
         self.loss_fns = self._setup_criterions()
         self.best_loss = float("inf")
         self.patience_counter = 0
-        self.from_optuna = from_optuna
+        self.from_optuna = config.from_optuna
 
-        if not from_optuna:
+        if not config.from_optuna:
             compiled_model = torch.compile(
                 model,
                 mode="default",
@@ -64,10 +72,10 @@ class PGenTrainer:
 
         from src.utils.module_builder import LossFactory
         self.loss_fns = LossFactory.create_task_criterions(
-            target_cols=target_cols,
-            multi_label_cols=multi_label_cols,
-            params=params,
-            device=device
+            target_cols=config.target_cols,
+            multi_label_cols=config.multi_label_cols,
+            params=config.params,
+            device=config.device
         )
 
     def _setup_criterions(self) -> dict[str, nn.Module]:

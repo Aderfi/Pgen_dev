@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from src.config.manager import MULTI_LABEL_COLS, SEED, get_model_config
 from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
-from src.modeling.engine.trainer import PGenTrainer
+from src.modeling.engine.trainer import PGenTrainer, TrainerConfig
 from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
 
@@ -139,14 +139,19 @@ def train_pipeline(
         optimizer, mode="min", patience=8
     )
 
-    trainer = PGenTrainer(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
+    trainer_config = TrainerConfig(
         device=device,
         target_cols=cfg["targets"],
         multi_label_cols=MULTI_LABEL_COLS,
         params=cfg["params"],
+        from_optuna=False,
+    )
+
+    trainer = PGenTrainer(
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=trainer_config,
         uncertainty_module=uncertainty_net if uncertainty_net else None,
     )
 

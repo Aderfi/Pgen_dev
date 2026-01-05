@@ -27,7 +27,7 @@ from tqdm.auto import tqdm
 from src.config.manager import DIRS, get_model_config
 from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
-from src.modeling.engine.trainer import PGenTrainer
+from src.modeling.engine.trainer import PGenTrainer, TrainerConfig
 from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
 
@@ -239,16 +239,20 @@ class PGenTuner:
         )
 
         # 7. Trainer Setup (Inyectando uncertainty_module)
+        trainer_config = TrainerConfig(
+            device=device,
+            target_cols=self.cfg["targets"],
+            multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
+            params=params,
+            from_optuna=True,
+        )
+
         trainer = PGenTrainer(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
-            device=device,
-            target_cols=self.cfg["targets"],
-            multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
-            params=params,  # Pasa los parámetros para que LossFactory cree las pérdidas correctas
+            config=trainer_config,
             uncertainty_module=uncertainty_net,  # <--- FIX: Ahora el tuner usa incertidumbre
-            from_optuna=True,
         )
         try:
             return trainer.fit(

@@ -4,6 +4,7 @@
 
 import logging
 import math
+from contextlib import contextmanager
 from typing import Any, cast
 
 import optuna
@@ -16,6 +17,7 @@ from tqdm.auto import tqdm
 
 from src.config.manager import DIRS
 from src.utils.losses import MultiTaskUncertaintyLoss
+from src.utils.memory import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +156,14 @@ class PGenTrainer:
         return total_loss, {"loss": total_loss.item(), "acc": avg_acc} # type: ignore
 
     def train_epoch(self, loader: DataLoader) -> dict[str, float]:
+        """Train for one epoch with memory-efficient batching."""
         self.model.train()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
 
         progress_iteration = loader if self.from_optuna else tqdm(loader, desc="Train", leave=False)
 
-        for batch in progress_iteration:
+        for batch_idx, batch in enumerate(progress_iteration):
             self.optimizer.zero_grad(set_to_none=True)
 
             # Use autocast for GATv2 mixed precision (Faster & Less Memory)
@@ -176,6 +179,11 @@ class PGenTrainer:
 
             for k, v in metrics.items():
                 total_metrics[k] += v
+            
+            # Periodic memory cleanup during training to prevent gradual accumulation
+            if batch_idx % 50 == 0 and batch_idx > 0:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         return {k: v / n_batches for k, v in total_metrics.items()}
 

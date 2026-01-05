@@ -2,6 +2,7 @@
 
 Unified Data Loading, Preprocessing, and Dataset definition.
 Adheres to Zen of Python: Sparse is better than dense.
+Follows SOLID principles: Single Responsibility, Open/Closed.
 """
 
 import logging
@@ -18,6 +19,7 @@ from torch.utils.data import Dataset
 from torch_geometric.data import Data
 
 from src.config.manager import LIBRARY, MULTI_LABEL_COLS
+from src.data.graph_indexing import GraphIndexBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -206,9 +208,25 @@ class DoubleTowerDataset(Dataset):
         inference_mode: bool = False,
     ):
         """
+        Initialize DoubleTowerDataset.
+        
         Args:
-            encoders: Dictionary of fitted LabelEncoders/MultiLabelBinarizers.
-            preload_ram: If True, loads all referenced .pt files into RAM during init.
+            df: DataFrame with samples.
+            drug_col: Column name for drug IDs.
+            haplo_col: Column name for haplotype keys.
+            target_cols: List of target column names.
+            multilabel_cols: List of multi-label column names.
+            encoders: Pre-fitted encoders (required for val/test sets).
+            drug_lib: Path to drug graph library.
+            variant_lib: Path to variant graph library.
+            preload_ram: If True, loads all graphs into RAM (use only with sufficient memory).
+            input_dimensions: Dictionary with expected dimensions.
+            type_data: Type identifier for data.
+            inference_mode: If True, preserves metadata for inference.
+            
+        Warning:
+            Setting preload_ram=True can cause OOM errors with large datasets.
+            Only use with <10k samples and >32GB RAM.
         """
         self.df = df.reset_index(drop=True)
         self.drug_col = drug_col
@@ -218,18 +236,24 @@ class DoubleTowerDataset(Dataset):
         self.input_dims = input_dimensions
         self.inference_mode = inference_mode
 
+        # Validate preload_ram setting
+        if preload_ram and len(df) > 10000:
+            logger.warning(
+                f"preload_ram=True with {len(df)} samples may cause OOM. "
+                "Consider setting preload_ram=False."
+            )
+
         # Paths
         self.drug_lib = drug_lib
         self.variant_lib = variant_lib
 
-        # Indexing
-        self.drug_id_to_path = self._build_drug_index()
-        self.gene_variant_path = self._build_genes_index()
+        # Indexing - Using dedicated builder for SRP
+        self.drug_id_to_path = GraphIndexBuilder.build_drug_index(drug_lib)
+        self.gene_variant_path = GraphIndexBuilder.build_gene_variant_index(variant_lib)
 
         self.encoders = encoders if encoders is not None else {}
 
-        # Target Pre-processing (Assuming encoded in the input DF or processing here)
-        # Note: Ideally, pass the DF already encoded or handle encoding consistently externally.
+        # Target Pre-processing
         self.targets = self._encode_targets(df)
 
         # Optimization: In-Memory Cache
@@ -241,24 +265,49 @@ class DoubleTowerDataset(Dataset):
             self._preload_data()
 
     def _preload_data(self):
+        """Preload graphs into RAM for faster access.
+        
+        Warning:
+            This can consume significant memory. Monitor system resources.
+        """
         logger.info("Preloading graphs into RAM...")
+        import gc
+        
         # Preload Drugs
         unique_drugs = self.df[self.drug_col].unique().astype(str)
-        for drug_id in unique_drugs:
+        logger.debug(f"Preloading {len(unique_drugs)} unique drugs...")
+        for i, drug_id in enumerate(unique_drugs):
             if drug_id in self.drug_id_to_path:
-                self.drug_cache[drug_id] = torch.load(
-                    self.drug_id_to_path[drug_id], weights_only=False
-                )
+                try:
+                    self.drug_cache[drug_id] = torch.load(
+                        self.drug_id_to_path[drug_id], weights_only=False
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to load drug {drug_id}: {e}")
+            
+            # Periodic garbage collection to prevent memory buildup
+            if i % 1000 == 0 and i > 0:
+                gc.collect()
 
         # Preload Variants
         unique_haplos = self.df["haplo_key"].unique().astype(str)
-        for haplo_str in unique_haplos:
-            gene, variant = haplo_str.split("_", 1)  # Split only on first underscore
-            path = self.gene_variant_path.get(gene, {}).get(variant)
-            if path:
-                self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+        logger.debug(f"Preloading {len(unique_haplos)} unique variants...")
+        for i, haplo_str in enumerate(unique_haplos):
+            try:
+                gene, variant = haplo_str.split("_", 1)  # Split only on first underscore
+                path = self.gene_variant_path.get(gene, {}).get(variant)
+                if path:
+                    self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+            except Exception as e:
+                logger.warning(f"Failed to load variant {haplo_str}: {e}")
+            
+            # Periodic garbage collection
+            if i % 1000 == 0 and i > 0:
+                gc.collect()
+                
         logger.info(
-            f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants."
+            f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants into RAM. "
+            f"Estimated memory: ~{(len(self.drug_cache) + len(self.haplo_cache)) * 0.1:.1f}MB"
         )
 
     def _get_empty_graph(self, type_data: str, graph_id: str = "") -> Data:
@@ -397,42 +446,6 @@ class DoubleTowerDataset(Dataset):
             "haplo_data": haplo_data,
             "targets": target_dict,
         }
-
-    def _build_drug_index(self):
-        """Mapea los compound_id con sus rutas reales en disco."""
-        index_drugs = {}
-        # Listamos todos los archivos .pt una sola vez
-        for file_path in self.drug_lib.glob("*.pt"):
-            # Extraemos el ID del nombre del archivo (ej: '10007' de '10007_chlorphentermine.pt')
-            # El ID es todo lo que está antes del primer guion bajo
-            match = re.match(r"^(\d+)_", file_path.name)
-            if match:
-                drug_id = match.group(1)
-                index_drugs[drug_id] = file_path
-        return index_drugs
-
-    def _build_genes_index(self):
-        """Mapea los gene_id con sus rutas reales en disco."""
-        # Estructura del dict: { gene_id: str, variants: [{variant_name(star5 or rs...):Path}] }
-
-        index_genes = {}
-        # Listamos todos los archivos .pt una sola vez
-        for dir in self.variant_lib.rglob("**/"):
-            index_genes[dir.name] = {}
-
-        for file_path in self.variant_lib.glob("**/*.pt"):
-            # gene_id es todo lo que está antes del primer guion bajo
-            filename = file_path.name  # Nombre sin extensión
-            filename_clean = filename.replace(".pt", "")
-
-            gene_id, variant = filename_clean.split("_", 1)
-            if variant.startswith("star"):
-                variant = variant.replace("star", "*")
-
-            if gene_id not in index_genes:
-                index_genes[gene_id] = {}
-            index_genes[gene_id][variant] = file_path
-        return index_genes
 
     def _encode_targets(self, df: pd.DataFrame) -> dict[str, torch.Tensor]:
         """

@@ -15,6 +15,7 @@ from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
+from src.utils.performance import log_gpu_info, log_training_config
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,22 @@ def train_pipeline(
     # 1. Configuration & Setup
     cfg = get_model_config(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # CUDA optimizations for RTX 4070 Ti SUPER (Ampere/Ada architecture)
+    if torch.cuda.is_available():
+        # Enable TF32 for faster matrix operations on Ampere and later
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        # Use high precision matmul for better performance on modern GPUs
+        torch.set_float32_matmul_precision('high')
+        # Enable cuDNN benchmarking to find fastest convolution algorithms
+        torch.backends.cudnn.benchmark = True
+        logger.info("CUDA optimizations enabled for RTX 4070 Ti SUPER")
+        
+        # Log GPU info and configuration
+        log_gpu_info()
+        log_training_config()
+    
     logger.info(f"Starting pipeline for {model_name} on {device}")
     dims = {}
     dims["drug_feat"] = cfg.get("drug_in_features", 25)
@@ -59,7 +76,7 @@ def train_pipeline(
         haplo_col=cfg["features"][1],
         target_cols=cfg["targets"],
         multilabel_cols=list(MULTI_LABEL_COLS),
-        preload_ram=False,  # Set True if you have >32GB RAM
+        preload_ram=True,  # Optimized: User has 32GB DDR5 RAM, preload graphs for faster access
         input_dimensions=dims,
     )
 
@@ -72,7 +89,7 @@ def train_pipeline(
         target_cols=cfg["targets"],
         multilabel_cols=list(MULTI_LABEL_COLS),
         encoders=train_dataset.encoders,  # <--- CRITICAL: Reuse encoders
-        preload_ram=False,
+        preload_ram=True,  # Optimized: User has 32GB DDR5 RAM
     )
 
     # 4. Dimension Calculation (Peek at data)
@@ -90,21 +107,27 @@ def train_pipeline(
 
     # 5. DataLoaders
     collater = DoubleTowerCollater()
+    # Optimized for AMD Ryzen 7 7800X3D (8 cores, 16 threads)
+    # Using 8 workers for better CPU utilization without oversubscription
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collater,
-        num_workers=4,
+        num_workers=8,
         pin_memory=True,
+        persistent_workers=True,  # Avoid repeated worker process spawning
+        prefetch_factor=3,  # Prefetch 3 batches per worker for better GPU utilization
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collater,
-        num_workers=4,
+        num_workers=8,
         pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=3,
     )
 
     # 6. Model Initialization

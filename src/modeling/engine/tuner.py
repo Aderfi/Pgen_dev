@@ -52,6 +52,15 @@ class PGenTuner:
         # 1. Configuración Global y Dispositivo
         self.cfg = get_model_config(model_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # CUDA optimizations for RTX 4070 Ti SUPER
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision('high')
+            torch.backends.cudnn.benchmark = True
+            logger.info("CUDA optimizations enabled for Optuna tuning")
+        
         self.patience = self.cfg["params_optuna"].get("patience", 5)
 
         # Directorios de salida (Asegurar existencia)
@@ -124,14 +133,14 @@ class PGenTuner:
         epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
 
         # 2. Construcción de Datasets (Reutilizando encoders para consistencia)
-        # Nota: preload_ram=False ahorra memoria en la GPU si los grafos son muchos
+        # Optimized: Enable RAM preload for faster access (user has 32GB DDR5 RAM)
         train_dataset = DoubleTowerDataset(
             df=self.train_df,
             drug_col=self.cfg["features"][0],
             haplo_col="haplo_key",
             target_cols=self.cfg["targets"],
             multilabel_cols=self.cfg.get("multi_label_cols", []),
-            preload_ram=False,
+            preload_ram=True,  # Faster graph access with 32GB RAM
         )
 
         val_dataset = DoubleTowerDataset(
@@ -141,7 +150,7 @@ class PGenTuner:
             target_cols=self.cfg["targets"],
             multilabel_cols=self.cfg.get("multi_label_cols", []),
             encoders=train_dataset.encoders,  # CRÍTICO: Compartir estado de encoders
-            preload_ram=False,
+            preload_ram=True,
         )
 
         # 3. Inferencia de Dimensiones

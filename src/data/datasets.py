@@ -206,9 +206,25 @@ class DoubleTowerDataset(Dataset):
         inference_mode: bool = False,
     ):
         """
+        Initialize DoubleTowerDataset.
+        
         Args:
-            encoders: Dictionary of fitted LabelEncoders/MultiLabelBinarizers.
-            preload_ram: If True, loads all referenced .pt files into RAM during init.
+            df: DataFrame with samples.
+            drug_col: Column name for drug IDs.
+            haplo_col: Column name for haplotype keys.
+            target_cols: List of target column names.
+            multilabel_cols: List of multi-label column names.
+            encoders: Pre-fitted encoders (required for val/test sets).
+            drug_lib: Path to drug graph library.
+            variant_lib: Path to variant graph library.
+            preload_ram: If True, loads all graphs into RAM (use only with sufficient memory).
+            input_dimensions: Dictionary with expected dimensions.
+            type_data: Type identifier for data.
+            inference_mode: If True, preserves metadata for inference.
+            
+        Warning:
+            Setting preload_ram=True can cause OOM errors with large datasets.
+            Only use with <10k samples and >32GB RAM.
         """
         self.df = df.reset_index(drop=True)
         self.drug_col = drug_col
@@ -217,6 +233,13 @@ class DoubleTowerDataset(Dataset):
         self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
         self.input_dims = input_dimensions
         self.inference_mode = inference_mode
+
+        # Validate preload_ram setting
+        if preload_ram and len(df) > 10000:
+            logger.warning(
+                f"preload_ram=True with {len(df)} samples may cause OOM. "
+                "Consider setting preload_ram=False."
+            )
 
         # Paths
         self.drug_lib = drug_lib
@@ -228,8 +251,7 @@ class DoubleTowerDataset(Dataset):
 
         self.encoders = encoders if encoders is not None else {}
 
-        # Target Pre-processing (Assuming encoded in the input DF or processing here)
-        # Note: Ideally, pass the DF already encoded or handle encoding consistently externally.
+        # Target Pre-processing
         self.targets = self._encode_targets(df)
 
         # Optimization: In-Memory Cache
@@ -241,24 +263,49 @@ class DoubleTowerDataset(Dataset):
             self._preload_data()
 
     def _preload_data(self):
+        """Preload graphs into RAM for faster access.
+        
+        Warning:
+            This can consume significant memory. Monitor system resources.
+        """
         logger.info("Preloading graphs into RAM...")
+        import gc
+        
         # Preload Drugs
         unique_drugs = self.df[self.drug_col].unique().astype(str)
-        for drug_id in unique_drugs:
+        logger.debug(f"Preloading {len(unique_drugs)} unique drugs...")
+        for i, drug_id in enumerate(unique_drugs):
             if drug_id in self.drug_id_to_path:
-                self.drug_cache[drug_id] = torch.load(
-                    self.drug_id_to_path[drug_id], weights_only=False
-                )
+                try:
+                    self.drug_cache[drug_id] = torch.load(
+                        self.drug_id_to_path[drug_id], weights_only=False
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to load drug {drug_id}: {e}")
+            
+            # Periodic garbage collection to prevent memory buildup
+            if i % 1000 == 0 and i > 0:
+                gc.collect()
 
         # Preload Variants
         unique_haplos = self.df["haplo_key"].unique().astype(str)
-        for haplo_str in unique_haplos:
-            gene, variant = haplo_str.split("_", 1)  # Split only on first underscore
-            path = self.gene_variant_path.get(gene, {}).get(variant)
-            if path:
-                self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+        logger.debug(f"Preloading {len(unique_haplos)} unique variants...")
+        for i, haplo_str in enumerate(unique_haplos):
+            try:
+                gene, variant = haplo_str.split("_", 1)  # Split only on first underscore
+                path = self.gene_variant_path.get(gene, {}).get(variant)
+                if path:
+                    self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+            except Exception as e:
+                logger.warning(f"Failed to load variant {haplo_str}: {e}")
+            
+            # Periodic garbage collection
+            if i % 1000 == 0 and i > 0:
+                gc.collect()
+                
         logger.info(
-            f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants."
+            f"Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants into RAM. "
+            f"Estimated memory: ~{(len(self.drug_cache) + len(self.haplo_cache)) * 0.1:.1f}MB"
         )
 
     def _get_empty_graph(self, type_data: str, graph_id: str = "") -> Data:

@@ -30,6 +30,7 @@ from src.data.datasets import DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils
+from src.utils.memory import MemoryMonitor, estimate_batch_memory_mb, estimate_model_memory_mb
 from src.utils.module_builder import LossFactory, OptimizerFactory
 
 logger = logging.getLogger(__name__)
@@ -48,16 +49,17 @@ class PGenTuner:
         model_name: str,
         csv_path: str | Path,
         random_seed: int = 711,
+        max_batch_size: int = 128,
     ):
         self.model_name = model_name
         self.csv_path = Path(csv_path)
         self.timestamp = datetime.datetime.now().strftime("%d_%m__%H_%M")
         self.study_name = f"OPT_{self.model_name}_{self.timestamp}"
         self.seed = random_seed
+        self.max_batch_size = max_batch_size
 
         # 1. Configuración Global y Dispositivo
         self.cfg = get_model_config(model_name)
-        #self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.patience = self.cfg["params_optuna"].get("patience", 5)
 
         # Directorios de salida (Asegurar existencia)
@@ -74,8 +76,6 @@ class PGenTuner:
             stratify_col=self.cfg.get("stratify_col", None),
         )
 
-        # stratify = self.full_df["_stratify"] if "_stratify" in self.full_df.columns else None
-
         self.train_df, self.val_df = train_test_split(
             self.full_df,
             test_size=0.2,
@@ -85,6 +85,9 @@ class PGenTuner:
         logger.info(
             f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
+        
+        # 3. Log initial memory state
+        MemoryMonitor.log_memory_stats("Initial memory - ")
 
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """
@@ -123,129 +126,194 @@ class PGenTuner:
         """
         Función objetivo para Optuna.
         Instancia Modelo, Dataset y Trainer frescos para cada trial.
+        
+        Implements memory management to prevent OOM errors.
         """
-        # 1. Configuración de Hiperparámetros
-        params = self._suggest_params(trial)
-        #params.update(self._suggest_params(trial))
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        batch_size = int(params.get("batch_size", 64))
-        epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
-
-        # 2. Construcción de Datasets (Reutilizando encoders para consistencia)
-        # Nota: preload_ram=False ahorra memoria en la GPU si los grafos son muchos
-        train_dataset = DoubleTowerDataset(
-            df=self.train_df,
-            drug_col=self.cfg["features"][0],
-            haplo_col="haplo_key",
-            target_cols=self.cfg["targets"],
-            multilabel_cols=self.cfg.get("multi_label_cols", []),
-            preload_ram=False,
-        )
-
-        val_dataset = DoubleTowerDataset(
-            df=self.val_df,
-            drug_col=self.cfg["features"][0],
-            haplo_col="haplo_key",
-            target_cols=self.cfg["targets"],
-            multilabel_cols=self.cfg.get("multi_label_cols", []),
-            encoders=train_dataset.encoders,  # CRÍTICO: Compartir estado de encoders
-            preload_ram=False,
-        )
-
-        # 3. Inferencia de Dimensiones
+        # Clear memory before starting trial
+        MemoryMonitor.clear_memory(aggressive=True)
+        MemoryMonitor.log_memory_stats(f"Trial {trial.number} start - ")
+        
         try:
-            sample = train_dataset[0]
-            drug_dim = sample["drug_data"].x.shape[1]  # type: ignore
-            haplo_dim = sample["haplo_data"].x.shape[1]  # type: ignore
-        except Exception as e:
-            logger.error(f"Dimension check failed: {e}")
-            raise optuna.exceptions.TrialPruned()
+            # 1. Configuración de Hiperparámetros
+            params = self._suggest_params(trial)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        target_dims = {
-            col: len(train_dataset.encoders[col].classes_)
-            for col in self.cfg["targets"]
-            if col in train_dataset.encoders
-        }
-        # Fallback para dimensiones target si algo falla
-        for t in self.cfg["targets"]:
-            if t not in target_dims:
-                target_dims[t] = 1
+            batch_size = int(params.get("batch_size", 64))
+            # Validate batch size against max limit
+            if batch_size > self.max_batch_size:
+                logger.warning(
+                    f"Batch size {batch_size} exceeds max {self.max_batch_size}, capping"
+                )
+                batch_size = self.max_batch_size
+                
+            epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
 
-        # 4. DataLoaders con Collater Especializado
-        collater = DoubleTowerCollater()
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=collater,
-            num_workers=0,
-            pin_memory=True,
-        )
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=collater,
-            num_workers=0,
-            pin_memory=True,
-        )
+            # 2. Memory estimation
+            estimated_batch_mem = estimate_batch_memory_mb(
+                batch_size=batch_size,
+                avg_nodes_per_graph=50,  # Conservative estimate
+                node_features=25,
+                num_graphs=2
+            )
+            logger.debug(f"Estimated batch memory: {estimated_batch_mem:.1f}MB")
 
-        # 5. Instanciación del Modelo (Two-Tower GATv2)
-        model = create_gnn_model(
-            model_name=self.model_name,
-            drug_config={
-                "num_features": drug_dim,
-                "edge_dim": self.cfg.get("drug_edge_dim", 0),
-            },
-            haplo_config={
-                "num_features": haplo_dim,
-                "edge_dim": self.cfg.get("haplo_edge_dim", 0),
-            },
-            target_dims=target_dims,
-            params=params,
-        ).to(device)
+            # 3. Construcción de Datasets
+            # preload_ram=False to minimize memory usage during Optuna
+            train_dataset = DoubleTowerDataset(
+                df=self.train_df,
+                drug_col=self.cfg["features"][0],
+                haplo_col="haplo_key",
+                target_cols=self.cfg["targets"],
+                multilabel_cols=self.cfg.get("multi_label_cols", []),
+                preload_ram=False,  # CRITICAL: Always False during Optuna
+            )
 
-        # 5. Loss & Uncertainty Setup (IMPORTANTE)
-        uncertainty_net = LossFactory.create_uncertainty_wrapper(
-            tasks=self.cfg["targets"], device=device
-        )
-        # 6. Optimizer & Scheduler (Usando la Factoría)
-        optimizer = OptimizerFactory.create(
-            model=model,
-            params=params,  # Aquí se inyectan learning_rate y weight_decay de Optuna
-            uncertainty_module=uncertainty_net,
-        )
+            val_dataset = DoubleTowerDataset(
+                df=self.val_df,
+                drug_col=self.cfg["features"][0],
+                haplo_col="haplo_key",
+                target_cols=self.cfg["targets"],
+                multilabel_cols=self.cfg.get("multi_label_cols", []),
+                encoders=train_dataset.encoders,  # CRÍTICO: Compartir estado de encoders
+                preload_ram=False,  # CRITICAL: Always False during Optuna
+            )
 
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5
-        )
+            # 4. Inferencia de Dimensiones
+            try:
+                sample = train_dataset[0]
+                drug_dim = sample["drug_data"].x.shape[1]  # type: ignore
+                haplo_dim = sample["haplo_data"].x.shape[1]  # type: ignore
+            except Exception as e:
+                logger.error(f"Dimension check failed: {e}")
+                raise optuna.exceptions.TrialPruned()
 
-        # 7. Trainer Setup (Inyectando uncertainty_module)
-        trainer = PGenTrainer(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            device=device,
-            target_cols=self.cfg["targets"],
-            multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
-            params=params,  # Pasa los parámetros para que LossFactory cree las pérdidas correctas
-            uncertainty_module=uncertainty_net,  # <--- FIX: Ahora el tuner usa incertidumbre
-            from_optuna=True,
-        )
-        try:
-            return trainer.fit(
+            target_dims = {
+                col: len(train_dataset.encoders[col].classes_)
+                for col in self.cfg["targets"]
+                if col in train_dataset.encoders
+            }
+            # Fallback para dimensiones target si algo falla
+            for t in self.cfg["targets"]:
+                if t not in target_dims:
+                    target_dims[t] = 1
+
+            # 5. DataLoaders con Collater Especializado
+            # num_workers=0 during Optuna to prevent memory issues with multiprocessing
+            collater = DoubleTowerCollater()
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                collate_fn=collater,
+                num_workers=0,  # CRITICAL: 0 to prevent multiprocessing memory issues
+                pin_memory=True if torch.cuda.is_available() else False,
+            )
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                collate_fn=collater,
+                num_workers=0,  # CRITICAL: 0 to prevent multiprocessing memory issues
+                pin_memory=True if torch.cuda.is_available() else False,
+            )
+
+            # 6. Instanciación del Modelo (Two-Tower GATv2)
+            model = create_gnn_model(
+                model_name=self.model_name,
+                drug_config={
+                    "num_features": drug_dim,
+                    "edge_dim": self.cfg.get("drug_edge_dim", 0),
+                },
+                haplo_config={
+                    "num_features": haplo_dim,
+                    "edge_dim": self.cfg.get("haplo_edge_dim", 0),
+                },
+                target_dims=target_dims,
+                params=params,
+            ).to(device)
+            
+            # Log model memory estimate
+            num_params = sum(p.numel() for p in model.parameters())
+            model_mem = estimate_model_memory_mb(num_params)
+            logger.debug(f"Model parameters: {num_params:,}, estimated memory: {model_mem:.1f}MB")
+
+            # 7. Loss & Uncertainty Setup
+            uncertainty_net = LossFactory.create_uncertainty_wrapper(
+                tasks=self.cfg["targets"], device=device
+            )
+            
+            # 8. Optimizer & Scheduler
+            optimizer = OptimizerFactory.create(
+                model=model,
+                params=params,
+                uncertainty_module=uncertainty_net,
+            )
+
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=0.5, patience=5
+            )
+
+            # 9. Trainer Setup
+            trainer = PGenTrainer(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                device=device,
+                target_cols=self.cfg["targets"],
+                multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
+                params=params,
+                uncertainty_module=uncertainty_net,
+                from_optuna=True,
+            )
+            
+            # 10. Training with memory monitoring
+            MemoryMonitor.log_memory_stats(f"Trial {trial.number} before training - ")
+            result = trainer.fit(
                 train_loader,
                 val_loader,
                 epochs=epochs,
                 patience=self.patience,
                 trial=trial,
             )
+            
+            return result
+            
         except optuna.exceptions.TrialPruned:
             raise
-        except Exception as e:
-            logger.error(f"Trial failed: {e}")
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                logger.error(f"OOM in trial {trial.number}: {e}")
+                MemoryMonitor.clear_memory(device=device, aggressive=True)
+                raise optuna.exceptions.TrialPruned()
+            logger.error(f"Trial failed with RuntimeError: {e}")
             raise optuna.exceptions.TrialPruned()
+        except Exception as e:
+            logger.error(f"Trial failed: {e}", exc_info=True)
+            raise optuna.exceptions.TrialPruned()
+        finally:
+            # CRITICAL: Clean up after each trial to prevent memory leaks
+            if 'train_loader' in locals():
+                del train_loader
+            if 'val_loader' in locals():
+                del val_loader
+            if 'train_dataset' in locals():
+                del train_dataset
+            if 'val_dataset' in locals():
+                del val_dataset
+            if 'model' in locals():
+                del model
+            if 'optimizer' in locals():
+                del optimizer
+            if 'scheduler' in locals():
+                del scheduler
+            if 'trainer' in locals():
+                del trainer
+            if 'uncertainty_net' in locals():
+                del uncertainty_net
+                
+            # Aggressive cleanup after each trial
+            MemoryMonitor.clear_memory(aggressive=True)
+            MemoryMonitor.log_memory_stats(f"Trial {trial.number} cleanup - ")
 
     def run_tuning(self, n_trials: int = 50, n_jobs: int | None = None) -> optuna.Study:
         """

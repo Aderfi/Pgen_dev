@@ -33,7 +33,7 @@ class Spinner:
         self.message = message
         self.stop_running = False
         self.spinner_chars = itertools.cycle(
-            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+            ["\u25cb", "\u25d1", "\u25d0", "\u25e5", "\u25e4", "\u25e3", "\u25e2", "\u25e1", "\u25e0", "\u25ef"]
         )
         self.thread: threading.Thread | None = None
 
@@ -64,17 +64,17 @@ class ConsoleIO:
 
     @staticmethod
     def print_header(title: str):
-        print("\n" + "═" * 60)
+        print("\n" + "\u2500" * 60)
         print(f" {title}")
-        print("═" * 60)
+        print("\u2500" * 60)
 
     @staticmethod
     def print_success(msg: str):
-        print(f"✅ {msg}")
+        print(f"\u2705 {msg}")
 
     @staticmethod
     def print_error(msg: str):
-        print(f"❌ {msg}")
+        print(f"\u274c {msg}")
 
     @staticmethod
     def input_path(

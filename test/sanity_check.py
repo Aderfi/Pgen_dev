@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 
 # Project Imports
 from src.config.manager import MULTI_LABEL_COLS, get_model_config
-from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
+from src.data.collator import DoubleTowerCollater
+from src.data.datasets import DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 
 # Configure Logging

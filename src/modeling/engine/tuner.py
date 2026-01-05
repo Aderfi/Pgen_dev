@@ -8,6 +8,8 @@
 import datetime
 import json
 import logging
+import multiprocessing as mp
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,8 @@ from tqdm.auto import tqdm
 
 # Project Imports
 from src.config.manager import DIRS, get_model_config
-from src.data.loaders import DoubleTowerCollater, DoubleTowerDataset
+from src.data.collator import DoubleTowerCollater
+from src.data.datasets import DoubleTowerDataset
 from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils
@@ -41,7 +44,10 @@ class PGenTuner:
     """
 
     def __init__(
-        self, model_name: str, csv_path: str | Path, random_seed: int = 711
+        self,
+        model_name: str,
+        csv_path: str | Path,
+        random_seed: int = 711,
     ):
         self.model_name = model_name
         self.csv_path = Path(csv_path)
@@ -51,7 +57,7 @@ class PGenTuner:
 
         # 1. Configuración Global y Dispositivo
         self.cfg = get_model_config(model_name)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.patience = self.cfg["params_optuna"].get("patience", 5)
 
         # Directorios de salida (Asegurar existencia)
@@ -71,11 +77,42 @@ class PGenTuner:
         # stratify = self.full_df["_stratify"] if "_stratify" in self.full_df.columns else None
 
         self.train_df, self.val_df = train_test_split(
-            self.full_df, test_size=0.2, stratify=None, random_state=self.seed
+            self.full_df,
+            test_size=0.2,
+            stratify=None,
+            random_state=self.seed,
         )
         logger.info(
             f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
+
+    def _calculate_parallel_jobs(self, estimated_vram_per_trial_gb: float = 2.3) -> int:
+        """
+        Calcula n_jobs basado en la RTX 4070 Ti Super (16GB) y CPU disponible.
+        """
+        if not torch.cuda.is_available():
+            return 1  # Fallback a CPU serial
+
+        # VRAM Total en GB
+        try:
+            total_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        except Exception:
+            return 1  # Fallback if cuda check fails unexpectedly
+
+        # Reservamos 2GB para sistema/overhead
+        usable_vram = total_vram - 2.0
+
+        gpu_jobs = int(usable_vram // estimated_vram_per_trial_gb)
+        cpu_cores = os.cpu_count() or 1
+
+        # Limitamos por CPU también (evitar thrashing)
+        # Dejamos 2 cores libres para el sistema
+        max_cpu_jobs = max(1, cpu_cores - 2)
+
+        n_jobs = max(1, min(gpu_jobs, max_cpu_jobs))
+
+        logger.info(f"[Auto-Scale] Detected {total_vram:.1f}GB VRAM. Setting n_jobs={n_jobs} (Est. Trial: {estimated_vram_per_trial_gb}GB)")
+        return n_jobs
 
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """
@@ -108,7 +145,6 @@ class PGenTuner:
                     )
             except Exception as e:
                 logger.warning(f"Error parsing param {param_name}: {e}. Using default.")
-
         return suggestions
 
     def objective(self, trial: optuna.Trial) -> float:
@@ -119,6 +155,7 @@ class PGenTuner:
         # 1. Configuración de Hiperparámetros
         params = self._suggest_params(trial)
         #params.update(self._suggest_params(trial))
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         batch_size = int(params.get("batch_size", 64))
         epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
@@ -195,11 +232,11 @@ class PGenTuner:
             },
             target_dims=target_dims,
             params=params,
-        ).to(self.device)
+        ).to(device)
 
         # 5. Loss & Uncertainty Setup (IMPORTANTE)
         uncertainty_net = LossFactory.create_uncertainty_wrapper(
-            tasks=self.cfg["targets"], device=self.device
+            tasks=self.cfg["targets"], device=device
         )
         # 6. Optimizer & Scheduler (Usando la Factoría)
         optimizer = OptimizerFactory.create(
@@ -217,7 +254,7 @@ class PGenTuner:
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
-            device=self.device,
+            device=device,
             target_cols=self.cfg["targets"],
             multi_label_cols=set(self.cfg.get("multi_label_cols", [])),
             params=params,  # Pasa los parámetros para que LossFactory cree las pérdidas correctas
@@ -238,11 +275,14 @@ class PGenTuner:
             logger.error(f"Trial failed: {e}")
             raise optuna.exceptions.TrialPruned()
 
-    def run_tuning(self, n_trials: int = 50) -> optuna.Study:
+    def run_tuning(self, n_trials: int = 50, n_jobs: int | None = None) -> optuna.Study:
         """
         Ejecuta el estudio completo.
         """
-        logger.info(f"Starting Optuna Study: {self.study_name}")
+        if n_jobs is None:
+            n_jobs = self._calculate_parallel_jobs()
+
+        logger.info(f"Starting Optuna Study: {self.study_name} w/ n_jobs={n_jobs}")
 
         # Sampler TPE (Tree-structured Parzen Estimator) es ideal para hiperparámetros
         sampler = TPESampler(seed=self.seed, multivariate=True)
@@ -251,44 +291,40 @@ class PGenTuner:
 
         storage_url = self.reports_dir / "study_DBs" / f"{self.study_name}.db"
         storage_url.parent.mkdir(parents=True, exist_ok=True)
+        db_path = f"sqlite:///{storage_url.resolve()}"
 
         study = optuna.create_study(
             study_name=self.study_name,
-            storage=f"sqlite:///{storage_url}",
+            storage=db_path,
             direction="minimize",
             sampler=sampler,
             pruner=pruner,
             load_if_exists=True,
         )
+        if n_jobs > 1:
+            logger.info("Running in parallel mode. TQDM bar disabled to prevent console clutter.")
 
-        # Barra de progreso externa
-        with tqdm(total=n_trials, desc="Optuna Trials", colour="blue") as pbar:
-
-            def callback(study, trial):
-                pbar.update(1)
-                if study.best_trial:
-                    best_trial = study.best_trial
-                    best_trial_params = [f"{k}: {v}" for k, v in best_trial.params.items()]
-                    postfix = {
-                        "Trial": best_trial.number,
-                        "Best Loss": f"{best_trial.value:.4f}",
-                        "Params": " ".join(best_trial_params),
-                    }
-                    pbar.set_postfix(postfix)
-
-
-                #if study.best_trials:
-                #    best_trial = study.best_trial
-                 #   postfix = f" Trial: {best_trial.number} | Best Loss: {best_trial.value:.4f}"
-                  #  # pbar.set_postfix(best_loss=f" {study.best_value:.4f}")
-                   # pbar.set_postfix_str(postfix)
-
-            study.optimize(
-                self.objective,
-                n_trials=n_trials,
-                callbacks=[callback],
-                gc_after_trial=True,
-            )
+            study.optimize(self.objective, n_trials=n_trials, n_jobs=n_jobs, gc_after_trial=True)
+        else:
+            # Barra de progreso externa
+            with tqdm(total=n_trials, desc="Optuna Trials", colour="blue") as pbar:
+                def callback(study, trial):
+                    pbar.update(1)
+                    if study.best_trial:
+                        best_trial = study.best_trial
+                        best_trial_params = [f"{k}: {v}" for k, v in best_trial.params.items()]
+                        postfix = {
+                            "Trial": best_trial.number,
+                            "Best Loss": f"{best_trial.value:.4f}",
+                            "Params": " ".join(best_trial_params),
+                        }
+                        pbar.set_postfix(postfix)
+                study.optimize(
+                    self.objective,
+                    n_trials=n_trials,
+                    callbacks=[callback],
+                    gc_after_trial=True,
+                )
 
         self._save_results(study)
         return study
@@ -358,7 +394,22 @@ class PGenTuner:
 
 # Entry Point Simplificado
 def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50):
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+    print(Path(csv_path).resolve())
+    print(f"Running Optuna Study for {model_name} on data {csv_path} with {n_trials} trials.")
+    print("-" * 50)
+    print(os.getcwd())
+
     tuner = PGenTuner(model_name=model_name, csv_path=csv_path)
-    study = tuner.run_tuning(n_trials=n_trials)
+    # Using n_jobs=None to enable auto-scaling based on _calculate_parallel_jobs logic
+    study = tuner.run_tuning(n_trials=n_trials, n_jobs=None)
 
     print(f"\n[Optuna] Best Params: {study.best_params}")
+
+if __name__ == "__main__":
+    run_optuna_study("TwoTowerGAT", "train_data/train_data.csv", 100)
+
+    print("Finalizado")

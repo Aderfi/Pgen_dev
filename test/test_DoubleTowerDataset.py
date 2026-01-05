@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data.loaders import DoubleTowerDataset
+from src.data.datasets import DoubleTowerDataset
 
 if __name__ == "__main__":
     # Configuración de Logging

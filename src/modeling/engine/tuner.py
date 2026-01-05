@@ -109,7 +109,7 @@ class PGenTuner:
         # Dejamos 2 cores libres para el sistema
         max_cpu_jobs = max(1, cpu_cores - 2)
 
-        n_jobs = max(1, min(gpu_jobs, max_cpu_jobs))
+        n_jobs = max(1, 4)
 
         logger.info(f"[Auto-Scale] Detected {total_vram:.1f}GB VRAM. Setting n_jobs={n_jobs} (Est. Trial: {estimated_vram_per_trial_gb}GB)")
         return n_jobs
@@ -208,7 +208,7 @@ class PGenTuner:
             shuffle=True,
             collate_fn=collater,
             num_workers=0,
-            pin_memory=False,
+            pin_memory=True,
         )
         val_loader = DataLoader(
             val_dataset,
@@ -216,7 +216,7 @@ class PGenTuner:
             shuffle=False,
             collate_fn=collater,
             num_workers=0,
-            pin_memory=False,
+            pin_memory=True,
         )
 
         # 5. Instanciación del Modelo (Two-Tower GATv2)
@@ -398,14 +398,12 @@ def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50):
         mp.set_start_method('spawn', force=True)
     except RuntimeError:
         pass
-    print(Path(csv_path).resolve())
-    print(f"Running Optuna Study for {model_name} on data {csv_path} with {n_trials} trials.")
-    print("-" * 50)
-    print(os.getcwd())
+    print("=" * 50)
+    print(f"Running Optuna Study for {model_name} on data \n\t{csv_path} with {n_trials} trials.")
+    print("=" * 50)
 
     tuner = PGenTuner(model_name=model_name, csv_path=csv_path)
-    # Using n_jobs=None to enable auto-scaling based on _calculate_parallel_jobs logic
-    study = tuner.run_tuning(n_trials=n_trials, n_jobs=None)
+    study = tuner.run_tuning(n_trials=n_trials, n_jobs=4)
 
     print(f"\n[Optuna] Best Params: {study.best_params}")
 

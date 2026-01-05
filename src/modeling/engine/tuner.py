@@ -8,7 +8,6 @@
 import datetime
 import json
 import logging
-import multiprocessing as mp
 import os
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ import matplotlib.pyplot as plt
 import optuna.logging
 import optuna.study as opt_study
 import torch
+import torch.multiprocessing as mp
 from optuna.pruners import HyperbandPruner, PatientPruner
 from optuna.samplers import TPESampler
 from sklearn.model_selection import train_test_split
@@ -208,7 +208,7 @@ class PGenTuner:
             shuffle=True,
             collate_fn=collater,
             num_workers=0,
-            pin_memory=True,
+            pin_memory=False,
         )
         val_loader = DataLoader(
             val_dataset,
@@ -216,7 +216,7 @@ class PGenTuner:
             shuffle=False,
             collate_fn=collater,
             num_workers=0,
-            pin_memory=True,
+            pin_memory=False,
         )
 
         # 5. Instanciación del Modelo (Two-Tower GATv2)

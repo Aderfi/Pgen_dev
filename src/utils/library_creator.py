@@ -1,7 +1,7 @@
 import sys
 
 DOC_PRES = """
-# ============================================================================= 
+# =============================================================================
 #  Genomic Graph Builder for Pharmacogenomics Variants
 # =============================================================================
 Documentation:
@@ -22,18 +22,18 @@ representations suitable for machine learning tasks.
     - PyTorch Geometric
     - RDKit
     - pandas
-    - pyfaidx 
+    - pyfaidx
         ...
 """
 DOC_FILES = """
 # FILES FOR BUILDING THE LIBRARY:
-    
+
     - DRUG_GRAPH_LIBRARY: .tsv file with AT LEAST columns: "cid"    "cmpdname"	"smiles" -- from PubChem
     - REFERENCE GENOME: FASTA file (e.g., GRCh38) and GFF annotation file. (NCBI Nomenclature prefered)
     - PGX VARIANTS: Folder structure with per-gene VCF files containing star alleles and variants. (PharmVarDB format)
     - OTHER VARIANTS: Optional TSV file with additional variants to include with cols:
-        snp     --  [string(rs+id)]	
-        snp_id  --  [int (snp without rs)]	
+        snp     --  [string(rs+id)]
+        snp_id  --  [int (snp without rs)]
         chr	    -- (chrNUMBER|LETTER, NUMBER|LETTER or NC_XXXXXXXXX.X format)
         pos	    -- (1-based position)[int]
         variant	-- [string: REF>ALT, e.g., A>G, AT>- (deletion), - >AG (insertion)]
@@ -74,13 +74,15 @@ DOC_USAGE = """
 # =============================================================================
 """
 
+
+
 try:
     import argparse
     import os
     import re
     import subprocess
     from pathlib import Path
-    from typing import Dict, cast
+    from typing import cast
 
     import networkx as nx
     import pandas as pd
@@ -98,7 +100,6 @@ except ImportError as e:
         f"Falta el módulo requerido: {missing_module}. Por favor, instálalo para continuar."
     )
 
-
 # Importaciones del proyecto (Asumiendo estructura src/)
 
 # Intentar importar pandarallel
@@ -114,6 +115,26 @@ except ImportError:
 # =============================================================================
 #  CONFIGURACIÓN GLOBAL Y MAPEOS
 # =============================================================================
+
+BASE_DIR = Path("data")
+REF_DIR = BASE_DIR / "ref_genome"
+LIB_DIR = Path("src/library")
+
+# Archivos de Entrada definidos por usuario
+GENE_VAR_TSV = BASE_DIR / "snp_data_output.tsv"
+DRUGS_TSV = BASE_DIR / "drugs_cid.tsv"
+
+# Archivos de Referencia
+FASTA_FILE = REF_DIR / "genome.fna"
+GFF_FILE = REF_DIR / "gen_annotations.gff"
+PGX_FOLDER = BASE_DIR / "haplotype_variants"
+
+# Salidas
+GENE_OUT_DIR = LIB_DIR / "gene_graphs"
+DRUG_OUT_DIR = LIB_DIR / "drugs"
+PARQUET_FILE = LIB_DIR / "genome_library.parquet"
+
+NA_VALUES = ["-", ".", "N/A"]
 
 PGX_METADATA = {
     # --- ENZIMAS MAYORES (METABOLISMO DE FÁRMACOS) ---
@@ -499,129 +520,14 @@ def parse_fxn_class(fxn_str):
 
     return flags
 
-
-def worker_validate_row(row):
-    """
-    Función pura ejecutada en paralelo. Valida variantes, extrae secuencias
-    y asigna nombres clínicos (variant_name).
-    """
-
-    def _map_chrom(c):
-        c_str = str(c).strip()
-        if GLOBAL_CHROM_MAPPING and c_str in GLOBAL_CHROM_MAPPING:
-            return GLOBAL_CHROM_MAPPING[c_str]
-        clean = c_str.replace("chr", "").replace("Chr", "")
-        if GLOBAL_CHROM_MAPPING:
-            return GLOBAL_CHROM_MAPPING.get(clean, c_str)
-        return c_str
-
-    def _get_gene(chrom, pos):
-        if GLOBAL_GENE_TREES and chrom in GLOBAL_GENE_TREES:
-            matches = GLOBAL_GENE_TREES[chrom].at(pos)
-            if matches:
-                names = sorted(list({m.data["gene"] for m in matches}))
-                return names[0]
-        return "Intergenic"
-
-    def _parse_variant_name_logic(gene, alt, label):
-        raw = str(label) if pd.notna(label) and str(label).strip() else str(alt)
-        if "*" in raw:
-            return raw
-        if raw.startswith("rs"):
-            return raw
-        return None
-
-    ref_raw = str(row["REF"]).upper().strip()
-    alt_raw = str(row["ALT"]).upper().strip()
-    is_star_allele = "*" in alt_raw
-
-    ref_clean = "" if ref_raw == "-" else ref_raw
-    alt_clean = alt_raw if is_star_allele else ("" if alt_raw == "-" else alt_raw)
-
-    chrom_mapped = _map_chrom(row["CHROM"])
-
-    row["validated"] = False
-    row["validation_error"] = None
-
-    try:
-        pos_0 = int(row["POS"]) - 1
-        if pos_0 < 0:
-            raise ValueError
-    except ValueError:
-        row["validation_error"] = "Bad POS"
-        return row
-
-    if GLOBAL_GENOME:
-        if chrom_mapped not in GLOBAL_GENOME:
-            row["validation_error"] = f"Chr missing: {chrom_mapped}"
-            return row
-        try:
-            if not is_star_allele and len(ref_clean) > 0:
-                ref_fasta = GLOBAL_GENOME[chrom_mapped][
-                    pos_0 : pos_0 + len(ref_clean)
-                ].seq.upper()  # type: ignore
-                if ref_fasta != ref_clean and "N" not in ref_fasta:
-                    row["validation_error"] = (
-                        f"Ref Mismatch: {ref_clean} vs {ref_fasta}"
-                    )
-                    return row
-        except IndexError:
-            row["validation_error"] = "Out of bounds"
-            return row
-
-    existing_gene = str(row.get("gene_provided", ""))
-    if not existing_gene or existing_gene.lower() in ["nan", "none", ".", ""]:
-        row["gene_context"] = _get_gene(chrom_mapped, pos_0)
-    else:
-        row["gene_context"] = existing_gene
-
-    row["variant_name"] = _parse_variant_name_logic(
-        row["gene_context"], alt_clean, row.get("haplotype_label")
-    )
-
-    if is_star_allele:
-        row["variant_type"] = "STAR_ALLELE"
-    elif len(ref_clean) == len(alt_clean):
-        row["variant_type"] = "SNP" if len(ref_clean) == 1 else "MNP"
-    elif len(ref_clean) > len(alt_clean):
-        row["variant_type"] = "DEL"
-    else:
-        row["variant_type"] = "INS"
-
-    score = -1.0
-    if pd.notna(row.get("activity_score")):
-        try:
-            score = float(row["activity_score"])
-        except Exception as e:
-            print(f"Error parsing activity_score: {e}")
-            pass
-    else:
-        if row["variant_type"] == "STAR_ALLELE":
-            score = 0.5
-
-    row["activity_score"] = float(score)
-    net = len(alt_clean) - len(ref_clean)
-    row["is_frameshift"] = (
-        (net != 0 and abs(net) % 3 != 0) if not is_star_allele else False
-    )
-
-    row["validated"] = True
-    row["REF"] = ref_clean
-    row["ALT"] = alt_clean
-    row["CHROM"] = chrom_mapped
-    return row
-
-
-def worker_validate_row_nextgen(row):
+def worker_validate_row_nextgen(row: pd.Series) -> pd.Series:
     """
     Validación adaptada al DATAFRAME B (Estructura VEP/Ensembl).
     """
     # 1. Mapeo de Cromosoma
     c_str = str(row["chr"]).strip()
-    chrom_mapped = c_str  # Default fallback
+    chrom_mapped = c_str
 
-    # Intento de mapeo usando GLOBAL_CHROM_MAPPING (si está definido en el script principal)
-    # Asumimos que GLOBAL_CHROM_MAPPING existe en el scope global como en tu script original
     if "GLOBAL_CHROM_MAPPING" in globals() and GLOBAL_CHROM_MAPPING:
         if c_str in GLOBAL_CHROM_MAPPING:
             chrom_mapped = GLOBAL_CHROM_MAPPING[c_str]
@@ -644,11 +550,8 @@ def worker_validate_row_nextgen(row):
     ref_clean = str(row["Ref_Allele"]).strip().upper()
     alt_clean = str(row["Alt_Allele"]).strip().upper()
 
-    # Manejo de N/A o guiones en INDELs
-    if ref_clean in ["-", ".", "N/A"]:
-        ref_clean = ""
-    if alt_clean in ["-", ".", "N/A"]:
-        alt_clean = ""
+    ref_clean = "" if ref_clean in NA_VALUES else ref_clean
+    alt_clean = "" if alt_clean in NA_VALUES else alt_clean
 
     # 3. Validación contra Genoma de Referencia (Si está cargado)
     if "GLOBAL_GENOME" in globals() and GLOBAL_GENOME:
@@ -710,361 +613,9 @@ def worker_validate_row_nextgen(row):
     )  # Guardamos 1-based para nombres, usamos pos_0 para lógica si hiciera falta
 
     return row
-
-
 # =============================================================================
 #  CLASE 1: CONSTRUCTOR DE GRAFOS GENÓMICOS
 # =============================================================================
-
-
-class GenomicGraphBuilder:
-    def __init__(self, fasta_path: Path, gff_path: Path, pgx_dir: Path):
-        self.fasta_path = fasta_path
-        self.gff_path = gff_path
-        self.pgx_dir = pgx_dir
-
-    def run_pipeline(
-        self, tsv_input: Path, output_parquet: Path, output_graph_dir: Path
-    ):
-        print("\n🧬 [GENOMICS] Iniciando pipeline genómico...")
-
-        # 1. Construir Librería Parquet
-        if self.fasta_path.exists() and self.gff_path.exists():
-            clean_df = self._build_library(tsv_input)
-            if clean_df is not None and not clean_df.empty:
-                clean_df.to_parquet(output_parquet, index=False)
-                print(
-                    f"✅ Librería guardada en: {output_parquet} ({len(clean_df)} variantes)"
-                )
-
-                # 2. Generar Grafos
-                self._generate_graphs(clean_df, output_graph_dir)
-
-                # 3. Organizar Archivos (OS Specific)
-                self._organize_files_os_specific(output_graph_dir)
-            else:
-                print("⚠️ No se generó dataframe limpio de variantes.")
-        else:
-            print(
-                f"❌ Faltan archivos de referencia (FASTA/GFF) en {self.fasta_path.parent}"
-            )
-
-    def _build_library(self, tsv_path: Path) -> pd.DataFrame | None:
-        print("   🔹 Indexando genoma y anotaciones...")
-        genome = Fasta(str(self.fasta_path), key_function=lambda x: x.split()[0])
-        gene_trees = self._build_gene_index()
-
-        dfs = []
-        # Cargar TSV Principal
-        if tsv_path.exists():
-            print("   🔹 Cargando TSV de variantes genéticas...")
-            t_df = pd.read_csv(
-                tsv_path,
-                sep="\t",
-                dtype={"chr": str, "pos": int, "Ref_Allele": str, "Alt_Allele": str},
-            )
-            rename_map = {
-                "chr": "CHROM",
-                "pos": "POS",
-                "Ref_Allele": "REF",
-                "Alt_Allele": "ALT",
-                "gene": "gene_provided",
-                "snp": "haplotype_label",
-            }
-            t_df.rename(
-                columns=lambda x: rename_map.get(
-                    x.lower(), rename_map.get(x, x.upper())
-                ),
-                inplace=True,
-            )
-            dfs.append(t_df)
-
-        # Cargar Datos PGx
-        pgx_df = self._load_pgx_folder()
-        if not pgx_df.empty:
-            dfs.append(pgx_df)
-
-        if not dfs:
-            return None  # No hay datos para procesar
-
-        master_df = pd.concat(dfs, ignore_index=True)
-        master_df["POS"] = (
-            pd.to_numeric(master_df["POS"], errors="coerce").dropna().astype(int)
-        )
-
-        # Configurar Globales para Workers
-        global GLOBAL_GENOME, GLOBAL_GENE_TREES
-        GLOBAL_GENOME = genome
-        GLOBAL_GENE_TREES = gene_trees
-
-        print(f"   ⚡ Validando {len(master_df)} variantes...")
-        if pandarallel:
-            processed = master_df.parallel_apply(worker_validate_row, axis=1)
-        else:
-            tqdm.pandas(desc="Validando filas")
-            processed = master_df.progress_apply(worker_validate_row, axis=1)
-
-        # Limpiar referencias
-        GLOBAL_GENOME = None
-        GLOBAL_GENE_TREES = None
-
-        clean = processed[processed["validated"]].copy()
-        clean["has_haplo"] = clean["haplotype_label"].notna()
-        clean.sort_values(
-            by=["CHROM", "POS", "has_haplo"],
-            ascending=[True, True, False],
-            inplace=True,
-        )
-        clean.drop_duplicates(
-            subset=["CHROM", "POS", "REF", "ALT"], keep="first", inplace=True
-        )
-
-        return clean
-
-    def _build_gene_index(self) -> dict:
-        comp = "gzip" if str(self.gff_path).endswith(".gz") else None
-        try:
-            df = pd.read_csv(
-                self.gff_path,
-                sep="\t",
-                comment="#",
-                compression=comp,
-                names=["seq", "src", "type", "start", "end", "sc", "str", "ph", "attr"],
-                usecols=["seq", "type", "start", "end", "attr"],
-                dtype={"seq": str, "type": str, "start": int, "end": int, "attr": str},
-            )
-            df = df[df["attr"].str.contains("gene=", na=False) | (df["type"] == "gene")]
-            tree_dict = {}
-            for chrom, grp in df.groupby("seq"):
-                t = IntervalTree()
-                for row in grp.itertuples():
-                    match = re.search(r"Name=([^;]+)", str(row.attr))
-                    if not match:
-                        match = re.search(r"gene=([^;]+)", str(row.attr))
-                    name = match.group(1) if match else "Unknown"
-                    start_val = cast(int, row.start)
-                    end_val = cast(int, row.end)
-                    t.addi(start_val - 1, end_val, data={"gene": name})
-                tree_dict[str(chrom)] = t
-            return tree_dict
-        except Exception as e:
-            print(f"Error GFF: {e}")
-            return {}
-
-    def _load_pgx_folder(self) -> pd.DataFrame:
-        all_variants = []
-        if not self.pgx_dir.exists():
-            return pd.DataFrame()
-
-        for gene_folder in self.pgx_dir.iterdir():
-            if gene_folder.is_dir():
-                gene_name = gene_folder.name
-                for vcf_file in gene_folder.glob("*.vcf"):
-                    haplo_label = self._parse_haplo_name(gene_name, vcf_file.stem)
-                    try:
-                        vcf_df = pd.read_csv(
-                            vcf_file,
-                            sep="\t",
-                            comment="#",
-                            header=None,
-                            names=[
-                                "CHROM",
-                                "POS",
-                                "ID",
-                                "REF",
-                                "ALT",
-                                "QUAL",
-                                "FILTER",
-                                "INFO",
-                            ],
-                            dtype={"CHROM": str, "REF": str, "ALT": str},
-                        )
-                        if vcf_df.empty:
-                            continue
-                        vcf_df["gene_provided"] = gene_name
-                        vcf_df["haplotype_label"] = haplo_label
-                        all_variants.append(
-                            vcf_df[
-                                [
-                                    "CHROM",
-                                    "POS",
-                                    "REF",
-                                    "ALT",
-                                    "gene_provided",
-                                    "haplotype_label",
-                                ]
-                            ]
-                        )
-                    except Exception as e:
-                        print(f"Error leyendo VCF {vcf_file}: {e}")
-                        continue
-        return (
-            pd.concat(all_variants, ignore_index=True)
-            if all_variants
-            else pd.DataFrame()
-        )
-
-    def _parse_haplo_name(self, gene, fname):
-        if fname.startswith("rs"):
-            return DPYD_RS_MAP.get(fname, fname)
-        clean = fname.replace(f"{gene}_", "").replace(gene, "")
-        base = clean.split(".")[0] if "." in clean else clean
-        return f"*{base}" if base.isdigit() or not base.startswith("*") else base
-
-    def _generate_graphs(self, library_df: pd.DataFrame, output_dir: Path):
-        output_dir.mkdir(parents=True, exist_ok=True)
-        genes = library_df["gene_context"].dropna().unique()
-        print(f"   🚀 Generando grafos PyG para {len(genes)} genes...")
-
-        count = 0
-        for gene in tqdm(genes, desc="Procesando Genes"):
-            df_gene = library_df[library_df["gene_context"] == gene]
-            for var_name in df_gene["variant_name"].dropna().unique():
-                if str(var_name).strip() == "":
-                    continue
-                df_variant = df_gene[df_gene["variant_name"] == var_name]
-                G = self._build_nx_graph(df_variant, gene, var_name)
-                if G:
-                    pyg_data = self._to_pyg(G)
-                    safe_var = (
-                        str(var_name)
-                        .replace("*", "star")
-                        .replace(":", "_")
-                        .replace("/", "_")
-                    )
-                    torch.save(pyg_data, output_dir / f"{gene}_{safe_var}.pt")
-                    count += 1
-
-    def _build_nx_graph(self, df, gene_name, var_name):
-        G = nx.MultiDiGraph(name=f"{gene_name}_{var_name}")
-        df = df.sort_values("POS")
-        prev_node = "start"
-        start_pos = df["POS"].min() - 100
-        G.add_node(prev_node, type="backbone", pos=start_pos)
-
-        for idx, row in df.iterrows():
-            pos = row["POS"]
-            bb_node = f"bb_{pos}"
-            G.add_node(bb_node, type="backbone", pos=pos)
-            G.add_edge(prev_node, bb_node, type="backbone_link")
-            split = f"split_{pos}"
-            G.add_node(split, type="split", pos=pos)
-            G.add_edge(bb_node, split, type="link")
-            merge = f"merge_{pos + 1}"
-            G.add_node(merge, type="merge", pos=pos + 1)
-
-            # Camino Ref
-            ref_n = f"ref_{pos}"
-            G.add_node(ref_n, type="allele_ref", seq=row["REF"])
-            G.add_edge(split, ref_n, attr="ref")
-            G.add_edge(ref_n, merge, attr="join")
-
-            # Camino Alt
-            alt_n = f"alt_{pos}"
-            G.add_node(
-                alt_n,
-                type="allele_alt",
-                seq=row["ALT"],
-                score=row["activity_score"],
-                variant_name=var_name,
-            )
-            G.add_edge(split, alt_n, attr="alt")
-            G.add_edge(alt_n, merge, attr="join")
-            prev_node = merge
-
-        G.add_node("end", type="backbone_end", pos=df["POS"].max() + 100)
-        G.add_edge(prev_node, "end", type="backbone_link")
-        return G
-
-    def _to_pyg(self, G: nx.MultiDiGraph) -> Data:
-        nodes = list(G.nodes(data=True))
-        node_idx = {n: i for i, (n, _) in enumerate(nodes)}
-        x_list = []
-        variant_name_str = "Unknown"
-
-        for _, d in nodes:
-            t = d.get("type", "")
-            score = d.get("score", 0.5) if d.get("score") != -1.0 else 0.5
-            if "variant_name" in d:
-                variant_name_str = d["variant_name"]
-            vec = [0.0] * 5
-            if "backbone" in t:
-                vec[0] = 1.0
-            elif "split" in t or "merge" in t:
-                vec[1] = 1.0
-            elif "ref" in t:
-                vec[2] = 1.0
-            elif "alt" in t:
-                vec[3] = 1.0
-                vec[4] = float(score)
-            x_list.append(vec)
-
-        edge_index = [[node_idx[u], node_idx[v]] for u, v, _ in G.edges(data=True)]
-        edge_attr = []
-        for _, _, data in G.edges(data=True):
-            vec = [0.0, 0.0, 0.0]
-            if "ref" in data.get("attr", ""):
-                vec[1] = 1.0
-            elif "alt" in data.get("attr", ""):
-                vec[2] = 1.0
-            else:
-                vec[0] = 1.0
-            edge_attr.append(vec)
-
-        data = Data(
-            x=torch.tensor(x_list, dtype=torch.float32),
-            edge_index=torch.tensor(edge_index, dtype=torch.long).t().contiguous(),
-            edge_attr=torch.tensor(edge_attr, dtype=torch.float32),
-        )
-        data.variant_name = variant_name_str
-        return data
-
-    def _organize_files_os_specific(self, graph_dir: Path):
-        """Genera y ejecuta scripts de organización según el SO."""
-        print(f"   📂 Organizando estructura de carpetas en {graph_dir}...")
-
-        if os.name == "posix":  # Linux / macOS
-            script_content = """#!/bin/bash
-echo "Organizando..."
-count=0
-for filename in *.pt; do
-    [ -e "$filename" ] || continue
-    raw_gene="${filename%%_*}"
-    gene_name="${raw_gene%%;*}"
-    if [[ "$gene_name" =~ ^UGT1A([1-9]|10)$ ]]; then target_dir="UGT1A"; else target_dir="$gene_name"; fi
-    mkdir -p "$target_dir"
-    mv "$filename" "$target_dir/"
-    ((count++))
-done
-echo "Archivos movidos: $count"
-"""
-            script_path = graph_dir / "organize_genes.sh"
-            with open(script_path, "w") as f:
-                f.write(script_content)
-            os.chmod(script_path, 0o755)
-            subprocess.run(["bash", script_path.name], cwd=graph_dir, check=True)
-
-        elif os.name == "nt":  # Windows
-            script_content = """
-$ErrorActionPreference = "Continue"
-$files = Get-ChildItem -Filter *.pt -File
-foreach ($file in $files) {
-    $rawGene = $file.BaseName.Split('_')[0]
-    $geneName = $rawGene.Split(';')[0]
-    if ($geneName -match '^UGT1A([1-9]|10)$') { $targetDirName = "UGT1A" } else { $targetDirName = $geneName }
-    $targetPath = Join-Path -Path $PWD -ChildPath $targetDirName
-    if (-not (Test-Path -Path $targetPath)) { New-Item -Path $targetPath -ItemType Directory -Force | Out-Null }
-    $file | Move-Item -Destination $targetPath -Force
-}
-"""
-            script_path = graph_dir / "organize_genes.ps1"
-            with open(script_path, "w") as f:
-                f.write(script_content)
-            subprocess.run(
-                ["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path.name],
-                cwd=graph_dir,
-                check=True,
-            )
 
 
 class GenomicGraphBuilderNEXTGEN:
@@ -1605,28 +1156,9 @@ def main(args):
     except KeyboardInterrupt:
         print("\nOperación cancelada.")
         sys.exit(0)
-
-    BASE_DIR = Path("data")
     if not BASE_DIR.exists():
         print(f"❌ Error: El directorio de datos '{BASE_DIR}' no existe.")
         return
-
-    REF_DIR = BASE_DIR / "ref_genome"
-    LIB_DIR = Path("src/library")
-
-    # Archivos de Entrada definidos por usuario
-    GENE_VAR_TSV = BASE_DIR / "snp_data_output.tsv"
-    DRUGS_TSV = BASE_DIR / "drugs_cid.tsv"
-
-    # Archivos de Referencia
-    FASTA_FILE = REF_DIR / "genome.fna"
-    GFF_FILE = REF_DIR / "gen_annotations.gff"
-    PGX_FOLDER = BASE_DIR / "haplotype_variants"
-
-    # Salidas
-    GENE_OUT_DIR = LIB_DIR / "gene_graphs"
-    DRUG_OUT_DIR = LIB_DIR / "drugs"
-    PARQUET_FILE = LIB_DIR / "genome_library.parquet"
 
     # Crear directorios base
     LIB_DIR.mkdir(exist_ok=True)

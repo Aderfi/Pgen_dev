@@ -34,7 +34,7 @@ def welcome_message():
             PHARMAGEN           v{VERSION}
     ============================================
     Software para farmacogenética y deep learning.
-    
+
     ============================================
     """
     print(msg)
@@ -91,9 +91,10 @@ def check_environment_and_setup():
         try:
             # Importación dinámica para evitar errores circulares o si setup no existe
             # Como main.py añade PROJECT_ROOT al path, esto debería funcionar
-            import scripts.init_env
+            import subprocess
+            import venv_setup.setup
 
-            scripts.init_env.main()
+            subprocess.run([sys.executable, str(PROJECT_ROOT / "setup.py")], check=True)
         except ImportError:
             print("❌ Error: No se encontró 'setup.py' en la raíz del proyecto.")
             sys.exit(1)

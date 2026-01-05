@@ -2,11 +2,8 @@
 # Pharmagen - Pharmacogenetic Prediction and Therapeutic Efficacy
 # Copyright (C) 2025 Adrim Hamed Outmani
 
-from typing import Dict, List, Set
-
 import numpy as np
 import torch
-import torch.nn as nn
 from sklearn.metrics import f1_score
 
 
@@ -48,7 +45,7 @@ class TaskEvaluator:
 
     def evaluate(
         self,
-        model: nn.Module,
+        model: torch.nn.Module,
         data_loader: torch.utils.data.DataLoader,
         target_cols: list[str],
         multi_label_cols: set[str],

@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional, Set
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from src.utils.losses import (
     AdaptiveFocalLoss,

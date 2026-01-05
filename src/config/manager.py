@@ -99,18 +99,11 @@ MULTI_LABEL_COLS = set(_GLOBAL_CFG.get("project", {}).get("multi_label_cols", []
 
 
 def get_available_models() -> list[str]:
-    """Return list of available model names from configuration.
-
-    Returns
-    -------
-    list[str]
-        List of model names defined in models.toml.
-
-    """
+    """Return list of available model names from configuration."""
     return list(_MODELS_CFG.keys())
 
 
-def _parse_optuna_param(val: list | tuple | float | str,
+def _parse_optuna_param(val: list | tuple | float | str,    # deprecated?
     ) -> list | tuple | float | str:
     """Parse TOML lists into Python tuples/types for Optuna.
 

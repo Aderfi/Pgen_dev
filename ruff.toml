@@ -48,6 +48,7 @@ ignore = [
     "D212",   # Multi-line docstring summary start
     "PLC0415",
     "PLR0913",
+    "N812",   # Lowercase imported as non-lowercase (F for functional is PyTorch convention)
 ]
 
 # Fix behavior

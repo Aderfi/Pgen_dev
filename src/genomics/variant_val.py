@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any, Dict, Optional
-from collections.abc import Generator
 
 import pysam  # type: ignore      # Biblioteca solo disponible en Linux/Unix
 

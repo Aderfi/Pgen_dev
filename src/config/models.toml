@@ -28,36 +28,36 @@ haplo_idx = 2    # Use 0 if you did NOT apply the edge fix in all_in_one.py
 # These define the range/choices for the Tuner
 [TwoTowerGAT.optuna]
 ### --- Arquitectura (GNN & Towers) --- ###
-patience = 5
-epochs = 50
+patience = 10
+epochs = 100
 # "categorical" 
-embedding_dim = ["categorical", 64, 128, 256, 512]
-hidden_dim = ["categorical", 128, 256, 512]
+embedding_dim = ["categorical", 256, 512]
+hidden_dim = ["categorical", 512, 768, 1024]
 
 # "int" 
-n_layers = ["int", 2, 5]
+n_layers = ["int", 4, 6]
 
 # Attention Heads (GATv2).
-heads = ["categorical", 2, 4, 8]
+heads = ["categorical", 8, 12, 16]
 
 # "float" 
-dropout_rate = ["float", 0.1, 0.5]
+dropout_rate = ["float", 0.35, 0.6]
 
 ### --- Optimización (Training Loop) --- ###
 
 # "log"
-learning_rate = ["log", 1e-5, 1e-3]
-weight_decay = ["log", 1e-6, 1e-3]
+learning_rate = ["log", 2e-4, 8e-4]
+weight_decay = ["log", 1e-5, 1e-4]
 
 # Batch size afecta la generalización y el uso de VRAM.
-batch_size = ["categorical", 64, 128, 256]
+batch_size = ["categorical", 64, 128]
 
 # --- Función de Pérdida (Loss Hyperparams) ---
 # Si usas FocalLoss o AsymmetricLoss (definidas en losses.py), estos parámetros son críticos.
 # gamma: Controla qué tanto se penalizan los ejemplos difíciles.
-gamma = ["float", 0.5, 4.0] 
+gamma = ["float", 2.0, 3.5] 
 # asl_clip: Para AsymmetricLoss, controla el recorte de negativos fáciles.
-asl_clip = ["float", 0.0, 0.2]
+asl_clip = ["float", 0.1, 0.25]
 
 [TwoTowerGAT.params]
 # Architecture

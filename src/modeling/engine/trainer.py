@@ -114,7 +114,7 @@ class PGenTrainer:
         outputs = self.model(drug_data, haplo_data)
 
         # 4. Loss & Metrics
-        return self._calculate_loss_and_metrics(outputs, targets) # type: ignore
+        return self._calculate_loss_and_metrics(outputs, targets)
 
     def _calculate_loss_and_metrics(self, outputs: dict[str, torch.Tensor], targets: dict[str, torch.Tensor]) -> tuple[Any, dict[str, float]]:
         """Shared loss and metric calculation."""
@@ -142,7 +142,7 @@ class PGenTrainer:
                 if t_col in self.ml_cols:
                     # Multi-label accuracy (subset match or simple binary match)
                     probs = torch.sigmoid(pred)
-                    preds_bin = (probs > (1/2)).float()
+                    preds_bin = (probs > 0.5).float() # noqa: PLR2004
                     acc = (preds_bin == t_true.float()).float().mean()
                 else:
                     # Multi-class accuracy
@@ -203,10 +203,9 @@ class PGenTrainer:
             train_loss = raw_loss.item() if isinstance(raw_loss, torch.Tensor) else raw_loss
 
             # 2. Manejo de NaN condensado (Guard Clause)
-            if math.isnan(train_loss):
-                logger.warning(f"NaN loss at epoch {epoch}. {'Pruning' if trial else 'Returning inf'}")
-                if trial:
-                    raise optuna.TrialPruned("Loss is NaN")
+            if torch.isnan(torch.tensor(train_loss)) and trial:
+                raise optuna.TrialPruned("Loss is NaN")
+            elif torch.isnan(torch.tensor(train_loss)):
                 return float("inf")
 
             # 3. Validación

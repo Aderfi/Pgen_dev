@@ -86,34 +86,6 @@ class PGenTuner:
             f"Tuning Data Ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
 
-    def _calculate_parallel_jobs(self, estimated_vram_per_trial_gb: float = 2.3) -> int:
-        """
-        Calcula n_jobs basado en la RTX 4070 Ti Super (16GB) y CPU disponible.
-        """
-        if not torch.cuda.is_available():
-            return 1  # Fallback a CPU serial
-
-        # VRAM Total en GB
-        try:
-            total_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        except Exception:
-            return 1  # Fallback if cuda check fails unexpectedly
-
-        # Reservamos 2GB para sistema/overhead
-        usable_vram = total_vram - 2.0
-
-        gpu_jobs = int(usable_vram // estimated_vram_per_trial_gb)
-        cpu_cores = os.cpu_count() or 1
-
-        # Limitamos por CPU también (evitar thrashing)
-        # Dejamos 2 cores libres para el sistema
-        max_cpu_jobs = max(1, cpu_cores - 2)
-
-        n_jobs = max(1, 4)
-
-        logger.info(f"[Auto-Scale] Detected {total_vram:.1f}GB VRAM. Setting n_jobs={n_jobs} (Est. Trial: {estimated_vram_per_trial_gb}GB)")
-        return n_jobs
-
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """
         Parser dinámico del espacio de búsqueda definido en la configuración (JSON/TOML).
@@ -280,7 +252,7 @@ class PGenTuner:
         Ejecuta el estudio completo.
         """
         if n_jobs is None:
-            n_jobs = self._calculate_parallel_jobs()
+            n_jobs = 4 if torch.cuda.is_available() else 1
 
         logger.info(f"Starting Optuna Study: {self.study_name} w/ n_jobs={n_jobs}")
 

@@ -134,6 +134,18 @@ class DataLoaderUtils:
         return DataLoaderUtils.clean_and_prepare_data(df, stratify_col=stratify_col)
 
     @staticmethod
+    def _clean_multilabel_string(x: str, delimiter: str = "|") -> str:
+        """
+        Helper function to clean and normalize a single multi-label string.
+        Defined as a static method to avoid repeated function creation overhead.
+        """
+        if not x or x.strip() == "" or x.lower() == "unknown":
+            return ""
+        parts = x.split(delimiter)
+        cleaned_parts = sorted(list({p.strip() for p in parts if p.strip()}))
+        return delimiter.join(cleaned_parts)
+    
+    @staticmethod
     def normalize_multilabel_col(series: pd.Series, delimiter: str = "|") -> pd.Series:
         """
         Patrón: String Normalization.
@@ -143,17 +155,11 @@ class DataLoaderUtils:
         # Convert to string and handle missing/empty values
         series_str = series.fillna("").astype(str)
         
-        # Vectorized approach: split, clean, sort, and rejoin
-        # This is faster than apply for large series
-        def _clean_string(x):
-            if not x or x.strip() == "" or x.lower() == "unknown":
-                return ""
-            parts = x.split(delimiter)
-            cleaned_parts = sorted(list({p.strip() for p in parts if p.strip()}))
-            return delimiter.join(cleaned_parts)
-        
-        # Use list comprehension which is faster than apply for this use case
-        return pd.Series([_clean_string(x) for x in series_str], index=series.index)
+        # Use list comprehension with static method for efficiency
+        return pd.Series(
+            [DataLoaderUtils._clean_multilabel_string(x, delimiter) for x in series_str],
+            index=series.index
+        )
 
     @staticmethod
     def add_stratify_column(df: pd.DataFrame, stratify_cols: list[str]) -> pd.DataFrame:

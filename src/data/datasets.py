@@ -371,8 +371,12 @@ class DoubleTowerDataset(Dataset):
         for col in target_cols:
             if col in multilabel_set:
                 # Optimized: Use list comprehension instead of apply
-                raw_series = df[col].fillna(pd.NA).astype(str)
-                raw_data = [x.split("|") if x and x != 'nan' else [] for x in raw_series]
+                # Robust NaN handling using pandas isna
+                raw_series = df[col].fillna("")
+                raw_data = [
+                    x.split("|") if x and not pd.isna(x) and str(x).lower() not in ['nan', 'none', ''] else []
+                    for x in raw_series
+                ]
 
                 mlb = MultiLabelBinarizer()
                 matrix = mlb.fit_transform(raw_data)

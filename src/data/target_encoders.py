@@ -79,15 +79,22 @@ class DynamicTargetEncoder:
                 encoded_targets[col] = torch.tensor(encoded, dtype=torch.long)
 
             elif task_type == "multilabel":
-                # Optimized: Use vectorized string operations instead of apply
+                # Optimized: Use vectorized string operations for string columns
                 # Lógica similar para multilabel
                 # Nota: MultiLabelBinarizer es robusto, pero hay que pasar listas vacías en los NaNs
                 if raw_values.dtype == "object":
-                    # Vectorized string split for string values
-                    clean_vals = [
-                        x.split(",") if isinstance(x, str) else (x if isinstance(x, list) else [])
-                        for x in raw_values
-                    ]
+                    # Check if we have string values that can be vectorized
+                    first_valid = raw_values.dropna().iloc[0] if len(raw_values.dropna()) > 0 else None
+                    
+                    if isinstance(first_valid, str):
+                        # Vectorized string split for better performance
+                        clean_vals = raw_values.str.split(",").fillna(pd.Series([[]] * len(raw_values)))
+                    else:
+                        # Handle list values or mixed types
+                        clean_vals = [
+                            x if isinstance(x, list) else (x.split(",") if isinstance(x, str) else [])
+                            for x in raw_values
+                        ]
                 else:
                     clean_vals = [x if isinstance(x, list) else [] for x in raw_values]
                 

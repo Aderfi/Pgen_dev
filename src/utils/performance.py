@@ -158,14 +158,16 @@ def log_training_config():
         logger.info("\n✓ All performance optimizations enabled!")
 
 
-def estimate_batch_size(model: torch.nn.Module, sample_input: tuple, max_memory_gb: float = 14.0):
+def estimate_batch_size(model: torch.nn.Module, sample_input: tuple, max_memory_gb: float | None = None):
     """
     Estimate optimal batch size based on available GPU memory.
     
     Args:
         model: The PyTorch model
         sample_input: Tuple of sample inputs (drug_data, haplo_data)
-        max_memory_gb: Maximum GPU memory to use (leave headroom for other operations)
+        max_memory_gb: Maximum GPU memory to use in GB. If None, auto-detects and uses 87.5%
+                      of available VRAM (leaving 2GB headroom for CUDA overhead).
+                      For RTX 4070 Ti SUPER (16GB), this defaults to ~14GB.
     
     Returns:
         Estimated optimal batch size
@@ -175,6 +177,13 @@ def estimate_batch_size(model: torch.nn.Module, sample_input: tuple, max_memory_
         return 32  # Default fallback
 
     device = torch.cuda.current_device()
+    
+    # Auto-detect max memory if not specified
+    if max_memory_gb is None:
+        total_memory_gb = torch.cuda.get_device_properties(device).total_memory / 1024**3
+        # Use 87.5% of total memory, leaving ~2GB for CUDA overhead
+        max_memory_gb = total_memory_gb * 0.875
+        logger.info(f"Auto-detected max memory: {max_memory_gb:.2f} GB (87.5% of {total_memory_gb:.2f} GB)")
     
     # Clear cache
     torch.cuda.empty_cache()

@@ -43,17 +43,18 @@ def seleccionar_vcf(vcf_path: Path = RUTA_VCF_DIR) -> Path | None:
         print(f"  {i + 1}. {vcf_file.name.replace('.vcf.gz', '')}")
 
     while True:
-        try:
-            entrada = input("\nSelecciona el número del paciente (o 'q' para salir): ")
-            if entrada.lower() == "q":
-                return None
+        entrada = input("\nSelecciona el número del paciente (o 'q' para salir): ")
+        if entrada.lower() == "q":
+            return None
 
-            seleccion = int(entrada) - 1
-            if 0 <= seleccion < len(vcf_files):
-                return vcf_files[seleccion]
-            print("⚠️ Selección fuera de rango.")
-        except ValueError:
+        if not entrada.isdigit():
             print("⚠️ Por favor, introduce un número válido.")
+            continue
+
+        seleccion = int(entrada) - 1
+        if 0 <= seleccion < len(vcf_files):
+            return vcf_files[seleccion]
+        print("⚠️ Selección fuera de rango.")
 
 
 def decodificar_genotipo(record, sample_id: str) -> dict[str, Any]:
@@ -80,12 +81,11 @@ def decodificar_genotipo(record, sample_id: str) -> dict[str, Any]:
             tipo = "Homocigoto Referencia (WT)"
         else:
             tipo = "Homocigoto Alternativo"
+    # Índices distintos (0/1, 1/2)
+    elif 0 in gt_tuple:
+        tipo = "Heterocigoto"
     else:
-        # Índices distintos (0/1, 1/2)
-        if 0 in gt_tuple:
-            tipo = "Heterocigoto"
-        else:
-            tipo = "Heterocigoto Compuesto (Alt1/Alt2)"
+        tipo = "Heterocigoto Compuesto (Alt1/Alt2)"
 
     return {"tipo": tipo, "alelos": alelos_str}
 

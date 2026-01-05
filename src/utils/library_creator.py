@@ -363,10 +363,12 @@ DPYD_RS_MAP = {
     "rs1801265": "*4",
 }
 
-# Variables Globales para Workers (Optimización de memoria en Linux/Fork)
-GLOBAL_GENOME = None
-GLOBAL_GENE_TREES = None
-GLOBAL_CHROM_MAPPING = {
+# =============================================================================
+#  CHROMOSOME MAPPING CONSTANTS
+# =============================================================================
+# Mapping of chromosome identifiers to NCBI RefSeq accessions
+# This is a constant and should not be modified
+CHROM_MAPPING = {
     "1": "NC_000001.11",
     "2": "NC_000002.12",
     "3": "NC_000003.12",
@@ -394,6 +396,16 @@ GLOBAL_CHROM_MAPPING = {
     "M": "NC_012920.1",
     "MT": "NC_012920.1",
 }
+
+# =============================================================================
+#  GLOBAL STATE FOR MULTIPROCESSING WORKERS
+# =============================================================================
+# Note: These global variables are used for efficient data sharing across
+# multiprocessing workers in Unix/Linux fork mode. They are set temporarily
+# during parallel processing and cleaned up afterwards.
+# This pattern is necessary for performance when using pandarallel/multiprocessing.
+GLOBAL_GENOME = None
+GLOBAL_GENE_TREES = None
 
 # =============================================================================
 #  HELPER FUNCTIONS
@@ -528,12 +540,11 @@ def worker_validate_row_nextgen(row: pd.Series) -> pd.Series:
     c_str = str(row["chr"]).strip()
     chrom_mapped = c_str
 
-    if "GLOBAL_CHROM_MAPPING" in globals() and GLOBAL_CHROM_MAPPING:
-        if c_str in GLOBAL_CHROM_MAPPING:
-            chrom_mapped = GLOBAL_CHROM_MAPPING[c_str]
-        else:
-            clean = c_str.replace("chr", "").replace("Chr", "")
-            chrom_mapped = GLOBAL_CHROM_MAPPING.get(clean, c_str)
+    if c_str in CHROM_MAPPING:
+        chrom_mapped = CHROM_MAPPING[c_str]
+    else:
+        clean = c_str.replace("chr", "").replace("Chr", "")
+        chrom_mapped = CHROM_MAPPING.get(clean, c_str)
 
     # 2. Extracción de Datos Básicos
     # Dataframe B usa 'start_pos' (generalmente 1-based en VCF/Bioinf)
@@ -696,9 +707,8 @@ class GenomicGraphBuilderNEXTGEN:
         master_df = pd.concat(dfs, ignore_index=True)
 
         # Configurar Globales para Workers (Multiprocessing en Linux)
-        global GLOBAL_GENOME, GLOBAL_CHROM_MAPPING
+        global GLOBAL_GENOME
         GLOBAL_GENOME = genome
-        # Aseguramos que el mapeo esté disponible (definido al inicio del script original)
 
         print(f"   ⚡ Validando {len(master_df)} variantes...")
 
@@ -1102,8 +1112,6 @@ def help_DOC() -> None:
             print("\n".join(DOCS))
         else:
             print("❌ Opción no válida.")
-
-    return None
 
 
 def args_parser():

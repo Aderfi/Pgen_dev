@@ -38,6 +38,7 @@ MODELS_DIR = DIRS["models"]
 
 
 UNKNOWN_TOKEN = "__UNKNOWN__"
+MULTILABEL_THRESHOLD = 0.5  # Threshold for multi-label binary classification
 
 
 class PGenPredictor:
@@ -79,7 +80,7 @@ class PGenPredictor:
         encoders = joblib.load(enc_path)
 
         # Parchear UNKNOWN_TOKEN para LabelEncoders
-        for col, enc in encoders.items():
+        for enc in encoders.values():
             if isinstance(enc, LabelEncoder):
                 if UNKNOWN_TOKEN not in enc.classes_:
                     # Truco eficiente: extender las clases numpy directamente
@@ -298,7 +299,7 @@ class PGenPredictor:
             if col in MULTI_LABEL_COLS:
                 # Multi-label
                 probs = torch.sigmoid(logits)
-                preds_bin = (probs > 0.5).int().numpy()
+                preds_bin = (probs > MULTILABEL_THRESHOLD).int().numpy()
 
                 # Inverse transform devuelve lista de tuplas de etiquetas
                 # Scikit-learn MultiLabelBinarizer inverse_transform toma matriz binaria

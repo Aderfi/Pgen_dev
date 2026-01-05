@@ -1,5 +1,6 @@
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,16 @@ from src.config.manager import MULTI_LABEL_COLS
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class DatasetConfig:
+    """Configuration for DoubleTowerDataset to reduce parameter count."""
+
+    drug_lib: Path = Path("./src/library/drugs")
+    variant_lib: Path = Path("./src/library/gene_graphs")
+    preload_ram: bool = False
+    inference_mode: bool = False
+
+
 class DoubleTowerDataset(Dataset):
     def __init__(
         self,
@@ -23,32 +34,37 @@ class DoubleTowerDataset(Dataset):
         haplo_col: str,
         target_cols: list[str],
         multilabel_cols: list[str],
-        encoders: None | (
-            dict
-        ) = None,  # Pass pre-fitted encoders here to ensure consistency across Train/Val/Test
-        drug_lib: Path = Path("./src/library/drugs"),
-        variant_lib: Path = Path("./src/library/gene_graphs"),
-        preload_ram: bool = False,
-        input_dimensions: dict[str, int] = {},
+        encoders: dict | None = None,
+        input_dimensions: dict[str, int] | None = None,
         type_data: str | None = None,
-        inference_mode: bool = False,
+        config: DatasetConfig | None = None,
     ):
         """
         Args:
+            df: Input DataFrame with data
+            drug_col: Column name for drug identifiers
+            haplo_col: Column name for haplotype/genotype
+            target_cols: List of target column names
+            multilabel_cols: List of multi-label column names
             encoders: Dictionary of fitted LabelEncoders/MultiLabelBinarizers.
-            preload_ram: If True, loads all referenced .pt files into RAM during init.
+            input_dimensions: Dictionary mapping feature names to their dimensions
+            type_data: Type of data (train/val/test) for logging purposes
+            config: DatasetConfig object with library paths and optimization settings
         """
+        if config is None:
+            config = DatasetConfig()
+
         self.df = df.reset_index(drop=True)
         self.drug_col = "drugs_cid"  # drug_col
         self.haplo_col = "genotype"  # haplo_col
         self.target_cols = target_cols
         self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
-        self.input_dims = input_dimensions
-        self.inference_mode = inference_mode
+        self.input_dims = input_dimensions or {}
+        self.inference_mode = config.inference_mode
 
-        # Paths
-        self.drug_lib = drug_lib
-        self.variant_lib = variant_lib
+        # Paths from config
+        self.drug_lib = config.drug_lib
+        self.variant_lib = config.variant_lib
 
         # Indexing
         self.drug_id_to_path = self._build_drug_index()
@@ -61,7 +77,7 @@ class DoubleTowerDataset(Dataset):
         self.targets = self._encode_targets(df)
 
         # Optimization: In-Memory Cache
-        self.preload_ram = preload_ram
+        self.preload_ram = config.preload_ram
         self.drug_cache = {}
         self.haplo_cache = {}
 

@@ -27,6 +27,9 @@ from src.config.manager import _GLOBAL_CFG, _MODELS_CFG
 
 logger = logging.getLogger(__name__)
 
+# Constants for configuration parsing
+_OPTUNA_RANGE_LENGTH = 2  # Expected length for [min, max] ranges
+
 
 class ModelConfigLoader:
     """Responsible for loading, merging, and parsing model configurations."""
@@ -81,7 +84,7 @@ class ModelConfigLoader:
             # Convert list [0.1, 0.5] to tuple for ranges
             if (
                 isinstance(v, list)
-                and len(v) == 2
+                and len(v) == _OPTUNA_RANGE_LENGTH
                 and all(isinstance(x, (int, float)) for x in v)
                 and v[0] != "int"
             ):

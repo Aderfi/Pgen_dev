@@ -1,8 +1,8 @@
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
+import numpy as np
 import pandas as pd
 import torch
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
@@ -151,15 +151,19 @@ class DoubleTowerDataset(Dataset):
         if path and path.exists():
             try:
                 data = torch.load(path, weights_only=False)
-                
+
                 if self.inference_mode:
                     if not hasattr(data, "cid"):
                         data.cid = str(key)
                 else:
-                    if hasattr(data, "cid"): del data.cid
-                    if hasattr(data, "name"): del data.name
-                    if hasattr(data, "smiles"): del data.smiles
-                    if hasattr(data, "variant_name"): del data.variant_name
+                    if hasattr(data, "cid"):
+                        del data.cid
+                    if hasattr(data, "name"):
+                        del data.name
+                    if hasattr(data, "smiles"):
+                        del data.smiles
+                    if hasattr(data, "variant_name"):
+                        del data.variant_name
 
                 return self._sanitize_data(data)
 
@@ -326,6 +330,7 @@ class DoubleTowerDataset(Dataset):
                 else:
                     # FIT MODE
                     le = LabelEncoder()
+                    processed_data = np.asarray(processed_data)
                     indices = le.fit_transform(processed_data)
                     self.encoders[col] = le
 
@@ -339,12 +344,12 @@ class DoubleTowerCollater:
     def __init__(self, inference_mode=False):
         # Si es True, guardamos IDs (lento). Si es False, velocidad máxima.
         self.inference_mode = inference_mode
-        
+
         # Keys que sabemos que SIEMPRE son tensores y la GPU necesita
         # Esto es más rápido que borrar lo que NO queremos.
         self.allowed_keys = {'x', 'edge_index', 'edge_attr', 'batch', 'ptr'}
-        
-        
+
+
         self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
         self.keys_to_sanitize = ["cid", "variant_name", "name", "smiles", "gene_context", "graph_id"]
 
@@ -384,8 +389,8 @@ class DoubleTowerCollater:
         if self.inference_mode:
             batch_drug.meta_ids = self._extract_ids(drug_graphs)
             batch_haplo.meta_ids = self._extract_ids(haplo_graphs)
-            
-            
+
+
         first_target_keys = batch_list[0]["targets"].keys()
         batched_targets = {
             key: torch.stack([s["targets"][key] for s in batch_list])
@@ -397,7 +402,7 @@ class DoubleTowerCollater:
             "haplo_batch": batch_haplo,
             "targets": batched_targets,
         }
-        
+
     def _extract_ids(self, graph_list):
         # Tu lógica original, movida aquí para usarla solo bajo demanda
         extracted_ids = []

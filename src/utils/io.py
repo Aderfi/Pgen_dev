@@ -1,9 +1,10 @@
 # Pharmagen - IO Utilities
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import pandas as pd
 
@@ -42,7 +43,7 @@ def welcome_message():
             PHARMAGEN v{VERSION}
     ============================================
     Software para farmacogenética y deep learning.
-    
+
     Logs: {LOGS_DIR}
     ============================================
     """
@@ -240,74 +241,3 @@ class DataLoaderUtils:
                 index_genes[gene_id] = {}
             index_genes[gene_id][variant] = file_path
         return index_genes
-
-
-
-'''
-def load_dataset(
-    csv_path: Union[str, Path],
-    cols_to_load: List[str],
-    multi_label_cols: Optional[List[str]] = None,
-    stratify_col: Optional[str] = None,
-) -> pd.DataFrame:
-    """
-    Load, Cleand and Prepare Dataset from TSV/CSV.
-
-    Args:
-        csv_path (Union[str, Path]): Path to the dataset file.
-        cols_to_load (List[str]): List of columns to load.
-        multi_label_cols (Optional[List[str]]): Columns that are multi-label.
-        stratify_col (Optional[str]): Column(s) to use for stratification during splits.
-    Returns:
-        pd.DataFrame: Cleaned DataFrame ready for processing.
-    """
-    path = Path(csv_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Dataset not found: {path}")
-
-    # Normalize column requests
-    cols_lower = [c.lower() for c in cols_to_load]
-    multi_label_lower = [c.lower() for c in (multi_label_cols or [])]
-
-    logger.info(f"Loading dataset from {path.name}...")
-
-    # Load
-    df = pd.read_csv(path, sep="\t")
-    df.columns = df.columns.str.lower().str.strip()
-
-    # Normalize Columns
-    df.columns = df.columns.str.lower().str.strip()
-
-    # Clean Content
-    for col in df.columns:
-        if col in multi_label_lower:
-            df[col] = df[col].apply(serialize_multilabel).str.lower()
-        else:
-            # Single label / Feature cleaning
-            df[col] = (
-                df[col]
-                .fillna(UNKNOWN_TOKEN)
-                .astype(str)
-                .str.replace(", ", ",")
-                .str.replace(r"[,;]+", "|", regex=True)
-                .str.strip()
-                .str.lower()
-            )
-
-    # Stratification Helper
-    if stratify_col:
-        s_cols = [c.strip() for c in stratify_col.lower().split(",")]
-        valid_s_cols = [c for c in s_cols if c in df.columns]
-
-        if valid_s_cols:
-            df["_stratify"] = df[valid_s_cols].astype(str).agg("|".join, axis=1)
-            # Filter singletons to allow splitting
-            counts = df["_stratify"].value_counts()
-            df = df[df["_stratify"].isin(counts[counts > 1].index)].reset_index(
-                drop=True
-            )
-        else:
-            df["_stratify"] = "default"
-
-    return df
-'''

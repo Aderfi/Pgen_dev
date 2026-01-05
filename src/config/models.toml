@@ -61,13 +61,17 @@ asl_clip = ["float", 0.0, 0.2]
 
 [TwoTowerGAT.params]
 # Architecture
-embedding_dim = 128
-hidden_dim = 64
-n_layers = 3
-heads = 4
-dropout_rate = 0.1
-
+embedding_dim = 256
+hidden_dim = 512
+n_layers = 5
+heads = 8
+dropout_rate = 0.4859822310846825
 # Optimization
-learning_rate = 0.001
-weight_decay = 1e-5
-batch_size = 32
+learning_rate = 0.00040560545904101556
+weight_decay = 4.089545393645109e-05
+batch_size = 64
+gamma = 2.912048826308894
+asl_clip = 0.1575118661574606
+
+
+# ==========================================

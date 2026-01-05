@@ -17,13 +17,17 @@ export CUDA_MODULE_LOADING=LAZY  # Lazy load CUDA modules to reduce startup time
 
 # PyTorch performance settings
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512,expandable_segments:True
-export TORCH_USE_CUDA_DSA=1  # Device-side assertions for debugging (disable in production)
+# Note: CUDA Device-Side Assertions (DSA) are disabled for production performance
+# Enable DSA only for debugging: export TORCH_USE_CUDA_DSA=1
 
-# Multi-threading optimizations for AMD Ryzen 7 7800X3D
-export OMP_NUM_THREADS=8  # Match physical cores
-export MKL_NUM_THREADS=8
-export OPENBLAS_NUM_THREADS=8
-export NUMEXPR_NUM_THREADS=8
+# Multi-threading optimizations - dynamically detect CPU cores
+NUM_CORES=$(nproc 2>/dev/null || echo "8")  # Fallback to 8 if nproc unavailable
+export OMP_NUM_THREADS=$NUM_CORES
+export MKL_NUM_THREADS=$NUM_CORES
+export OPENBLAS_NUM_THREADS=$NUM_CORES
+export NUMEXPR_NUM_THREADS=$NUM_CORES
+
+echo "✓ CPU threads set to: $NUM_CORES (physical cores)"
 
 # DataLoader worker optimization
 export PYTORCH_DATALOADER_WORKER_OFFLOAD=1  # Offload data to workers efficiently

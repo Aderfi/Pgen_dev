@@ -170,7 +170,11 @@ class DataLoaderUtils:
         else:
             # Vectorized approach: convert all columns to string and concatenate
             str_cols = [df[col].astype(str) for col in stratify_cols if col in df.columns]
-            df["_stratify"] = str_cols[0] if len(str_cols) == 1 else str_cols[0].str.cat(str_cols[1:], sep="_")
+            if str_cols:
+                df["_stratify"] = str_cols[0] if len(str_cols) == 1 else str_cols[0].str.cat(str_cols[1:], sep="_")
+            else:
+                # Fallback if no valid columns found
+                df["_stratify"] = ""
         return df
 
     @staticmethod

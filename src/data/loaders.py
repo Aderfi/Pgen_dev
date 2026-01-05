@@ -282,11 +282,15 @@ class DoubleTowerDataset(Dataset):
             if col in self.multilabel_cols:
                 # --- CASE: MULTI-LABEL (e.g., "Headache|Nausea") ---
                 # Optimized: Use vectorized string operations instead of apply
-                # Split string into list of labels. Adjust separator if needed (e.g., ';', ',')
+                # Pre-filter NaN values before splitting to avoid overhead in list comprehension
+                raw_series = df[col].fillna("Unknown").astype(str)
+                
+                # Vectorized string split - much faster than apply
                 processed_data = raw_series.str.split("|").tolist()
-                # Filter out 'Unknown' values and empty strings
+                
+                # Filter out 'Unknown' values and empty strings efficiently
                 processed_data = [
-                    [label for label in labels if label and label != "Unknown"] if isinstance(labels, list) else []
+                    [label for label in labels if label and label != "Unknown"]
                     for labels in processed_data
                 ]
 

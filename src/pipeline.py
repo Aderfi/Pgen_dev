@@ -15,7 +15,7 @@ from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
-from src.utils.performance import log_gpu_info, log_training_config
+from src.utils.performance import apply_performance_optimizations, log_gpu_info, log_training_config
 
 logger = logging.getLogger(__name__)
 
@@ -30,18 +30,11 @@ def train_pipeline(
     cfg = get_model_config(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # CUDA optimizations for RTX 4070 Ti SUPER (Ampere/Ada architecture)
+    # Apply CUDA optimizations for RTX 4070 Ti SUPER
+    apply_performance_optimizations()
+    
+    # Log GPU info and configuration
     if torch.cuda.is_available():
-        # Enable TF32 for faster matrix operations on Ampere and later
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        # Use high precision matmul for better performance on modern GPUs
-        torch.set_float32_matmul_precision('high')
-        # Enable cuDNN benchmarking to find fastest convolution algorithms
-        torch.backends.cudnn.benchmark = True
-        logger.info("CUDA optimizations enabled for RTX 4070 Ti SUPER")
-        
-        # Log GPU info and configuration
         log_gpu_info()
         log_training_config()
     

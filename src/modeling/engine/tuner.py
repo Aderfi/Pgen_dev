@@ -28,6 +28,7 @@ from src.modeling.architectures.layers import create_gnn_model
 from src.modeling.engine.trainer import PGenTrainer
 from src.utils.io import DataLoaderUtils
 from src.utils.module_builder import LossFactory, OptimizerFactory
+from src.utils.performance import apply_performance_optimizations
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -53,13 +54,8 @@ class PGenTuner:
         self.cfg = get_model_config(model_name)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # CUDA optimizations for RTX 4070 Ti SUPER
-        if torch.cuda.is_available():
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            torch.set_float32_matmul_precision('high')
-            torch.backends.cudnn.benchmark = True
-            logger.info("CUDA optimizations enabled for Optuna tuning")
+        # Apply CUDA optimizations for RTX 4070 Ti SUPER
+        apply_performance_optimizations()
         
         self.patience = self.cfg["params_optuna"].get("patience", 5)
 

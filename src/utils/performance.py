@@ -189,7 +189,12 @@ def estimate_batch_size(model: torch.nn.Module, sample_input: tuple, max_memory_
     peak_memory = torch.cuda.max_memory_allocated(device) / 1024**3  # GB
     
     # Estimate batch size (accounting for gradients, optimizer states, etc.)
-    # Rule of thumb: forward + backward ≈ 3x forward pass memory
+    # Rule of thumb: Training memory ≈ 3x forward pass memory
+    # Breakdown: 1x forward + 1x backward (gradients) + 1x optimizer states (Adam/AdamW)
+    # Note: This is a conservative estimate and may vary based on:
+    #   - Model architecture (more complex = higher multiplier)
+    #   - Optimizer choice (Adam uses 2x params for momentum, SGD uses less)
+    #   - Mixed precision training (can reduce memory by ~2x)
     memory_per_sample = peak_memory * 3
     estimated_batch_size = int(max_memory_gb / memory_per_sample)
     
@@ -206,6 +211,9 @@ def apply_performance_optimizations():
     """
     Apply all recommended PyTorch performance optimizations.
     Call this at the start of training.
+    
+    Optimized for NVIDIA RTX 4070 Ti SUPER (Ada Lovelace/Ampere architecture)
+    and AMD Ryzen 7 7800X3D.
     """
     if torch.cuda.is_available():
         # Enable TF32 for faster matrix operations on Ampere and later
@@ -215,10 +223,11 @@ def apply_performance_optimizations():
             torch.backends.cudnn.allow_tf32 = True
         
         # Use high precision matmul for better performance on modern GPUs
+        # Available in PyTorch 1.12+
         try:
             torch.set_float32_matmul_precision('high')
         except AttributeError:
-            pass  # Not available in older PyTorch versions
+            pass  # Not available in older PyTorch versions (< 1.12)
         
         # Enable cuDNN benchmarking to find fastest convolution algorithms
         torch.backends.cudnn.benchmark = True

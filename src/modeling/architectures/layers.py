@@ -8,7 +8,7 @@ from typing import Any
 
 from torch import nn
 
-from .gnn import PharmagenTwoTower
+from .gnn import PharmagenTwoTower, TwoTowerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,11 @@ def create_model(
         layers: int = params.get("n_layers")
         heads: int = params.get("heads")
     except KeyError as e:
-        raise KeyError(f"Missing model parameter: {e}")
+        raise KeyError(f"Missing model parameter: {e}") from e
     except Exception as e:
-        raise RuntimeError(f"Unexpected error: {e}")
+        raise RuntimeError(f"Unexpected error: {e}") from e
 
-    return PharmagenTwoTower(
+    config = TwoTowerConfig(
         drug_in_features=drug_config["num_features"],
         drug_edge_dim=drug_config.get("edge_dim", 0),
         drug_hidden_dim=hidden_dim,
@@ -54,6 +54,7 @@ def create_model(
         heads=heads,
         dropout=dropout,
     )
+    return PharmagenTwoTower(config)
 
 
 def create_gnn_model(
@@ -75,11 +76,11 @@ def create_gnn_model(
         heads: int = params.get("heads")
 
     except KeyError as e:
-        raise KeyError(f"Missing model parameter: {e}")
+        raise KeyError(f"Missing model parameter: {e}") from e
     except Exception as e:
-        raise RuntimeError(f"Unexpected error: {e}")
+        raise RuntimeError(f"Unexpected error: {e}") from e
 
-    return PharmagenTwoTower(
+    config = TwoTowerConfig(
         drug_in_features=drug_config["num_features"],
         drug_edge_dim=drug_config.get("edge_dim", 0),
         drug_hidden_dim=hidden_dim,
@@ -92,3 +93,4 @@ def create_gnn_model(
         heads=heads,
         dropout=dropout,
     )
+    return PharmagenTwoTower(config)

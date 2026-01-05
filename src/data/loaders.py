@@ -20,45 +20,37 @@ logger = logging.getLogger(__name__)
 class DatasetConfig:
     """Configuration for DoubleTowerDataset to reduce parameter count."""
 
+    target_cols: list[str]
+    multilabel_cols: list[str]
+    drug_col: str = "drugs_cid"
+    haplo_col: str = "genotype"
     drug_lib: Path = Path("./src/library/drugs")
     variant_lib: Path = Path("./src/library/gene_graphs")
     preload_ram: bool = False
     inference_mode: bool = False
+    type_data: str | None = None
 
 
 class DoubleTowerDataset(Dataset):
     def __init__(
         self,
         df: pd.DataFrame,
-        drug_col: str,
-        haplo_col: str,
-        target_cols: list[str],
-        multilabel_cols: list[str],
+        config: DatasetConfig,
         encoders: dict | None = None,
         input_dimensions: dict[str, int] | None = None,
-        type_data: str | None = None,
-        config: DatasetConfig | None = None,
     ):
         """
         Args:
             df: Input DataFrame with data
-            drug_col: Column name for drug identifiers
-            haplo_col: Column name for haplotype/genotype
-            target_cols: List of target column names
-            multilabel_cols: List of multi-label column names
+            config: DatasetConfig object with all configuration parameters
             encoders: Dictionary of fitted LabelEncoders/MultiLabelBinarizers.
             input_dimensions: Dictionary mapping feature names to their dimensions
-            type_data: Type of data (train/val/test) for logging purposes
-            config: DatasetConfig object with library paths and optimization settings
         """
-        if config is None:
-            config = DatasetConfig()
-
         self.df = df.reset_index(drop=True)
-        self.drug_col = "drugs_cid"  # drug_col
-        self.haplo_col = "genotype"  # haplo_col
-        self.target_cols = target_cols
-        self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
+        self.drug_col = config.drug_col
+        self.haplo_col = config.haplo_col
+        self.target_cols = config.target_cols
+        self.multilabel_cols = set(config.multilabel_cols) if config.multilabel_cols else set()
         self.input_dims = input_dimensions or {}
         self.inference_mode = config.inference_mode
 

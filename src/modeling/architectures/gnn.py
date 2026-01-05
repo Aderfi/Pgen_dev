@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from torch import Tensor, cat, nn
 from torch.nn import functional as F
 from torch_geometric.data import Data
@@ -10,6 +12,33 @@ from torch_geometric.nn import (
 from torch_geometric.nn.norm import GraphNorm
 
 
+@dataclass
+class GATv2Config:
+    """Configuration for GATv2Tower to reduce parameter count."""
+
+    num_layers: int = 3
+    heads: int = 4
+    dropout: float = 0.1
+    pooling: str = "mean"
+
+
+@dataclass
+class TwoTowerConfig:
+    """Configuration for PharmagenTwoTower architecture."""
+
+    drug_in_features: int
+    drug_edge_dim: int
+    drug_hidden_dim: int
+    haplo_in_features: int
+    haplo_edge_dim: int
+    haplo_hidden_dim: int
+    embedding_dim: int
+    target_dims: dict[str, int]
+    num_layers: int = 3
+    heads: int = 4
+    dropout: float = 0.1
+
+
 class GATv2Tower(nn.Module):
     """
     Torre de codificación basada en GATv2 (Graph Attention Network v2).
@@ -20,16 +49,16 @@ class GATv2Tower(nn.Module):
         in_channels: int,
         hidden_channels: int,
         out_channels: int,
-        num_layers: int = 3,
-        heads: int = 4,
-        dropout: float = 0.1,
         edge_dim: int | None = None,
-        pooling: str = "mean",
+        config: GATv2Config | None = None,
     ):
         super().__init__()
-        self.num_layers: int = num_layers
-        self.pooling: str = pooling
-        self.dropout: float = dropout
+        if config is None:
+            config = GATv2Config()
+
+        self.num_layers: int = config.num_layers
+        self.pooling: str = config.pooling
+        self.dropout: float = config.dropout
 
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList() # Normalizaciones de grafo
@@ -37,10 +66,10 @@ class GATv2Tower(nn.Module):
 
         # Input ayer
         curr_in = in_channels
-        for i in range(num_layers):
-            out_dim = hidden_channels * heads
+        for i in range(self.num_layers):
+            out_dim = hidden_channels * config.heads
             self.convs.append(
-                GATv2Conv(curr_in, hidden_channels, heads=heads, edge_dim=edge_dim, concat=True)
+                GATv2Conv(curr_in, hidden_channels, heads=config.heads, edge_dim=edge_dim, concat=True)
             )
             self.norms.append(GraphNorm(out_dim))
             self.skips.append(nn.Linear(curr_in, out_dim))
@@ -98,71 +127,60 @@ class GATv2Tower(nn.Module):
 
 
 class PharmagenTwoTower(nn.Module):
-    def __init__(
-        self,
-        # Configuración Torre Fármaco
-        drug_in_features: int,
-        drug_edge_dim: int,
-        drug_hidden_dim: int,
-        # Configuración Torre Haplotipo
-        haplo_in_features: int,
-        haplo_edge_dim: int,
-        haplo_hidden_dim: int,
-        # Configuración Global
-        embedding_dim: int,
-        target_dims: dict[str, int],
-        # Hiperparámetros
-        num_layers: int = 3,
-        heads: int = 4,
-        dropout: float = 0.1,
-    ):
+    def __init__(self, config: TwoTowerConfig):
         super().__init__()
-        self.target_dims: dict[str, int] = target_dims
+        self.target_dims: dict[str, int] = config.target_dims
 
         # --- Torre 1: Fármaco ---
         # Se puede usar GATv2 también aquí, o cambiar a GINEConv si se prefiere,
         # pero GATv2 es excelente para capturar farmacóforos complejos.
-        self.drug_tower = GATv2Tower(
-            in_channels=drug_in_features,
-            hidden_channels=drug_hidden_dim,
-            out_channels=embedding_dim,
-            num_layers=num_layers,
-            heads=heads,
-            edge_dim=drug_edge_dim,
-            dropout=dropout,
+        drug_config = GATv2Config(
+            num_layers=config.num_layers,
+            heads=config.heads,
+            dropout=config.dropout,
             pooling="mean",  # Promedio para representar la molécula entera
+        )
+        self.drug_tower = GATv2Tower(
+            in_channels=config.drug_in_features,
+            hidden_channels=config.drug_hidden_dim,
+            out_channels=config.embedding_dim,
+            edge_dim=config.drug_edge_dim,
+            config=drug_config,
         )
 
         # --- Torre 2: Haplotipo / Genoma ---
         # REQUERIMIENTO: Utilizar GATv2 para los grafos del genoma.
-        self.haplo_tower: GATv2Tower = GATv2Tower(
-            in_channels=haplo_in_features,
-            hidden_channels=haplo_hidden_dim,
-            out_channels=embedding_dim,
-            num_layers=num_layers,
-            heads=heads,
-            edge_dim=haplo_edge_dim,
-            dropout=dropout,
+        haplo_config = GATv2Config(
+            num_layers=config.num_layers,
+            heads=config.heads,
+            dropout=config.dropout,
             pooling="add",  # 'add' suele ser mejor para sumar efectos de variantes genéticas
+        )
+        self.haplo_tower: GATv2Tower = GATv2Tower(
+            in_channels=config.haplo_in_features,
+            hidden_channels=config.haplo_hidden_dim,
+            out_channels=config.embedding_dim,
+            edge_dim=config.haplo_edge_dim,
+            config=haplo_config,
         )
 
         # --- Interaction & Prediction Heads ---
         # Combinamos las dos torres. La dimensión será embedding_dim * 2 (concatenación)
-        combined_dim = embedding_dim * 2
+        combined_dim = config.embedding_dim * 2
 
         # Creamos una red densa (MLP) para procesar la interacción antes de los cabezales finales
         self.interaction_mlp = nn.Sequential(
             nn.Linear(combined_dim, combined_dim),
             nn.LayerNorm(combined_dim),
             nn.ELU(),
-            nn.Dropout(dropout),
+            nn.Dropout(config.dropout),
             nn.Linear(combined_dim, combined_dim),
             nn.ELU(),
         )
 
         # Cabezales dinámicos (Multi-task)
         self.heads = nn.ModuleDict()
-        for target_name, out_dim in target_dims.items():
+        for target_name, out_dim in config.target_dims.items():
             self.heads[target_name] = nn.Sequential(
                 nn.Linear(combined_dim, combined_dim // 2),
                 nn.ELU(),

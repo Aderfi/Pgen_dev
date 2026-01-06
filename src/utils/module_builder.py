@@ -2,7 +2,8 @@
 # Copyright (C) 2025 Adrim Hamed Outmani
 # src/utils/factory.py
 import logging
-from typing import Any, Dict, List, Optional, Set
+from collections.abc import Mapping, MutableSequence, Set
+from typing import Any
 
 import torch
 from torch import nn
@@ -113,9 +114,9 @@ class LossFactory(ComponentFactory):
 
     @staticmethod
     def create_task_criterions(
-        target_cols: list[str],
-        multi_label_cols: set[str],
-        params: dict[str, Any],
+        target_cols: MutableSequence[str],
+        multi_label_cols: Set[str],
+        params: Mapping[str, Any],
         device: torch.device,
     ) -> dict[str, nn.Module]:
         """

@@ -28,7 +28,7 @@ Follows best practices:
 
 class PharmagenException(Exception):
     """Base exception for all Pharmagen-specific errors.
-    
+
     All custom exceptions should inherit from this base class
     to allow catching all Pharmagen errors with a single except clause.
     """
@@ -37,7 +37,7 @@ class PharmagenException(Exception):
 
 class ConfigurationError(PharmagenException):
     """Raised when configuration is invalid or missing.
-    
+
     Examples:
         - Missing required configuration keys
         - Invalid hyperparameter values
@@ -48,7 +48,7 @@ class ConfigurationError(PharmagenException):
 
 class DataError(PharmagenException):
     """Raised when data is invalid or incompatible.
-    
+
     Examples:
         - Missing required columns
         - Invalid data types
@@ -59,7 +59,7 @@ class DataError(PharmagenException):
 
 class ModelError(PharmagenException):
     """Raised when model creation or loading fails.
-    
+
     Examples:
         - Invalid model architecture
         - Incompatible model weights
@@ -70,12 +70,12 @@ class ModelError(PharmagenException):
 
 class MemoryError(PharmagenException):
     """Raised when memory constraints are violated.
-    
+
     Examples:
         - Insufficient memory for batch size
         - OOM during training
         - Cache size exceeds limits
-        
+
     Note:
         This shadows Python's built-in MemoryError.
         Use fully qualified name if needed: builtins.MemoryError
@@ -85,7 +85,7 @@ class MemoryError(PharmagenException):
 
 class GraphError(DataError):
     """Raised when graph data is invalid or corrupt.
-    
+
     Examples:
         - Missing node features
         - Invalid edge indices
@@ -107,7 +107,17 @@ class EncoderError(DataError):
 
 class OptimizationError(PharmagenException):
     """Raised when optimization/training fails.
-    
+
+    Examples:
+        - Loss becomes NaN
+        - Gradient explosion
+        - Optuna trial failures
+    """
+    pass
+
+class TrainingError(PharmagenException):
+    """Raised when optimization/training fails.
+
     Examples:
         - Loss becomes NaN
         - Gradient explosion

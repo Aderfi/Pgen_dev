@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MIN_DATASET_SIZE = 100
-PRELOAD_THRESHOLD = 10000  # Preload only if dataset < 10k samples
+PRELOAD_THRESHOLD = 10000
 DEFAULT_NUM_WORKERS = 4
 MIN_VALIDATION_SPLIT = 0.1
 MAX_VALIDATION_SPLIT = 0.3

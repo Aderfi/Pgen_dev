@@ -189,14 +189,25 @@ def _extract_dimensions(cfg: dict) -> dict:
         Dictionary with dimension keys.
     """
     dims = {
-        "drugs": {"features": cfg.get("drug_in_features", 25), "edges": cfg.get("drug_edge_dim", 7), "attrs": cfg.get("drug_in_attributes", 0)},
-        "geno": {"features": cfg.get("haplo_in_features", 9), "edges": cfg.get("haplo_edge_dim", 3)}, "attrs": cfg.get("haplo_in_attributes", 0)
+        "drugs": {
+            "features": cfg.get("drug_in_features", 25),
+            "edges": cfg.get("drug_edge_dim", 7),
+            "attrs": cfg.get("drug_in_attributes", 0)
+        },
+        "geno": {"features": cfg.get("haplo_in_features", 9),
+                 "edges": cfg.get("haplo_edge_dim", 3),
+                 "attrs": cfg.get("haplo_in_attributes", 0),
+            },
         }
 
     # Validate dimensions
-    for key, val in dims.items():
-        if not isinstance(val, int) or val <= 0:
-            raise ConfigurationError(f"Invalid dimension '{key}': {val} (must be positive int)")
+    for graph_type, dimensions in dims.items():
+        for dim_name, dim_value in dimensions.items():
+            if not isinstance(dim_value, int) or dim_value < 0:
+                raise ConfigurationError(
+                    f"Invalid dimension '{graph_type}.{dim_name}': {dim_value} "
+                    "(must be >= 0 integer)"
+                )
 
     logger.debug(f"Dimensions:  {dims}")
     return dims

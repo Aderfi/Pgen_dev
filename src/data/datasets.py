@@ -32,8 +32,8 @@ PRELOAD_THRESHOLD = 10000  # Max samples for RAM preloading
 GC_INTERVAL = 1000  # Garbage collection interval
 
 DEFAULT_DIMENSIONS = {
-    "drug":  {"x": 25, "edges":  7, "attrs":  5},
-    "geno": {"x": 9, "edges": 3, "attrs": 0},
+    "drugs": {"features": 25, "edges": 7, "attrs": 0},
+    "geno": {"features": 9, "edges": 3, "attrs": 0},
 }
 
 class PGenProcessor(BaseEstimator, TransformerMixin):
@@ -319,24 +319,38 @@ class DoubleTowerDataset(Dataset):
         """Validate input dimensions.
 
         Args:
-            dims:  Dimension dictionary.
+            dims:  Nested dictionary with structure:
+                {"drugs": {"features": int, "edges": int, "attrs": int},
+                "geno": {"features": int, "edges": int, "attrs": int}}
 
         Raises:
             DataError: If dimensions are invalid.
         """
         required_keys = ["drugs", "geno"]
-        required_subkeys = ["x", "edges", "attrs"]
-        missing = [k for k in required_keys if k not in dims]
-        missing += [f"{k}.{subk}" for k in required_keys
-                    for subk in required_subkeys if k in dims and subk not in dims.values()]
+        required_subkeys = ["features", "edges", "attrs"]
 
-        if missing:
-            logger.warning(f"Missing dimension keys: {missing}.Using defaults.")
+        for graph_type in required_keys:
+            if graph_type not in dims:
+                logger.warning(f"Missing dimension key:  '{graph_type}'.\
+                               Using defaults.")
+                continue
 
-        for k, val in dims.items():
-            for i in val.items():
-                if not isinstance(i[1], int) or i[1] <= 0:
-                    raise DataError(f"Invalid dimension for {k}.{i[0]}: {i[1]}")
+            if not isinstance(dims[graph_type], dict):
+                raise DataError(f"Dimension '{graph_type}' must be a dict,\
+                                got {type(dims[graph_type])}")
+
+            for subkey in required_subkeys:
+                if subkey not in dims[graph_type]:
+                    logger.warning(f"Missing dimension '{graph_type}.{subkey}'.\
+                                   Using default.")
+                    continue
+
+                value = dims[graph_type][subkey]
+                if not isinstance(value, int) or value < 0:
+                    raise DataError(
+                        f"Invalid dimension '{graph_type}.{subkey}':  {value} "
+                        "(must be non-negative int)"
+                    )
 
     def _preload_data(self):
         """Preload graphs into RAM for faster access.
@@ -405,13 +419,15 @@ class DoubleTowerDataset(Dataset):
             """
             # Resolve dimensions (priority: input_dims > defaults)
             if type_data == "drug":
-                n_feats = self.input_dims["drugs"].get("features", DEFAULT_DIMENSIONS["drug"]["x"])
-                n_edge_feats = self.input_dims["drugs"].get("edges", DEFAULT_DIMENSIONS["drug"]["edges"])
-                n_attrs = self.input_dims["drugs"].get("attrs", DEFAULT_DIMENSIONS["drug"]["attrs"])
+                drug_dims = self.input_dims. get("drugs", DEFAULT_DIMENSIONS["drugs"])
+                n_feats = drug_dims.get("features", DEFAULT_DIMENSIONS["drugs"]["features"])
+                n_edge_feats = drug_dims. get("edges", DEFAULT_DIMENSIONS["drugs"]["edges"])
+                n_attrs = drug_dims.get("attrs", DEFAULT_DIMENSIONS["drugs"]["attrs"])
             elif type_data == "geno":
-                n_feats = self.input_dims["geno"].get("features", DEFAULT_DIMENSIONS["geno"]["x"])
-                n_edge_feats = self.input_dims["geno"].get("edges", DEFAULT_DIMENSIONS["geno"]["edges"]) # noqa
-                n_attrs = self.input_dims["geno"].get("attrs", DEFAULT_DIMENSIONS["geno"]["attrs"])
+                geno_dims = self.input_dims.get("geno", DEFAULT_DIMENSIONS["geno"])
+                n_feats = geno_dims.get("features", DEFAULT_DIMENSIONS["geno"]["features"])
+                n_edge_feats = geno_dims.get("edges", DEFAULT_DIMENSIONS["geno"]["edges"]) # noqa
+                n_attrs = geno_dims.get("attrs", DEFAULT_DIMENSIONS["geno"]["attrs"])
             else:
                 raise ValueError(f"Unknown type_data: '{type_data}'.Must be 'drug' or 'geno'.")
 

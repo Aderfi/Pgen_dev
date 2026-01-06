@@ -1,3 +1,4 @@
+# src/interface/cli.py
 # Pharmagen - Command Line Interface
 # Interactive Menu and Workflows
 
@@ -5,14 +6,12 @@ import datetime
 import logging
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 # Project Imports
 from src.config.manager import DIRS, PROJECT_ROOT, get_available_models
-from src.interface.ui import (
-    ConsoleIO,
-    Spinner,
-)
+from src.interface.ui import ConsoleIO, ProgressBar, Spinner
 from src.utils.io import (
     print_conditions_details,
     print_gnu_notice,
@@ -23,6 +22,32 @@ logger = logging.getLogger(__name__)
 DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")
 
 # ==============================================================================
+# MODULE CACHE - Lazy Imports
+# ==============================================================================
+
+
+@lru_cache(maxsize=1)
+def _get_train_pipeline():
+    """Lazy import with automatic cache of train_pipeline."""
+    from src.pipeline import train_pipeline
+    return train_pipeline
+
+
+@lru_cache(maxsize=1)
+def _get_optuna_study():
+    """Lazy import with automatic cache of run_optuna_study."""
+    from src.modeling.engine.tuner import run_optuna_study
+    return run_optuna_study
+
+
+@lru_cache(maxsize=1)
+def _get_predictor_class():
+    """Lazy import with automatic cache of PGenPredictor."""
+    from src.modeling.engine.predictor import PGenPredictor
+    return PGenPredictor
+
+
+# ==============================================================================
 # UTILS
 # ==============================================================================
 
@@ -31,47 +56,46 @@ def _select_model() -> str:
     """Interactively select a model from configuration."""
     models = get_available_models()
     if not models:
-        ConsoleIO.print_error("No models found in models.toml")
+        ConsoleIO.print_error("No models found in models. toml")
         sys.exit(1)
 
-    print("\nAvailable Models:")
+    ConsoleIO.print_divider()
+    ConsoleIO.print_info("Available Models:")
     for i, m in enumerate(models, 1):
         print(f"  {i}. {m}")
+    ConsoleIO.print_divider()
 
-    while True:
-        choice = input("\nSelect model (number): ").strip()
-        if choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(models):
-                return models[idx]
-        ConsoleIO.print_error("Invalid selection.")
+    model_idx = ConsoleIO.input_int(
+        "Select model",
+        min_val=1,
+        max_val=len(models)
+    )
+    return models[model_idx - 1]
 
 
 # ==============================================================================
-# WORKFLOWS
+# INTERACTIVE CLI MENU WORKFLOWS
 # ==============================================================================
 
 
 def run_genomic_processing():
     """Simulation of Genomic ETL."""
     ConsoleIO.print_header("Genomic Processing Module")
-    logger.info("Starting interactive genomic module.")
-
-    with Spinner("Analyzing VCF files..."):
-        time.sleep(2)
-
-    ConsoleIO.print_success("Processing completed (Simulated).")
+    ConsoleIO.print_warning("NOT IMPLEMENTED YET")
+    ConsoleIO.print_info("This module will process VCF files and genomic data")
+    return # noqa: PLR1711
 
 
 def run_training_flow():
     """Interactive Training Workflow."""
-    ConsoleIO.print_header("Training Module")
+    ConsoleIO. print_header("Training Module")
 
     # 1. Select Model
     model_name = _select_model()
+    ConsoleIO.print_success(f"Selected model: {model_name}")
 
-    # 2. Select Data
-    default_data = DIRS["data"] / "processed" / "train_data.tsv"
+    # 2. Select Data File
+    default_data = DIRS["data"] / "processed" / "train_data. tsv"
     if not default_data.exists():
         # Fallback to project root default if exists
         fallback = PROJECT_ROOT / "train_data" / "final_enriched_data.tsv"
@@ -80,124 +104,222 @@ def run_training_flow():
         else:
             default_data = None
 
-    csv_path = ConsoleIO.input_path("Training Data Path (CSV/TSV)", default=default_data)
+    csv_path = ConsoleIO.input_path(
+        "Training Data Path",
+        default=default_data,
+        file_extensions=['. csv', '.tsv']
+    )
 
-    # 3. Select Mode
-    print("\nTraining Mode:")
-    print("  1. Standard Training (Single Run)")
-    print("  2. Hyperparameter Optimization (Optuna)")
+    # 3. Select Training Mode
+    ConsoleIO.print_divider()
+    mode = ConsoleIO.input_choice(
+        "Select training mode",
+        choices=["Standard", "Optuna"],
+        default="Standard"
+    )
 
-    mode = input("Select (1-2): ").strip()
-
-    if mode == "1":
+    if mode == "Standard":
         _run_standard_training(model_name, csv_path)
-    elif mode == "2":
+    else:  # Optuna
         _run_optuna_training(model_name, csv_path)
-    else:
-        ConsoleIO.print_error("Invalid option.")
 
 
 def _run_standard_training(model_name: str, csv_path: Path):
-    from src.pipeline import train_pipeline
+    """Execute standard training workflow with cached import."""
+    train_pipeline = _get_train_pipeline()
 
-    epochs_str = input("Epochs [default -> 100]: ").strip()
-    epochs = int(epochs_str) if epochs_str.isdigit() else 100
+    # Get training parameters
+    epochs = ConsoleIO. input_int(
+        "Number of epochs",
+        default=100,
+        min_val=1,
+        max_val=10000
+    )
 
-    print(f"\nStarting Standard Training: '{model_name}'")
-    train_pipeline(model_name=model_name, csv_path=str(csv_path), epochs=epochs)
-    ConsoleIO.print_success("Training finished.")
+    # Confirmation
+    ConsoleIO.print_divider()
+    ConsoleIO.print_info(f"Model: {model_name}")
+    ConsoleIO.print_info(f"Data: {csv_path}")
+    ConsoleIO.print_info(f"Epochs:  {epochs}")
+
+    if not ConsoleIO.confirm("Start training?", default=True):
+        ConsoleIO.print_warning("Training cancelled")
+        return
+
+    # Execute training
+    ConsoleIO.print_header(f"Training:  {model_name}")
+    logger.info(f"Starting standard training: {model_name}")
+
+    try:
+        train_pipeline(model_name=model_name, csv_path=str(csv_path), epochs=epochs)
+        ConsoleIO.print_success("Training completed successfully!")
+    except Exception as e:
+        logger.error(f"Training failed: {e}", exc_info=True)
+        ConsoleIO.print_error(f"Training failed: {e}")
 
 
 def _run_optuna_training(model_name: str, csv_path: Path):
-    from src.modeling.engine.tuner import run_optuna_study
+    """Execute Optuna optimization workflow with cached import."""
+    run_optuna_study = _get_optuna_study()
 
-    trials_str = input("Number of Trials [default -> 50]: ").strip()
-    n_trials = int(trials_str) if trials_str.isdigit() else 50
+    # Get Optuna parameters
+    n_trials = ConsoleIO.input_int(
+        "Number of trials",
+        default=50,
+        min_val=1,
+        max_val=1000
+    )
 
-    print(f"\nStarting Optuna Optimization: '{model_name}' ({n_trials} trials)")
-    run_optuna_study(model_name=model_name, csv_path=csv_path, n_trials=n_trials)
-    ConsoleIO.print_success("Optimization finished.")
+    epochs_per_trial = ConsoleIO. input_int(
+        "Epochs per trial",
+        default=50,
+        min_val=1,
+        max_val=500
+    )
+
+    # Confirmation
+    ConsoleIO.print_divider()
+    ConsoleIO.print_info(f"Model: {model_name}")
+    ConsoleIO.print_info(f"Data: {csv_path}")
+    ConsoleIO.print_info(f"Trials: {n_trials}")
+    ConsoleIO.print_info(f"Epochs per trial: {epochs_per_trial}")
+
+    if not ConsoleIO. confirm("Start Optuna optimization?", default=True):
+        ConsoleIO.print_warning("Optimization cancelled")
+        return
+
+    # Execute Optuna study
+    ConsoleIO.print_header(f"Optuna Optimization: {model_name}")
+    logger.info(f"Starting Optuna study: {model_name}")
+
+    try:
+        run_optuna_study(
+            model_name=model_name,
+            csv_path=csv_path,
+            n_trials=n_trials,
+            epochs=epochs_per_trial
+        )
+        ConsoleIO.print_success("Optuna optimization completed!")
+    except Exception as e:
+        logger.error(f"Optuna optimization failed: {e}", exc_info=True)
+        ConsoleIO.print_error(f"Optimization failed: {e}")
 
 
 def run_prediction_flow():
-    """Interactive Prediction Workflow."""
-    from src.modeling.engine.predictor import PGenPredictor
+    """Interactive Prediction Workflow with cached import."""
+    PGenPredictor = _get_predictor_class()
 
     ConsoleIO.print_header("Prediction Module")
 
+    # Select model
     model_name = _select_model()
 
     try:
-        with Spinner("Loading model..."):
+        # Load model
+        with Spinner("Loading model...", style="braille"):
             predictor = PGenPredictor(model_name)
-        ConsoleIO.print_success("Model loaded.")
+        ConsoleIO. print_success(f"Model '{model_name}' loaded successfully")
 
+        # Prediction submenu loop
         while True:
-            print("\n--- Prediction Menu ---")
-            print("  1. Interactive (Single)")
-            print("  2. Batch (File)")
+            ConsoleIO.print_divider()
+            print("Prediction Options:")
+            print("  1. Interactive (Single Prediction)")
+            print("  2. Batch (File Prediction)")
             print("  3. Back to Main Menu")
+            ConsoleIO.print_divider()
 
-            sub_choice = input("Option: ").strip()
+            sub_choice = ConsoleIO.input_choice(
+                "Select option",
+                choices=["1", "2", "3"],
+                default="1"
+            )
 
             if sub_choice == "1":
                 _interactive_predict_loop(predictor)
             elif sub_choice == "2":
                 _batch_predict_flow(predictor)
-            elif sub_choice == "3":
+            else:  # "3"
                 break
 
     except FileNotFoundError as e:
         logger.error(f"Model loading failed: {e}")
         ConsoleIO.print_error(f"Could not load model: {e}")
-        print("Tip: Train the model first.")
+        ConsoleIO.print_info("Tip: Train the model first using the Training menu")
     except Exception as e:
         logger.error(f"Critical prediction error: {e}", exc_info=True)
         ConsoleIO.print_error(f"Unexpected error: {e}")
 
 
 def _interactive_predict_loop(predictor):
-    print("\n(Type 'q' to cancel)")
+    """Single prediction interactive loop."""
+    ConsoleIO. print_header("Interactive Prediction")
+    ConsoleIO.print_info("Enter feature values (type 'q' to cancel)")
+
     inputs = {}
 
+    # Collect feature values
     for feature in predictor.feature_cols:
-        val = input(f"Value for '{feature}': ").strip()
+        val = input(f"  {feature}:  ").strip()
         if val.lower() == "q":
+            ConsoleIO.print_warning("Prediction cancelled")
             return
         inputs[feature] = val
 
-    print("\nCalculating...")
-    result = predictor.predict_single(inputs)
+    # Run prediction
+    with Spinner("Calculating prediction...", style="dots"):
+        result = predictor.predict_single(inputs)
 
-    print("\n--- Result ---")
+    # Display results
     if result:
+        ConsoleIO. print_divider()
+        ConsoleIO.print_success("Prediction Results:")
         for k, v in result.items():
             print(f"  🔹 {k}: {v}")
+        ConsoleIO.print_divider()
     else:
-        ConsoleIO.print_error("Prediction failed.")
+        ConsoleIO.print_error("Prediction failed - check input values")
 
 
 def _batch_predict_flow(predictor):
+    """Batch prediction from file."""
     import pandas as pd
 
-    path = ConsoleIO.input_path("Input CSV/TSV Path")
+    ConsoleIO.print_header("Batch Prediction")
 
-    with Spinner(f"Processing {path.name}..."):
-        results = predictor.predict_file(path)
+    # Get input file
+    input_path = ConsoleIO.input_path(
+        "Input file path",
+        file_extensions=['.csv', '.tsv']
+    )
+
+    # Run predictions
+    with Spinner(f"Processing {input_path.name}.. .", style="braille"):
+        results = predictor.predict_file(input_path)
 
     if not results:
-        print("⚠️ No results generated.")
+        ConsoleIO.print_warning("No predictions generated")
         return
 
-    out_path = path.parent / f"{path.stem}_predictions_{DATE_STAMP}.csv"
-    pd.DataFrame(results).to_csv(out_path, index=False)
+    # Save results
+    out_path = input_path.parent / f"{input_path.stem}_predictions_{DATE_STAMP}.csv"
+
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(out_path, index=False)
+
     ConsoleIO.print_success(f"Predictions saved to: {out_path}")
+    ConsoleIO.print_info(f"Total predictions: {len(results)}")
 
 
 def run_advanced_analysis():
+    """Advanced analysis workflow (placeholder)."""
     ConsoleIO.print_header("Advanced Analysis")
-    print("Generating interpretability reports...")
-    print("(Under Construction)")
+    ConsoleIO.print_warning("NOT IMPLEMENTED YET")
+    ConsoleIO.print_info("This module will provide:")
+    print("  • Model interpretability reports")
+    print("  • Feature importance analysis")
+    print("  • SHAP value visualizations")
+    print("  • Performance metrics dashboard")
 
 
 # ==============================================================================
@@ -206,7 +328,8 @@ def run_advanced_analysis():
 
 
 def main_menu_loop():
-    logger.info("Starting interactive menu.")
+    """Main interactive menu loop."""
+    logger.info("Starting interactive menu")
     print_gnu_notice()
 
     while True:
@@ -216,18 +339,22 @@ def main_menu_loop():
         print("  3. Predict (Inference)")
         print("  4. Advanced Analysis")
         print("  5. Exit")
-        print("=" * 60)
+        print()
+        print("  Type 'show w' for warranty details")
+        print("  Type 'show c' for license conditions")
+        ConsoleIO.print_divider("=")
 
         choice = input("Select option (1-5): ").strip()
 
+        # Easter eggs for license info
         if choice == "show w":
             print_warranty_details()
             continue
-
         if choice == "show c":
             print_conditions_details()
             continue
 
+        # Main menu options
         if choice == "1":
             run_genomic_processing()
         elif choice == "2":
@@ -237,12 +364,12 @@ def main_menu_loop():
         elif choice == "4":
             run_advanced_analysis()
         elif choice == "5":
-            logger.info("User exit.")
-            print("\nGoodbye!")
-            sys.exit(0)
+            if ConsoleIO.confirm("Are you sure you want to exit?", default=False):
+                logger. info("User exit")
+                ConsoleIO.print_info("Goodbye!  👋")
+                sys.exit(0)
         else:
-            print("Invalid option.")
-
+            ConsoleIO.print_error("Invalid option - please select 1-5")
 
 if __name__ == "__main__":
     main_menu_loop()

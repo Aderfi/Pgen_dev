@@ -20,18 +20,19 @@ from datetime import datetime
 from src.config.manager import DIRS
 
 
-def setup_logging(name="Pharmagen"):
+def setup_logging(name="Pharmagen", level: int | None = None):
+
     log_file = DIRS["logs"] / f"{name}_{datetime.now():%Y-%m-%d}.log"
 
     logging.basicConfig(
         filename=log_file,
         filemode="a",
-        level=logging.INFO,
+        level=level if level is not None else logging.WARNING,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
     console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
+    #console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(message)s"))
     logging.getLogger("").addHandler(console)
 

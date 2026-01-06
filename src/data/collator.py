@@ -1,62 +1,133 @@
-"""Custom collator for batching drug-haplotype graph pairs."""
+"""Custom collator for batching drug-haplotype graph pairs.
 
-from collections.abc import MutableSequence
+Handles metadata cleaning and efficient batching for PyG Data objects.
+"""
+
+import logging
 from typing import Any
 
 import torch
-from torch_geometric.data import Batch, Data
+from torch_geometric.data.batch import Batch
+from torch_geometric.data.data import Data
 
+logger = logging.getLogger(__name__)
 
 class DoubleTowerCollater:
-    def __init__(self, inference_mode=False):
-        # Si es True, guardamos IDs (lento). Si es False, velocidad máxima.
+    """Collator for two-tower graph datasets.
+
+    Features:
+    - Efficient metadata removal for training
+    - Optional metadata preservation for inference
+    - Type-safe batching
+
+    Example:
+        >>> collater = DoubleTowerCollater(inference_mode=False)
+        >>> batch = collater(list_of_samples)
+    """
+
+    def __init__(self, inference_mode: bool = False):
+        """Initialize DoubleTowerCollater.
+
+        Args:
+            inference_mode: If True, preserves graph IDs for inference.
+        """
         self.inference_mode = inference_mode
 
-        # Keys que sabemos que SIEMPRE son tensores y la GPU necesita
-        # Esto es más rápido que borrar lo que NO queremos.
-        self.allowed_keys = {'x', 'edge_index', 'edge_attr', 'batch', 'ptr'}
-
-
+        # Priority order for ID extraction
         self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
-        self.keys_to_sanitize = ["cid", "variant_name", "name", "smiles", "gene_context", "graph_id"]
 
-    def _sanitize_fast(self, graph_list: list[Data]) -> list[str]:
-        """
-        Extrae IDs y elimina atributos conflictivos (strings) de los objetos Data.
-        Modifica los objetos 'in-place'.
+        # Keys to remove (string attributes incompatible with batching)
+        self.keys_to_sanitize = [
+            "cid",
+            "variant_name",
+            "name",
+            "smiles",
+            "gene_context",
+            "graph_id",
+        ]
+
+    def _sanitize_graphs(self, graph_list: list[Data]) -> None:
+        """Remove string attributes from graphs (in-place).
+        Modifies graphs to contain only tensor data compatible with PyG batching.
+
+        Args:
+            graph_list: List of PyG Data objects.
         """
         for data in graph_list:
             for key in self.keys_to_sanitize:
                 if hasattr(data, key):
                     delattr(data, key)
 
-        return graph_list
+    def _extract_ids(self, graph_list: list[Data]) -> list[str]:
+        """Extract IDs from graphs before sanitization.
 
-    def __call__(self, batch_list):
+        Args:
+            graph_list: List of PyG Data objects.
+
+        Returns:
+            List of extracted IDs.
         """
-        Input: List of dicts from Dataset.__getitem__
-        Output: Dict with Batched graphs and Stacked targets
+        extracted_ids = []
+
+        for data in graph_list:
+            found_id = "Unknown"
+
+            # Try keys in priority order
+            for key in self.id_priority_keys:
+                val = getattr(data, key, None)
+                if val is not None:
+                    found_id = str(val)
+                    break
+
+            extracted_ids.append(found_id)
+
+        return extracted_ids
+
+    def __call__(self, batch_list: list[dict[str, Any]]) -> dict[str, Any]:
+        """Collate samples into batch.
+
+        Args:
+            batch_list: List of dictionaries from Dataset.__getitem__().
+
+        Returns:
+            Dictionary with batched graphs and stacked targets.
+
+        Raises:
+            ValueError:  If batch_list is empty or malformed.
         """
-        # 1. Separar componentes
+        if not batch_list:
+            raise ValueError("Empty batch_list provided to collator")
+
+        # 1. Separate components
         drug_graphs = [sample["drug_data"] for sample in batch_list]
         haplo_graphs = [sample["haplo_data"] for sample in batch_list]
 
-        # 2. Marshalling: Extraer IDs y limpiar strings
+        # 2. Extract IDs if needed
+        drug_ids = None
+        haplo_ids = None
 
-        self._sanitize_fast(drug_graphs)
-        self._sanitize_fast(haplo_graphs)
-
-        # 3. Batching Seguro (Ahora los grafos solo tienen tensores numéricos)
-        batch_drug = Batch.from_data_list(drug_graphs)
-        batch_haplo = Batch.from_data_list(haplo_graphs)
-
-        # 4. Re-inyección de Metadatos (Opcional, pero útil para debug/logging)
-        # Los pegamos como listas de Python simples, fuera de la estructura tensorial de PyG
         if self.inference_mode:
-            batch_drug.meta_ids = self._extract_ids(drug_graphs)
-            batch_haplo.meta_ids = self._extract_ids(haplo_graphs)
+            drug_ids = self._extract_ids(drug_graphs)
+            haplo_ids = self._extract_ids(haplo_graphs)
 
+        # 3. Clean metadata
+        self._sanitize_graphs(drug_graphs)
+        self._sanitize_graphs(haplo_graphs)
 
+        # 4. Batch graphs
+        try:
+            batch_drug = Batch.from_data_list(drug_graphs)
+            batch_haplo = Batch.from_data_list(haplo_graphs)
+        except Exception as e:
+            logger.error(f"Failed to batch graphs: {e}")
+            raise ValueError(f"Graph batching failed: {e}") from e
+
+        # 5. Re-attach metadata if in inference mode
+        if self.inference_mode:
+            batch_drug.meta_ids = drug_ids # type: ignore[attr-defined]
+            batch_haplo.meta_ids = haplo_ids # type: ignore[attr-defined]
+
+        # 6. Stack targets
         first_target_keys = batch_list[0]["targets"].keys()
         batched_targets = {
             key: torch.stack([s["targets"][key] for s in batch_list])
@@ -68,16 +139,3 @@ class DoubleTowerCollater:
             "haplo_batch": batch_haplo,
             "targets": batched_targets,
         }
-
-    def _extract_ids(self, graph_list):
-        # Tu lógica original, movida aquí para usarla solo bajo demanda
-        extracted_ids = []
-        for data in graph_list:
-            found_id = "Unknown"
-            for key in self.id_priority_keys:
-                val = getattr(data, key, None)
-                if val is not None:
-                    found_id = str(val)
-                    break
-            extracted_ids.append(found_id)
-        return extracted_ids

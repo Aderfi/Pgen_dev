@@ -200,13 +200,13 @@ def estimate_batch_memory_mb(
     num_graphs: int = 2  # Drug + Haplo
 ) -> float:
     """Estimate memory required for a batch of graphs.
-    
+
     Args:
         batch_size: Number of samples in batch.
         avg_nodes_per_graph: Average nodes per graph.
         node_features: Number of node features.
         num_graphs: Number of graphs per sample (default 2 for two-tower).
-        
+
     Returns:
         Estimated memory in megabytes.
     """

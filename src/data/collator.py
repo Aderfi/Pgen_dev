@@ -42,8 +42,7 @@ class DoubleTowerCollater:
         haplo_graphs = [sample["haplo_data"] for sample in batch_list]
 
         # 2. Marshalling: Extraer IDs y limpiar strings
-        # Esto soluciona tanto el KeyError (busca varias claves)
-        # como el TypeError (elimina los strings antes de batching)
+
         self._sanitize_fast(drug_graphs)
         self._sanitize_fast(haplo_graphs)
 

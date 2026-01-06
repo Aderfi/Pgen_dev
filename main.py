@@ -56,6 +56,7 @@ from typing import cast
 # --- Imports del Proyecto ---
 from src.config.manager import DIRS
 from src.interface.cli import main_menu_loop
+from src.interface.ui import ConsoleIO, Spinner
 from src.utils.logger import setup_logging
 
 # from src.utils.system import check_environment_and_setup
@@ -67,51 +68,81 @@ sys.path.append(str(PROJECT_ROOT))
 # Constantes
 DATE_STAMP = datetime.now().strftime("%Y-%m-%d")
 LOGS_DIR = DIRS["logs"]
+
+# Logger
+logger = logging.getLogger("Pharmagen")
+
 # ==============================================================================
 # MAIN ENTRY POINT
 # ==============================================================================
 
 def arguments_parser() -> argparse.ArgumentParser:
-    parser = argparse. ArgumentParser(description="Pharmagen CLI Manager")
+    parser = argparse.ArgumentParser(
+        description="Pharmagen CLI Manager",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=
+        """
+            Examples:
+            # Interactive menu
+            python main.py
+
+            # Standard training
+            python main.py --mode train --model TwoTowerGAT --input data/train.tsv
+
+            # Optuna optimization
+            python main.py --mode train --optuna --optuna-trials 50 --optuna-epochs 30
+
+            # Prediction
+            python main.py --mode predict --model TwoTowerGAT --input data/test.csv
+            """,
+        )
+
     parser.add_argument(
-        "--mode", "-m",
-        choices=["train", "predict", "menu"],  # Fixed: replaced "optuna" with "predict"
+        '--mode', '-m',
+        type=str,
+        choices=["train", "predict", "menu"],
         default="menu",
-        help="Modo de ejecución",
+        help="Execution mode:  train, predict, or interactive menu (default: menu)",
     )
 
     parser.add_argument(
-        "--model",
+        '--model',
         type=str,
         default="TwoTowerGAT",
-        help="Nombre del modelo (para automatización)",
+        help="Model name for training/prediction (default: TwoTowerGAT)",
     )
 
     parser.add_argument(
-        "--input",
+        '--input',
         type=Path,
         default=Path("train_data/train_data.tsv"),
-        help="Ruta al archivo de entrada (CSV/TSV)",
+        help="Input data file path (CSV/TSV) (default: train_data/train_data.tsv)",
     )
 
     parser.add_argument(
-        "--verbose",
+        '--epochs',
+        type=int,
+        default=100,
+        metavar="N",
+        help="Number of training epochs (default: 100)",
+    )
+
+    parser.add_argument(
+        '--verbose', '-v',
         action="store_true",
-        const=logging.INFO,
-        default=False,
-        help="Habilitar salida detallada",
+        help="Enable verbose output (INFO level logging)",
     )
 
     parser.add_argument(
         '--debug',
-        action='store_const',
-        const=logging.DEBUG,
-        default=logging.WARNING,)
+        action='store_true',
+        help="Enable debug output (DEBUG level logging)",
+    )
 
     parser.add_argument(
         "--optuna", "-opt",
         action="store_true",
-        help="Usar Optuna para optimización de hiperparámetros (solo en modo train)",
+        help="Use Optuna for hyperparameter optimization (only in train mode)",
     )
 
     parser.add_argument(
@@ -119,7 +150,7 @@ def arguments_parser() -> argparse.ArgumentParser:
         type=int,
         default=100,
         metavar="N",
-        help="Número de trials para Optuna (default: %(default)s)",
+        help="Number of Optuna trials (default: 100)",
     )
 
     parser.add_argument(
@@ -127,73 +158,160 @@ def arguments_parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
         metavar="N",
-        help="Número de epochs por trial en Optuna (default: %(default)s)",
+        help="Number of epochs per Optuna trial (default: 50)",
     )
-
 
     return parser
 
-def main(args: argparse.Namespace | None = None):
-    logger = logging.getLogger("Pharmagen")
-    logger.setLevel(logging.DEBUG)
 
+def _run_headless_training(args: argparse.Namespace):
+    """Execute training in headless mode."""
+    # Validate input file exists
+    if not args.input.exists():
+        ConsoleIO.print_error(f"Input file not found: {args.input}")
+        sys.exit(1)
+
+    # Standard Training
+    if not args.optuna:
+        from src.pipeline import train_pipeline
+
+        logger.info(f"Starting standard training:  {args.model}")
+        ConsoleIO.print_header("Standard Training")
+        ConsoleIO.print_info(f"Model: {args.model}")
+        ConsoleIO.print_info(f"Data:  {args.input}")
+        ConsoleIO.print_info(f"Epochs: {args.epochs}")
+
+        with Spinner(f"Training {args.model}.. .", style="braille"):
+            train_pipeline(
+                model_name=args.model,
+                csv_path=str(args.input),
+                epochs=args.epochs
+            )
+        
+        ConsoleIO.print_success("Training completed successfully!")
+
+    # Optuna Optimization
+    else:
+        from src.modeling. engine.tuner import run_optuna_study
+
+        logger.info(f"Starting Optuna optimization: {args.model}")
+        ConsoleIO.print_header("Optuna Hyperparameter Optimization")
+        ConsoleIO.print_info(f"Model: {args.model}")
+        ConsoleIO.print_info(f"Data: {args.input}")
+        ConsoleIO.print_info(f"Trials: {args.optuna_trials}")
+        ConsoleIO.print_info(f"Epochs per trial: {args.optuna_epochs}")
+
+        run_optuna_study(
+            model_name=args.model,
+            csv_path=str(args.input),
+            n_trials=args.optuna_trials,
+            epochs=args.optuna_epochs
+        )
+        
+        ConsoleIO.print_success("Optuna optimization completed!")
+
+
+def _run_headless_prediction(args: argparse.Namespace):
+    """Execute prediction in headless mode."""
+    import pandas as pd
+    from src.modeling.engine.predictor import PGenPredictor
+
+    # Validate input file exists
+    if not args.input.exists():
+        ConsoleIO.print_error(f"Input file not found:  {args.input}")
+        sys.exit(1)
+
+    logger.info(f"Starting headless prediction: {args.model}")
+    ConsoleIO.print_header("Prediction Mode")
+    ConsoleIO.print_info(f"Model: {args.model}")
+    ConsoleIO.print_info(f"Input: {args.input}")
+
+    try:
+        # Load model
+        with Spinner("Loading model...", style="braille"):
+            predictor = PGenPredictor(args.model)
+        
+        ConsoleIO.print_success("Model loaded successfully")
+
+        # Run predictions
+        with Spinner(f"Processing {args.input. name}...", style="braille"):
+            results = predictor. predict_file(args.input)
+
+        if not results:
+            ConsoleIO.print_warning("No predictions generated")
+            return
+
+        # Save results
+        out_name = f"{args.input.stem}_predictions_{DATE_STAMP}. csv"
+        out_path = args.input.parent / out_name
+        
+        results_df = pd.DataFrame(data=results)
+        results_df.to_csv(out_path, index=False)
+        
+        ConsoleIO.print_success(f"Predictions saved to: {out_path}")
+        ConsoleIO.print_info(f"Total predictions: {len(results)}")
+
+    except FileNotFoundError as e:
+        logger.error(f"Model not found: {e}")
+        ConsoleIO.print_error(f"Model '{args.model}' not found")
+        ConsoleIO.print_info("Tip: Train the model first using --mode train")
+        sys.exit(1)
+
+
+def main(args: argparse.Namespace | None = None):
+    """
+    Main entry point for Pharmagen CLI.
+
+    Args:
+        args: Parsed command line arguments (optional, will parse if None)
+    """
     if args is None:
         args = arguments_parser().parse_args()
 
     args = cast(argparse.Namespace, args)
+
+    # Configure logging level based on flags
+    log_level = logging.WARNING
+    if args.debug:
+        log_level = logging.DEBUG
+    elif args.verbose:
+        log_level = logging.INFO
+
+    if args.debug:
+        print("⚙️  Debug Mode Activated. Log Level: DEBUG")
+        setup_logging(name="Pharmagen_DEBUG", level=log_level)
+    elif args.verbose:
+        print("⚙️  Verbose Mode Activated. Log Level: INFO")
+        setup_logging(name="Pharmagen", level=log_level)
+    else:
+        setup_logging(name="Pharmagen", level=log_level)
+    logger = logging.getLogger("Pharmagen")
+    logger.setLevel(log_level)
+
     try:
-        # Interactive Menu (Default)
-        if args.mode == "menu":
+        # =====================================================================
+        # MODE:  Interactive Menu (Default)
+        # =====================================================================
+        if args. mode == "menu": # Interactive Menu (Default)
+            logger.info("Starting interactive menu mode")
             main_menu_loop()
 
-        # Training Mode (Headless/Automated)
-        elif args.mode == "train":
-            if not args.model:
-                args.model = args.model.default
-                print("❌ Error: --model es obligatorio en modo 'train'")
-                sys.exit(1)
+        elif args.mode == "train": # Training (Headless/Automated)
+            _run_headless_training(args)
 
-            logger.info(f"Iniciando entrenamiento headless: {args.model}")
-            if args. optuna:
-                from src. modeling.engine.tuner import run_optuna_study
-
-                run_optuna_study(args. model, args.input)
-            else:
-                from src.pipeline import train_pipeline
-
-                train_pipeline(model_name=args. model, csv_path=args.input)
-
-        # Modo Predicción (Headless/Automatizado)
-        elif args.mode == "predict":
-            import pandas as pd
-
-            from src.modeling.engine.predictor import PGenPredictor
-
-            if not args.model:
-                print("❌ Error: --model es obligatorio en modo 'predict'")
-                sys.exit(1)
-
-            logger.info(f"Iniciando predicción headless: {args. model}")
-            predictor = PGenPredictor(args.model)
-            results = predictor. predict_file(args.input)
-
-            # Guardado automático
-            out_name = f"{Path(args.input).stem}_preds_{DATE_STAMP}. csv"
-            results_df = pd.DataFrame(data=results)
-            results_df.to_csv(out_name, index=False)
-            print(f"Predicciones guardadas en:  {out_name}")
+        elif args.mode == "predict": # Prediction (Headless/Automated)
+            _run_headless_prediction(args)
 
     except KeyboardInterrupt:
-        print("\nOperación cancelada por el usuario.")
+        ConsoleIO.print_warning("\nOperation cancelled by user.")
+        logger.info("User interrupted execution")
         sys.exit(0)
     except Exception as e:
-        logger.critical(f"Error no controlado en Main:  {e}", exc_info=True)
-        print(f"\n❌ Error crítico del sistema: {e}")
-        print(f"Consulte el log para más detalles: {LOGS_DIR}")
+        logger.critical(f"Unhandled error in main:  {e}", exc_info=True)
+        ConsoleIO.print_error(f"Critical system error: {e}")
+        ConsoleIO.print_info(f"Check logs for details: {LOGS_DIR}")
         sys.exit(1)
 
-
 if __name__ == "__main__":
-    # check_environment_and_setup()
-    setup_logging()
+    setup_logging(name="Pharmagen")
     main()

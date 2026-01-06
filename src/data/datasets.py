@@ -319,7 +319,6 @@ class DoubleTowerDataset(Dataset):
         defaults = {
             "drug": {"x": 25, "edge": 7},
             "geno": {"x": 9, "edge": 3},
-            "unknown": {"x": 10, "edge": 0},
         }
 
         # 2. Resolve Dimensions
@@ -331,8 +330,7 @@ class DoubleTowerDataset(Dataset):
             n_feats = self.input_dims.get("haplo_feat", defaults["geno"]["x"])
             n_edge_feats = self.input_dims.get("haplo_edge", defaults["geno"]["edge"])
         else:
-            n_feats = defaults["unknown"]["x"]
-            n_edge_feats = defaults["unknown"]["edge"]
+            raise ValueError(f"Unknown type_data: {type_data}")
 
         # 3. Construct Tensors
         x = torch.zeros((1, n_feats), dtype=torch.float)
@@ -340,7 +338,7 @@ class DoubleTowerDataset(Dataset):
 
         data = Data(x=x, edge_index=edge_index)
 
-        # 4. Handle Edge Attributes (CRITICAL FIX applied correctly here)
+        # 4. Handle Edge Attributes
         if n_edge_feats > 0:
             data.edge_attr = torch.empty((0, n_edge_feats), dtype=torch.float)
 
@@ -515,7 +513,6 @@ class DoubleTowerDataset(Dataset):
                 else:
                     # FIT MODE
                     le = LabelEncoder()
-                    processed_data = np.asarray(processed_data)
                     indices = le.fit_transform(processed_data)
                     self.encoders[col] = le
 

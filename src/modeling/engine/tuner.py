@@ -433,7 +433,7 @@ class PGenTuner:
 
 
 # Entry Point Simplificado
-def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50):
+def run_optuna_study(model_name: str, csv_path: str | Path, n_trials: int = 50, epochs: int | None = None):
     try:
         mp.set_start_method('spawn', force=True)
     except RuntimeError:

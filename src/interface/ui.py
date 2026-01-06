@@ -167,22 +167,21 @@ class ProgressBar:
         sys.stdout.flush()
 
     def _color_progressbar(self, default: bool = True, choice: str = 'blue'):
-        """Add color to the progress bar based on completion percentage."""
-        choice = input("Do you want colored progress bar? (Write color name or n [blue, red, yellow, green], n): ").strip().lower()
-        if choice in ('n', 'no', ''):
-            return "\033[0m"
-        elif choice == 'blue':
-            color_code = "\033[94m"  # Blue
-        elif choice == 'red':
-            color_code = "\033[91m"  # Red
-        elif choice == 'yellow':
-            color_code = "\033[93m"  # Yellow
-        elif choice == 'green':
-            color_code = "\033[92m"  # Green
-        else:
-            color_code = "\033[0m"  # Default terminal color
+        """Add color to the progress bar"""
+        if not default:
+            user_choice = input("Progress bar color ([blue]/red/yellow/green/n): ").strip().lower()
+            choice = user_choice if user_choice else choice
 
-        return color_code
+        color_map = {
+            'blue': "\033[94m",
+            'red': "\033[91m",
+            'yellow': "\033[93m",
+            'green':  "\033[92m",
+            'n': "\033[0m",
+            'no': "\033[0m",
+        }
+
+        return color_map.get(choice, "\033[0m")
 
     def __enter__(self):
         return self

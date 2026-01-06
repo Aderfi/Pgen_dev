@@ -23,7 +23,8 @@ import time
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
+
 
 class MessageType(Enum):
     """Console messages with associated symbols."""
@@ -210,22 +211,22 @@ class ConsoleIO:
         print(char * width)
 
     @staticmethod
-    def print_success(msg: str):
+    def print_success(msg: Any):
         """Print success message with ✅."""
         print(f"{MessageType.SUCCESS. value} {msg}")
 
     @staticmethod
-    def print_error(msg: str):
+    def print_error(msg: Any):
         """Print error message with ❌."""
         print(f"{MessageType.ERROR.value} {msg}", file=sys.stderr)
 
     @staticmethod
-    def print_warning(msg: str):
+    def print_warning(msg: Any):
         """Print warning message with ⚠️."""
         print(f"{MessageType.WARNING.value} {msg}")
 
     @staticmethod
-    def print_info(msg: str):
+    def print_info(msg: Any):
         """Print info message with ℹ️."""
         print(f"{MessageType.INFO. value} {msg}")
 

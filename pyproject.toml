@@ -1,18 +1,22 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+#[build-system]
+#requires = ["setuptools>=61.0", "wheel"]
+#build-backend = "setuptools.build_meta"
 
 [project]
-name = "Pharmagen"
-version = "1.5b"
-description = "Software de predicción farmacogenética y eficacia terapéutica mediante Deep Learning."
+name = "dev_Pharmagen"
+version = "1.5.0b0"
+description = "Software de predicción farmacogenética y eficacia terapéutica mediante Deep Learning"
 readme = "README.md"
-requires-python = ">=3.10, <3.11"
+requires-python = ">=3.10,<3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Adrim Hamed Outmani", email = "adrimh.outmani@gmail.com" }]
+authors = [
+    { name = "Adrim Hamed Outmani", email = "adrimh.outmani@gmail.com" }
+]
+maintainers = [
+    { name = "Adrim Hamed Outmani", email = "adrimh.outmani@gmail.com" }
+]
 
 keywords = [
-  # Dominio Médico/Farmacéutico
   "pharmacogenetics",
   "pharmacogenomics",
   "precision-medicine",
@@ -20,21 +24,24 @@ keywords = [
   "clinical-decision-support",
   "pharmacy",
   "adverse-drug-events",
-
-  # Tecnología / IA
+  "therapeutic-efficacy",
+  #############################
   "deep-learning",
   "pytorch",
   "deepfm",
   "neural-networks",
   "artificial-intelligence",
+  "machine-learning",
   "optuna",
-
-  # Bioinformática / Datos
+  "hyperparameter-optimization",
+  #############################
   "bioinformatics",
   "genomics",
   "vcf-processing",
-  "variant-analysis"
+  "variant-analysis",
+  "gene-networks",
 ]
+
 
 classifiers = [
   # Estado del proyecto
@@ -51,59 +58,139 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: C++",
-  "Programming Language :: Unix Shell",
 
   # Temáticas Científicas
   "Topic :: Scientific/Engineering :: Bio-Informatics",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Topic :: Scientific/Engineering :: Medical Science Apps.",  # <--- Muy importante para ti
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
 
   # Entorno de Ejecución
   "Environment :: Console",  
   "Environment :: GPU :: NVIDIA CUDA",
   "Operating System :: OS Independent", # Preference Linux but also works on Windows. OSX not tested.
 ]
-
 dependencies = [
-  "torch>=2.0.0",
-  "numpy>=1.24.0",
-  "pandas>=2.0.0",
-  "scikit-learn>=1.3.0",
-  "joblib>=1.3.0",
-  "biopython>=1.80",
-  "tqdm>=4.66.0",
-  "tomli>=2.0.1",
-  "rapidfuzz>=3.0.0",
-  "packaging>=23.0",
+    "absl-py==2.3.1",
+    "anyio==4.11.0",
+    "astunparse==1.6.3",
+    "biopython==1.85",
+    "cachetools==4.2.4",
+    "certifi==2025.8.3",
+    "cffi==1.17.1",
+    "chardet==3.0.4",
+    "charset-normalizer==3.4.3",
+    "colorama==0.4.6",
+    "cycler==0.12.1",
+    "filelock==3.20.0",
+    "flatbuffers==25.9.23",
+    "fonttools==4.60.1",
+    "fsspec==2025.9.0",
+    "gast==0.6.0",
+    "google-api-core==1.34.1",
+    "google-auth==2.41.1",
+    "google-cloud-media-translation==0.11.17",
+    "google-cloud-translate==2.0.1",
+    "google-pasta==0.2.0",
+    "googleapis-common-protos==1.70.0",
+    "grpcio==1.75.1",
+    "grpcio-status==1.49.0rc1",
+    "h11==0.16.0",
+    "h2==3.2.0",
+    "h5py==3.14.0",
+    "hf-xet==1.1.10",
+    "hpack==3.0.0",
+    "hstspreload==2025.1.1",
+    "httpcore==1.0.9",
+    "httpx==0.28.1",
+    "huggingface==0.0.1",
+    "huggingface-hub==0.35.3",
+    "hyperframe==5.2.0",
+    "idna==2.10",
+    "jinja2==3.1.6",
+    "joblib==1.5.2",
+    "keras==3.11.3",
+    "kiwisolver==1.4.9",
+    "libclang==18.1.1",
+    "markdown==3.9",
+    "markdown-it-py==4.0.0",
+    "markupsafe==3.0.3",
+    "matplotlib==3.10.6",
+    "mdurl==0.1.2",
+    "ml-dtypes==0.5.3",
+    "mpmath==1.3.0",
+    "namex==0.1.0",
+    "networkx<=3.5",
+    "numpy>=2.0.0",
+    "opt-einsum==3.4.0",
+    "optree==0.17.0",
+    "optuna>=4.0.0",
+    "packaging==25.0",
+    "pandas==2.3.3",
+    "pillow==11.3.0",
+    "prompt-toolkit==3.0.51",
+    "proto-plus==1.26.1",
+    "protobuf==3.20.3",
+    "pyasn1==0.6.1",
+    "pyasn1-modules==0.4.2",
+    "pycparser==2.22",
+    "pygments==2.19.2",
+    "pyparsing==3.2.5",
+    "python-dateutil==2.9.0.post0",
+    "pytz==2025.2",
+    "pyyaml==6.0.3",
+    "radian==0.6.15",
+    "rchitect==0.4.8",
+    "regex==2025.9.18",
+    "requests==2.32.5",
+    "scikit-learn",
+    "torch>=2.8.0,<2.9.0",
+    "torch_geometric",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
-# Dependencias EXTRA para entrenamiento y optimización
-# Se instalan con: pip install ".[train]"
-train = ["optuna>=3.0.0", "matplotlib>=3.7.0"]
+train = [
+    "optuna>=3.0.0", 
+    "matplotlib>=3.7.0",
+    "torch_geometric",
+]
 
-# Dependencias para desarrollo (formato, linting)
-# Se instalan con: pip install ".[dev]"
-dev = ["ruff>=0.5.0"]
+
+dev = [
+    "optuna",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.0.280",
+    "mypy>=1.3.0",
+    "coverage>=7.0.0",
+]
 
 [project.urls]
-"Homepage" = "https://github.com/Aderfi/pharmagen_pmodel"           # Opcional
-"Bug Tracker" = "https://github.com/Aderfi/pharmagen_pmodel/issues" # Opcional
+Homepage = "https://github.com/Aderfi/Pharmagen_development"
+Repository = "https://github.com/Aderfi/Pharmagen_development"
+Documentation = "https://github.com/Aderfi/Pharmagen_development/blob/main/README.md"
+"Bug Tracker" = "https://github.com/Aderfi/Pharmagen_development/issues"
+
+# =============================================================================
+# UV CONFIGURATION
+# =============================================================================
+
 
 # =============================================================================
 # CONFIGURACIÓN DE SETUPTOOLS (Layout src)
 # =============================================================================
+[tool.setuptools]
+# Soporte para archivos de datos
+include-package-data = true
 [tool.setuptools.packages.find]
-where = ["src"] # Indica que el código fuente está dentro de la carpeta 'src'
+where = ["./*.py", "src"] # Indica que el código fuente está dentro de la carpeta 'src'
 include = ["*"] # Incluye todos los paquetes encontrados dentro de src
 
 # =============================================================================
 # CONFIGURACIÓN DE HERRAMIENTAS DE CALIDAD DE CÓDIGO
 # =============================================================================
-
 [tool.ruff]
-# Excluir directorios comúnmente ignorados.
+# Directorios a excluir
 exclude = [
     ".bzr",
     ".direnv",
@@ -121,6 +208,7 @@ exclude = [
     ".ruff_cache",
     ".svn",
     ".tox",
+    ".venv",
     ".venv_pgen",
     ".vscode",
     "__pypackages__",
@@ -131,39 +219,133 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "BACKUPS",
+    "cache",
 ]
 
-# Configuración básica (similar a Black)
+# Configuración básica
 line-length = 88
 indent-width = 4
 target-version = "py310"
 
 [tool.ruff.lint]
-# Habilitar reglas de Pyflakes (F), pycodestyle (E, W) e isort (I)
-select = ["PL", "E", "W", "I", "F"]
-ignore = [
-    "E203",  # Espacio antes de ':', incompatible con Black
-    "E501",  # Longitud de línea, gestionado por Black
-    "F403",  # 'from module import *' usado, puede ser necesario en algunos casos
-    "F401",  # Importación no utilizada, puede ser necesario en algunos casos
-    "FIX003",
-    "EM101",
-    "D212",
-    #"TRY003",
-    #"EM101",
-    "PLC0415",  # Ignorar importaciones relativas en paquetes
+# Reglas habilitadas
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "PL",    # pylint
+    "RUF",   # ruff-specific rules
 ]
 
+ignore = [
+    "E203",    # Espacio antes de ':', incompatible con formatters
+    "E501",    # Longitud de línea, gestionado por el formatter
+    "F403",    # 'from module import *' - permitido en algunos casos
+    "F401",    # Importación no utilizada - puede ser intencional
+    "PLR0913", # Demasiados argumentos en función
+    "PLR2004", # Magic value usado en comparación
+    "PLC0415", # Importación fuera del top-level
+]
 
-# Permitir arreglos automáticos para todas las reglas habilitadas.
+# Permitir arreglos automáticos
 fixable = ["ALL"]
 unfixable = []
 
+# Variables dummy permitidas
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"tests/**/*.py" = ["PLR2004", "S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pharmagen"]
+force-single-line = false
+lines-after-imports = 2
+
 [tool.ruff.format]
-# Usar comillas dobles (estilo Black)
+# Estilo de formateo (compatible con Black)
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+docstring-code-format = true
+
+# =============================================================================
+# CONFIGURACIÓN DE PYTEST
+# =============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pharmagen",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# =============================================================================
+# CONFIGURACIÓN DE MYPY (Type Checking)
+# =============================================================================
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "biopython.*",
+    "torch.*",
+    "sklearn.*",
+    "optuna.*",
+]
+ignore_missing_imports = true
+
+# =============================================================================
+# CONFIGURACIÓN DE COVERAGE
+# =============================================================================
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__init__.py",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

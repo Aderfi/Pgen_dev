@@ -1,9 +1,7 @@
 # =======================================================
-data/raw/**
-data/processed/**
-data/dicts/**
-train_data/**
-results/**
+data/
+train_data/
+results/
 
 # Extensiones específicas de bioinformática 
 *.vcf

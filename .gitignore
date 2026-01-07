@@ -7,7 +7,7 @@ __pycache__/
 dist/
 build/
 dev_Pharmagen.code-workspace
-
+.user_env_cfg
 # --- Entornos Virtuales ---
 .env/
 .env_pgen/
@@ -80,6 +80,7 @@ reports/train_reports/
 # Ignorar el flag que indica si el setup ya corrió en ESTA máquina
 src/cfg/venv_setup_true
 .code-workspace
+.aiexclude
 
 # --- Logs ---
 *.log

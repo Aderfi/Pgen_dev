@@ -61,7 +61,7 @@ def test_train_pipeline_execution(mock_dependencies):
     # 3. Processor
     mock_proc_instance = mocks["processor"].return_value
     mock_proc_instance.encoders = {
-        "gene_id": MagicMock(classes_=[_G1_]),
+        "gene_id": MagicMock(classes_=["G1"]),
         "outcome": MagicMock(classes_=[0, 1]),
     }
 

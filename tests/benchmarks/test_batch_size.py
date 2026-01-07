@@ -14,14 +14,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+"""Benchmark tests for optimal batch size determination."""
+import pytest
+import torch
 import torch.nn
-from src.model import DeepFM_PGenModel  # Asumiendo tu estructura
-from src.performance_monitor import (
-    estimate_optimal_batch_size,
-)  # Asumiendo nombre del archivo
+
+pytest.importorskip("src.model")
+pytest.importorskip("src.performance_monitor")
+
+from src.model import DeepFM_PGenModel
+from src.performance_monitor import estimate_optimal_batch_size
 
 
+@pytest.mark.benchmark
+@pytest.mark.cuda
+@pytest.mark.skip(reason="Requires CUDA and may cause OOM on test runners")
 def test_hardware_capacity():
+    """Test determination of optimal batch size for hardware."""
     n_features = {"drug": 100, "gene": 50, "allele": 120, "genalle": 200}
     target_dims = {"outcome": 2, "type": 5, "variant": 10}
 
@@ -34,8 +43,7 @@ def test_hardware_capacity():
         n_layers=2,
     )
 
-    # 2. Crear un input de muestra (una sola fila es suficiente, la función lo replica)
-    # IMPORTANTE: Los tensores deben tener la misma forma y tipo que los reales
+    # Create sample input (one row is enough, function will replicate)
     sample_input = {
         "drug": torch.tensor([1], dtype=torch.long),
         "gene": torch.tensor([5], dtype=torch.long),
@@ -43,17 +51,19 @@ def test_hardware_capacity():
         "genalle": torch.tensor([200], dtype=torch.long),
     }
 
-    # 3. Ejecutar la estimación
-    # Esto probará tamaños como 256, 128, 64... hasta encontrar el límite OOM (Out of Memory)
+    # Execute estimation
+    # Tests batch sizes like 256, 128, 64... until finding OOM limit
     optimal_bs = estimate_optimal_batch_size(
         model=model,
         sample_input=sample_input,
-        max_batch_size=4096,  # Prueba hasta 4096 si cabe
+        max_batch_size=4096,
         device=torch.device("cuda"),
     )
 
-    print(f"--> Configura tu 'batch_size' en config.toml a: {optimal_bs}")
+    assert optimal_bs > 0, "Optimal batch size should be positive"
+    assert optimal_bs <= 4096, "Optimal batch size should not exceed max"
+    print(f"--> Configure 'batch_size' in config.toml to: {optimal_bs}")
 
 
 if __name__ == "__main__":
-    test_hardware_capacity()
+    pytest.main([__file__, "-v"])

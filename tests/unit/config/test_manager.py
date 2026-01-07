@@ -1,12 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.cfg.manager import get_model_config
+from src.config.manager import get_model_config
 
 
 @pytest.fixture
 def mock_tomli_load():
-    with patch("src.cfg.manager.tomllib.load") as mock_load:
+    with patch("src.config.manager.tomllib.load") as mock_load:
         yield mock_load
 
 

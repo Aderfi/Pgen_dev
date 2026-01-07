@@ -318,7 +318,7 @@ class PGenTuner:
                 geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
-                preload_ram=False,  # CRITICAL: Always False during Optuna
+                preload_ram=True,  # CRITICAL: Always False during Optuna
             )
 
             val_dataset = DoubleTowerDataset(
@@ -328,7 +328,7 @@ class PGenTuner:
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
                 encoders=train_dataset.encoders,  # CRITICAL: Share encoders
-                preload_ram=False,
+                preload_ram=True,
             )
 
             # 4. Dimension inference
@@ -386,13 +386,6 @@ class PGenTuner:
                 params=params,
             ).to(device)
 
-            # Enhanced logging
-            num_params = sum(p.numel() for p in model.parameters())
-            model_mem = estimate_model_memory_mb(num_params)
-            logger.debug(
-                f"🧠 Trial {trial.number}:  Model params={num_params: ,}, mem~{model_mem:.1f}MB"
-            )
-
             # 7. Loss & Uncertainty Setup
             uncertainty_net = LossFactory.create_uncertainty_wrapper(
                 tasks=self.cfg["targets"], device=device
@@ -431,6 +424,14 @@ class PGenTuner:
                 patience=self.patience,
                 trial=trial,
             )
+            try:
+                num_params = sum(p.numel() for p in model.parameters())
+                model_mem = estimate_model_memory_mb(num_params)
+                logger.debug(
+                    f"🧠 Trial {trial.number}:  Model params={num_params: ,}, mem~{model_mem:.1f}MB"
+                )
+            except: # noqa
+                pass
 
             return result
 
@@ -508,6 +509,7 @@ class PGenTuner:
         Returns:
             Completed Optuna study object.
         """
+        n_jobs = 1
         if n_jobs is None:
             n_jobs = 4 if torch.cuda.is_available() else 1
 
@@ -702,7 +704,7 @@ def run_optuna_study(
         >>> study = run_optuna_study("TwoTowerGAT", "data/train.tsv", n_trials=100)
         >>> print(study.best_params)
     """
-
+    '''
     current_method = mp.get_start_method(allow_none=True)
     if current_method != 'spawn':
 
@@ -721,7 +723,7 @@ def run_optuna_study(
                 raise  # Re-raise si CUDA está disponible (crítico)
             else:
                 logger.warning("   Continuing (CPU-only mode)")
-
+    '''
     # ✅ MEJORA 22: Use ConsoleIO for better output
     ConsoleIO.print_header("Optuna Hyperparameter Optimization")
     ConsoleIO.print_info(f"Model: {model_name}")

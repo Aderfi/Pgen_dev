@@ -192,7 +192,7 @@ def _run_headless_training(args: argparse.Namespace):
 
     # Optuna Optimization
     else:
-        from src.modeling. engine.tuner import run_optuna_study
+        from src.modeling.engine.tuner import run_optuna_study
 
         logger.info(f"Starting Optuna optimization: {args.model}")
         ConsoleIO.print_header("Optuna Hyperparameter Optimization")
@@ -234,8 +234,8 @@ def _run_headless_prediction(args: argparse.Namespace):
         ConsoleIO.print_success("Model loaded successfully")
 
         # Run predictions
-        with Spinner(f"Processing {args.input. name}...", style="braille"):
-            results = predictor. predict_file(args.input)
+        with Spinner(f"Processing {args.input.name}...", style="braille"):
+            results = predictor.predict_file(args.input)
 
         if not results:
             ConsoleIO.print_warning("No predictions generated")

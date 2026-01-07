@@ -20,14 +20,14 @@ from optuna.pruners import HyperbandPruner, MedianPruner, NopPruner, PatientPrun
 from optuna.samplers import RandomSampler, TPESampler
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
-from tqdm. auto import tqdm
+from tqdm.auto import tqdm
 
 # Project Imports
 from src.config.manager import DIRS, get_model_config
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
 from src.interface.ui import ConsoleIO
-from src. modeling.architectures. layers import create_gnn_model
+from src.modeling.architectures. layers import create_gnn_model
 from src.modeling.engine. trainer import PGenTrainer
 from src.utils.exceptions import ConfigurationError, DataError, ModelError
 from src.utils.io import DataLoaderUtils
@@ -45,7 +45,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # Constants
 MIN_DATASET_SIZE = 1000
 DEFAULT_MAX_BATCH_SIZE = 128
-MEMORY_WARNING_THRESHOLD = 0.6  # 60% of available GPU memory
+MEMORY_WARNING_THRESHOLD = 0.75  # 75% of available GPU memory
 
 
 class PGenTuner:
@@ -318,7 +318,7 @@ class PGenTuner:
                 geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
-                preload_ram=False,  # CRITICAL: Always False during Optuna
+                preload_ram=True,  # CRITICAL: Always False during Optuna
             )
 
             val_dataset = DoubleTowerDataset(
@@ -328,7 +328,7 @@ class PGenTuner:
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
                 encoders=train_dataset.encoders,  # CRITICAL: Share encoders
-                preload_ram=False,
+                preload_ram=True,
             )
 
             # 4. Dimension inference
@@ -360,7 +360,7 @@ class PGenTuner:
                 shuffle=True,
                 collate_fn=collater,
                 num_workers=0,
-                pin_memory=True if torch.cuda.is_available() else False,
+                pin_memory=True,
             )
             val_loader = DataLoader(
                 val_dataset,
@@ -368,7 +368,7 @@ class PGenTuner:
                 shuffle=False,
                 collate_fn=collater,
                 num_workers=0,
-                pin_memory=True if torch.cuda.is_available() else False,
+                pin_memory=True,
             )
 
             # 6. Model instantiation
@@ -509,7 +509,7 @@ class PGenTuner:
         Returns:
             Completed Optuna study object.
         """
-        n_jobs = 1
+        n_jobs = 4
         if n_jobs is None:
             n_jobs = 4 if torch.cuda.is_available() else 1
 

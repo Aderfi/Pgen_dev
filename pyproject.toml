@@ -251,7 +251,11 @@ ignore = [
     "PLR0913", # Demasiados argumentos en función
     "PLR2004", # Magic value usado en comparación
     "PLC0415", # Importación fuera del top-level
+    "FIX003", # TODOs
+    "EM101",  # Raw string literals in exceptions
+    "D212",   # Multi-line docstring summary start
 ]
+
 
 # Permitir arreglos automáticos
 fixable = ["ALL"]

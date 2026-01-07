@@ -1,69 +1,49 @@
 # =======================================================
+# 1. CORE & PYTHON
+# =======================================================
+**/__pycache__/**
+*.pyc
+
+# =======================================================
+# 2. ENVIRONMENTS & SECRETS
+# =======================================================
+.env
+.env_pgen
+.venv/
+venv/
+env/
+gha-creds-*.json
+gemini*.json
+
+# =======================================================
+# 3. BIOINFORMATICS & DATA
+# =======================================================
+# AI does not need to read raw data folders
 data/
 train_data/
-results/
+src/library/
 
-# Extensiones específicas de bioinformática 
+# Block heavy bio-formats
 *.vcf
 *.vcf.gz
-*.tbi
-*.bcf
 *.bam
 *.sam
 *.bed
 
 # =======================================================
-# ARTEFACTOS DE MACHINE LEARNING Y BINARIOS
+# 4. ML ARTIFACTS & LOGS
 # =======================================================
-src/pgen_model/
-
-# Extensiones de modelos y serialización
+# Models are too large for context
 *.pth
 *.pt
 *.pkl
-*.joblib
 *.h5
 *.onnx
-*.ckpt
+src/pgen_model/
 
-# =======================================================
-# BASES DE DATOS Y REPORTES
-# =======================================================
+# Logs and Reports
+logs/
 reports/
-*.db
-*.sqlite3
-
-# Figuras generadas (imágenes)
-reports/figures/**
-
-# Reportes de texto generados automáticamente
-reports/train_reports/**
-
-# =======================================================
-# ARCHIVOS TEMPORALES, LOGS Y BACKUPS
-# =======================================================
-BACKUPS/**
-cache/**
-logs/**
-s
-*.log
-
-# Caches de Python y compilados
-**/__pycache__/**
-*.pyc
-*.pyo
-*.pyd
-
-# =======================================================
-# CONFIGURACIÓN DE ENTORNO Y SECRETOS
-# =======================================================
-.env
-.env_pgen
-.venv
-venv/
-env/
-.vscode/**
-
-# ============
-.vscode/
-!.vscode/settings.json
+BACKUPS/
+results/
+cache/

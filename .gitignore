@@ -1,68 +1,78 @@
-# --- Python & Core ---
+# =======================================================
+# 1. CORE & PYTHON
+# =======================================================
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
 *.egg-info/
 dist/
 build/
-dev_Pharmagen.code-workspace
-.user_env_cfg
-# --- Entornos Virtuales ---
-.env/
-.env_pgen/
-venv/
-env/
-.venv/
-anaconda/
-*.conda
+.pytest_cache/
 
-# --- IDE & OS ---
+# =======================================================
+# 2. ENVIRONMENTS & SECRETS (CRITICAL)
+# =======================================================
+# Virtual Environments
+.*env*/
+
+# Credentials & Local Configs
+gha-creds-*.json
+gemini*.json
+src/cfg/venv_setup_true
+
+# =======================================================
+# 3. IDE & OS (Windows/Linux Compatibility)
+# =======================================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# MacOS (if collaborating)
+.DS_Store
+
+# IDEs
 .vscode/
 .idea/
-.DS_Store
-Thumbs.db
+*.code-workspace
+.user_env_cfg
 
-# --- Datos Sensibles & Bioinformática (CRÍTICO) ---
-# Evita subir datos genómicos por error
-#*.vcf
-#*.vcf.gz
+# =======================================================
+# 4. BIOINFORMATICS & DATA
+# =======================================================
+# General Large Data rule: Ignore everything in data/ first
+data/*
+
+# Exceptions: explicit folders we DO want to track (structure)
+!data/dicts/
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+!data/vcf/.gitkeep
+
+# Specific extensions to block globally (Safety net)
+*.vcf
+*.vcf.gz
 *.tbi
-*.fa
-*.fasta
-*.fa.gz
-*.fai
 *.bam
 *.sam
 *.cram
+*.fa
+*.fasta
+*.fa.gz
 
-# --- Datos Tabulares y Temporales ---
-# Ignoramos CSV/TSV en general para no subir datos de pacientes
-# Si tienes configs en CSV que SÍ quieres subir, usa 'git add -f archivo.csv'
+# Tabular Data (prevent accidental CSV commits)
 *.csv
 #*.tsv
 *.xlsx
-*.parquet
+#*.parquet
 *.feather
 
-# --- Directorios Dinámicos del Proyecto ---
-# Estas carpetas se generan al ejecutar el código/setup
-# Queremos ignorar su contenido, pero quizás mantener la estructura si usas .gitkeep
-#data/raw/*
-#data/processed/*
-#data
-#cache/*
-#results/*
-#logs/*
-#reports/*
+# Library dependencies inside src (if applicable)
+src/library/**
 
-# Excepciones: Si usas .gitkeep para mantener la estructura de carpetas vacías
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!results/.gitkeep
-!logs/.gitkeep
-
-# --- Modelos & Pesos (Pesados) ---
+# =======================================================
+# 5. ML ARTIFACTS & MODELS
+# =======================================================
 *.pth
 *.pt
 *.pkl
@@ -70,34 +80,19 @@ Thumbs.db
 *.ckpt
 *.onnx
 model_*.txt
+*.joblib
 
-# --- Optuna & Bases de Datos ---
+# Optuna / DBs
 *.db
-reports/optuna_reports/
-reports/train_reports/
+*.sqlite3
 
-# --- Configuración de Estado Local ---
-# Ignorar el flag que indica si el setup ya corrió en ESTA máquina
-src/cfg/venv_setup_true
-.code-workspace
-.aiexclude
-
-# --- Logs ---
-*.log
+# =======================================================
+# 6. LOGS & OUTPUTS
+# =======================================================
+logs/
+reports/
+cache/
+results/
 npm-debug.log*
-
+*.log
 GEMINI.md
-gemini*.json
-
-# --- Bibliotecas
-src/library/*
-data/*
-!data/dicts/
-!data/processed
-!data/raw
-!data/vcf
-
-.gemini/
-gha-creds-*.json
-
-train_data/var_anno/Pharmvar/pharmvar-6.2.18.zip

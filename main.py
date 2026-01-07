@@ -293,7 +293,6 @@ def main(args: argparse.Namespace | None = None):
         # MODE:  Interactive Menu (Default)
         # =====================================================================
         if args. mode == "menu": # Interactive Menu (Default)
-            logger.info("Starting interactive menu mode")
             main_menu_loop()
 
         elif args.mode == "train": # Training (Headless/Automated)

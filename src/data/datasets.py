@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Constants
 UNKNOWN_CATEGORY_LABEL = "__UNKNOWN__"
 EMPTY_GRAPH_NODE_DIM = 5
-PRELOAD_THRESHOLD = 10000  # Max samples for RAM preloading
+PRELOAD_THRESHOLD = 11000  # Max samples for RAM preloading
 GC_INTERVAL = 1000  # Garbage collection interval
 
 DEFAULT_DIMENSIONS = {
@@ -422,19 +422,17 @@ class DoubleTowerDataset(Dataset):
                 drug_dims = self.input_dims. get("drugs", DEFAULT_DIMENSIONS["drugs"])
                 n_feats = drug_dims.get("features", DEFAULT_DIMENSIONS["drugs"]["features"])
                 n_edge_feats = drug_dims. get("edges", DEFAULT_DIMENSIONS["drugs"]["edges"])
-                n_attrs = drug_dims.get("attrs", DEFAULT_DIMENSIONS["drugs"]["attrs"])
             elif type_data == "geno":
                 geno_dims = self.input_dims.get("geno", DEFAULT_DIMENSIONS["geno"])
                 n_feats = geno_dims.get("features", DEFAULT_DIMENSIONS["geno"]["features"])
                 n_edge_feats = geno_dims.get("edges", DEFAULT_DIMENSIONS["geno"]["edges"]) # noqa
-                n_attrs = geno_dims.get("attrs", DEFAULT_DIMENSIONS["geno"]["attrs"])
             else:
                 raise ValueError(f"Unknown type_data: '{type_data}'.Must be 'drug' or 'geno'.")
 
             # Construct empty graph
             x = torch.zeros((1, n_feats), dtype=torch.float)
             edge_index = torch.empty((2, 0), dtype=torch.long)
-            edge_attrs = torch.empty((0, n_attrs), dtype=torch.float)
+            edge_attrs = torch.empty((0, n_edge_feats), dtype=torch.float)
 
             data = Data(x=x, edge_index=edge_index, edge_attr=edge_attrs)
 

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Constants
 UNKNOWN_CATEGORY_LABEL = "__UNKNOWN__"
 EMPTY_GRAPH_NODE_DIM = 5
-PRELOAD_THRESHOLD = 11000  # Max samples for RAM preloading
+PRELOAD_THRESHOLD = 5000  # Max samples for RAM preloading
 GC_INTERVAL = 1000  # Garbage collection interval
 
 DEFAULT_DIMENSIONS = {

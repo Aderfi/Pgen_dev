@@ -704,7 +704,7 @@ def run_optuna_study(
         >>> study = run_optuna_study("TwoTowerGAT", "data/train.tsv", n_trials=100)
         >>> print(study.best_params)
     """
-    '''
+
     current_method = mp.get_start_method(allow_none=True)
     if current_method != 'spawn':
 
@@ -723,7 +723,7 @@ def run_optuna_study(
                 raise  # Re-raise si CUDA está disponible (crítico)
             else:
                 logger.warning("   Continuing (CPU-only mode)")
-    '''
+
     # ✅ MEJORA 22: Use ConsoleIO for better output
     ConsoleIO.print_header("Optuna Hyperparameter Optimization")
     ConsoleIO.print_info(f"Model: {model_name}")

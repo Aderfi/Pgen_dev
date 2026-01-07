@@ -98,7 +98,7 @@ def run_training_flow():
     default_data = DIRS["data"] / "processed" / "train_data. tsv"
     if not default_data.exists():
         # Fallback to project root default if exists
-        fallback = PROJECT_ROOT / "train_data" / "final_enriched_data.tsv"
+        fallback = PROJECT_ROOT / "train_data" / "train_data.tsv"
         if fallback.exists():
             default_data = fallback
         else:

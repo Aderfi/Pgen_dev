@@ -656,9 +656,6 @@ class GenomicGraphBuilderNEXTGEN:
     def _build_library(self, tsv_input: Path) -> pd.DataFrame:
         print("   🔹 Indexando genoma...")
         genome = Fasta(str(self.fasta_path), key_function=lambda x: x.split()[0])
-        # Nota: Con Dataframe B, el GFF es menos crítico para asignar genes porque
-        # el dataframe ya trae la columna 'gene' muy bien definida, pero lo mantenemos
-        # si queremos validar intergénicos.
 
         dfs = []
         # Cargar TSV Principal (Estructura B)
@@ -768,7 +765,7 @@ class GenomicGraphBuilderNEXTGEN:
                                 ]
                             ]
                         )
-                    except:
+                    except:  # noqa
                         continue
         return (
             pd.concat(all_variants, ignore_index=True)
@@ -806,6 +803,7 @@ class GenomicGraphBuilderNEXTGEN:
                         .replace(":", "_")
                         .replace("/", "_")
                         .replace("|", "_")
+                        .replace("*", "star")
                     )
                     torch.save(pyg_data, output_dir / f"{gene}_{safe_var}.pt")
                     count += 1
@@ -951,9 +949,9 @@ mkdir -p UGT1A # Pre-create special case
 find . -maxdepth 1 -name "*.pt" -type f | while read filename; do
     base=$(basename "$filename")
     gene_name=$(echo "$base" | cut -d'_' -f1)
-    
+
     # Manejo de casos especiales (genes superpuestos o familias)
-    if [[ "$gene_name" =~ ^UGT1A ]]; then 
+    if [[ "$gene_name" =~ ^UGT1A ]]; then
         mv "$filename" "UGT1A/"
     else
         mkdir -p "$gene_name"
@@ -1102,8 +1100,6 @@ def help_DOC() -> None:
             print("\n".join(DOCS))
         else:
             print("❌ Opción no válida.")
-
-    return None
 
 
 def args_parser():

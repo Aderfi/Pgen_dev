@@ -277,15 +277,8 @@ def main(args: argparse.Namespace | None = None):
     elif args.verbose:
         log_level = logging.INFO
 
-    if args.debug:
-        print("⚙️  Debug Mode Activated. Log Level: DEBUG")
-        setup_logging(name="Pharmagen_DEBUG", level=log_level)
-    elif args.verbose:
-        print("⚙️  Verbose Mode Activated. Log Level: INFO")
-        setup_logging(name="Pharmagen", level=log_level)
-    else:
-        setup_logging(name="Pharmagen", level=log_level)
-    logger = logging.getLogger("Pharmagen")
+    # Configure logging once
+    setup_logging(name="Pharmagen", level=log_level)
     logger.setLevel(log_level)
 
     try:
@@ -312,5 +305,4 @@ def main(args: argparse.Namespace | None = None):
         sys.exit(1)
 
 if __name__ == "__main__":
-    setup_logging(name="Pharmagen")
     main()

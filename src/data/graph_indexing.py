@@ -90,7 +90,7 @@ class GraphIndexBuilder:
                 index_genes[dir_path.name] = {}
 
         # Index all variant files
-        for file_path in variant_lib.glob("**/*. pt"):
+        for file_path in variant_lib.glob("**/*.pt"):
             filename_clean = file_path.stem  # Name without extension
 
             try:
@@ -110,7 +110,7 @@ class GraphIndexBuilder:
                 continue
 
         # Log statistics
-        total_variants = sum(len(variants) for variants in index_genes. values())
+        total_variants = sum(len(variants) for variants in index_genes.values())
         logger.debug(
             f"Indexed {len(index_genes)} genes with {total_variants} variants from {variant_lib}"
         )

@@ -48,6 +48,7 @@ ignore = [
     "D212",   # Multi-line docstring summary start
     "PLC0415",
     "PLR0913",
+    "PLW2901",
 ]
 
 # Fix behavior

@@ -119,7 +119,7 @@ class PGenTuner:
 
         self.patience = self.cfg["params_optuna"].get("patience", 5)
 
-        self.reports_dir = DIRS.get("reports", Path("./reports")) / "optuna_reports"
+        self.reports_dir = DIRS.get("reports", Path("./reports")) / "optuna"
         self.figures_dir = DIRS.get("reports", Path("./reports")) / "figures"
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.figures_dir.mkdir(parents=True, exist_ok=True)
@@ -521,7 +521,7 @@ class PGenTuner:
         pruner = self._create_pruner()
 
         # Setup study storage
-        storage_url = self.reports_dir / "study_DBs" / f"{self.study_name}.db"
+        storage_url = self.reports_dir / "database" / f"{self.study_name}.db"
         storage_url.parent.mkdir(parents=True, exist_ok=True)
         db_path = f"sqlite:///{storage_url.resolve()}"
 
@@ -623,7 +623,7 @@ class PGenTuner:
         }
 
         # Save JSON report
-        json_path = self.reports_dir / f"report_{self.study_name}. json"
+        json_path = self.reports_dir / "reports" / f"optuna_{self.study_name.replace('OPT_', '')}.json"
         with open(json_path, "w") as f:
             json.dump(report, f, indent=2)
 

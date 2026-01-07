@@ -44,7 +44,7 @@ Desktop.ini
 data/*
 
 # Exceptions: explicit folders we DO want to track (structure)
-!data/dicts/
+!data/dicts/**
 !data/processed/.gitkeep
 !data/raw/.gitkeep
 !data/vcf/.gitkeep

@@ -147,8 +147,8 @@ class EnvStrategy(abc.ABC):
         self.root_path = root_path
         self.python_version = python_version
         self.dry_run = dry_run
-        # Assuming script is in venv_setup/, requirements should be there too
-        self.requirements_path = self.root_path / "venv_setup" / "requirements.txt"
+        # Assuming script is in setup/, requirements should be there too
+        self.requirements_path = self.root_path / "setup" / "requirements.txt"
 
     @abc.abstractmethod
     def create_env(self) -> bool:
@@ -213,7 +213,7 @@ class MambaStrategy(EnvStrategy):
         # Given the requirements.txt structure (hashes), pip is safer.
 
         if SystemUtils.get_os() == "Windows":
-            pip_executable = (
+            pip_executable = ( #noqa
                 self.root_path / "envs" / self.env_name / "Scripts" / "pip.exe"
             )  # approximate path for conda
             # Conda paths vary. Better to use 'mamba run -n env pip install ...'
@@ -325,7 +325,7 @@ class SetupOrchestrator:
     """Main application controller."""
 
     def __init__(self):
-        # Assuming script is in venv_setup_external/setup.py, project root is two levels up
+        # Assuming script is in setup_external/setup.py, project root is two levels up
         self.root_path = Path(__file__).resolve().parent.parent
         self.dir_manager = DirectoryManager(self.root_path)
         self.config_manager = ConfigManager(self.root_path)

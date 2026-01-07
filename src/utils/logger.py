@@ -16,26 +16,35 @@
 
 import logging
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 
 from src.config.manager import DIRS
 
 
-def setup_logging(name="Pharmagen", level: int | None = None):
+def setup_logging(name="Pharmagen", level=None, console_level=None):
+    logger_root = logging.getLogger()
+    if logger_root.handlers:
+        return logger_root  # ya configurado
 
     log_file = DIRS["logs"] / f"{name}_{datetime.now():%Y-%m-%d}.log"
 
-    logging.basicConfig(
-        filename=log_file,
-        filemode="a",
-        level=level if level is not None else logging.WARNING,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
+    logger_root.setLevel(logging.DEBUG)
 
-    console = logging.StreamHandler()
-    #console.setLevel(logging.INFO)
-    console.setFormatter(logging.Formatter("%(message)s"))
-    logging.getLogger("").addHandler(console)
+    fmt_file = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    fmt_console = logging.Formatter("%(message)s")
 
-    # Silence noise
+    file_handler = TimedRotatingFileHandler(log_file, when="midnight", backupCount=7, encoding="utf-8")
+    file_handler.setLevel(level or logging.WARNING)
+    file_handler.setFormatter(fmt_file)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(console_level or level or logging.WARNING)
+    stream_handler.setFormatter(fmt_console)
+
+    logger_root.addHandler(file_handler)
+    logger_root.addHandler(stream_handler)
+
     for lib in ["matplotlib", "optuna", "numba"]:
-        logging.getLogger(lib).setLevel(logging.WARNING)
+        logging.getLogger(lib).setLevel(logging.ERROR)
+
+    return logger_root

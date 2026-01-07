@@ -221,7 +221,7 @@ class PGenDataset(Dataset):
         return batch
 
 class DoubleTowerDataset(Dataset):
-    """Two-tower dataset for drug-haplotype graph pairs.
+    """Two-tower dataset for drug-genotype graph pairs.
 
     Handles:
     - Graph loading from disk or RAM cache
@@ -231,15 +231,15 @@ class DoubleTowerDataset(Dataset):
 
     Example:
         >>> dataset = DoubleTowerDataset(
-        ...    df, "drug_id", "haplo_key", ["outcome"], []
+        ...    df, "drug_id", "geno_key", ["outcome"], []
         ...)
-        >>> sample = dataset[0]  # {'drug_data': Data, 'haplo_data': Data, 'targets': {...}}
+        >>> sample = dataset[0]  # {'drug_data': Data, 'geno_data': Data, 'targets': {...}}
     """
     def __init__(
         self,
         df: pd.DataFrame,
         drug_col: str,
-        haplo_col: str,
+        geno_col: str,
         target_cols: list[str],
         multilabel_cols: list[str],
         encoders: dict | None = None,
@@ -255,7 +255,7 @@ class DoubleTowerDataset(Dataset):
         Args:
             df: DataFrame with samples.
             drug_col: Column name for drug IDs.
-            haplo_col: Column name for haplotype keys.
+            geno_col: Column name for genotype keys.
             target_cols: List of target column names.
             multilabel_cols: List of multi-label column names.
             encoders: Pre-fitted encoders (REQUIRED for val/test sets).
@@ -273,7 +273,7 @@ class DoubleTowerDataset(Dataset):
 
         self.df = df.reset_index(drop=True)
         self.drug_col = drug_col
-        self.haplo_col = haplo_col
+        self.geno_col = geno_col
         self.target_cols = target_cols
         self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
         self.input_dims = input_dimensions or {}
@@ -309,8 +309,8 @@ class DoubleTowerDataset(Dataset):
         # Optimization: In-Memory Cache
         self.preload_ram = preload_ram
         self.drug_cache = {}
-        self.haplo_cache = {}
-        self._cache_stats = {"drug_hits": 0, "drug_misses": 0, "haplo_hits": 0, "haplo_misses": 0}
+        self.geno_cache = {}
+        self._cache_stats = {"drug_hits": 0, "drug_misses": 0, "geno_hits": 0, "geno_misses": 0}
 
         if self.preload_ram:
             self._preload_data()
@@ -378,27 +378,27 @@ class DoubleTowerDataset(Dataset):
                 gc.collect()
 
         # Preload Variants
-        unique_haplos = self.df["haplo_key"].unique().astype(str)
-        logger.debug(f"Preloading {len(unique_haplos)} unique variants...")
+        unique_genos = self.df["geno_key"].unique().astype(str)
+        logger.debug(f"Preloading {len(unique_genos)} unique variants...")
 
-        for i, haplo_str in enumerate(unique_haplos):
+        for i, geno_str in enumerate(unique_genos):
             try:
-                gene, variant = haplo_str.split("_", 1)
+                gene, variant = geno_str.split("_", 1)
                 path = self.gene_variant_path.get(gene, {}).get(variant)
                 if path:
-                    self.haplo_cache[haplo_str] = torch.load(path, weights_only=False)
+                    self.geno_cache[geno_str] = torch.load(path, weights_only=False)
             except Exception as e:
-                logger.warning(f"Failed to load variant {haplo_str}: {e}")
+                logger.warning(f"Failed to load variant {geno_str}: {e}")
 
             # Periodic garbage collection
             if i > 0 and i % GC_INTERVAL == 0:
                 gc.collect()
 
         # Log memory estimate
-        total_graphs = len(self.drug_cache) + len(self.haplo_cache)
+        total_graphs = len(self.drug_cache) + len(self.geno_cache)
         estimated_mb = total_graphs * 0.1
         logger.info(
-            f"✅ Loaded {len(self.drug_cache)} drugs and {len(self.haplo_cache)} variants."
+            f"✅ Loaded {len(self.drug_cache)} drugs and {len(self.geno_cache)} variants."
             f"Estimated memory:  ~{estimated_mb:.1f}MB"
         )
 
@@ -456,7 +456,7 @@ class DoubleTowerDataset(Dataset):
         """Load graph from cache or disk.
 
         Args:
-            cache: Cache dictionary (drug_cache or haplo_cache).
+            cache: Cache dictionary (drug_cache or geno_cache).
             key: Graph identifier.
             path: Path to graph file.
             type_graph: Type of graph ("drug" or "geno").
@@ -528,7 +528,7 @@ class DoubleTowerDataset(Dataset):
             idx: Sample index.
 
         Returns:
-            Dictionary with 'drug_data', 'haplo_data', and 'targets'.
+            Dictionary with 'drug_data', 'geno_data', and 'targets'.
         """
         row = self.df.iloc[idx]
 
@@ -540,17 +540,17 @@ class DoubleTowerDataset(Dataset):
         )
 
         # Load Variant Graph
-        haplo_str = str(row["haplo_key"])
-        gene, variant = haplo_str.split("_", 1)
-        haplo_path = self.gene_variant_path.get(gene, {}).get(variant)
-        haplo_data = self._load_graph(
-            self.haplo_cache, haplo_str, haplo_path, type_graph="geno"
+        geno_str = str(row["geno_key"])
+        gene, variant = geno_str.split("_", 1)
+        geno_path = self.gene_variant_path.get(gene, {}).get(variant)
+        geno_data = self._load_graph(
+            self.geno_cache, geno_str, geno_path, type_graph="geno"
         )
 
         # Optional:  Validate graphs
         try:
             GraphValidator.validate_graph_data(drug_data, "drug")
-            GraphValidator.validate_graph_data(haplo_data, "geno")
+            GraphValidator.validate_graph_data(geno_data, "geno")
         except ValueError as e:
             logger.error(f"Graph validation failed at idx {idx}: {e}")
         # Targets
@@ -558,7 +558,7 @@ class DoubleTowerDataset(Dataset):
 
         return {
             "drug_data": drug_data,
-            "haplo_data": haplo_data,
+            "geno_data": geno_data,
             "targets": target_dict,
         }
 
@@ -569,11 +569,11 @@ class DoubleTowerDataset(Dataset):
             Dictionary with cache statistics.
         """
         total_drug = self._cache_stats["drug_hits"] + self._cache_stats["drug_misses"]
-        total_haplo = self._cache_stats["haplo_hits"] + self._cache_stats["haplo_misses"]
+        total_geno = self._cache_stats["geno_hits"] + self._cache_stats["geno_misses"]
 
         return {
             "drug_hit_rate": self._cache_stats["drug_hits"] / total_drug if total_drug > 0 else 0.0,
-            "haplo_hit_rate": self._cache_stats["haplo_hits"] / total_haplo if total_haplo > 0 else 0.0,
+            "geno_hit_rate": self._cache_stats["geno_hits"] / total_geno if total_geno > 0 else 0.0,
             **self._cache_stats,
         }
 

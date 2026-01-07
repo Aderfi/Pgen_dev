@@ -104,10 +104,10 @@ class PharmagenTwoTower(nn.Module):
         drug_in_features: int,
         drug_edge_dim: int,
         drug_hidden_dim: int,
-        # Configuración Torre Haplotipo
-        haplo_in_features: int,
-        haplo_edge_dim: int,
-        haplo_hidden_dim: int,
+        # Configuración Torre genotipo
+        geno_in_features: int,
+        geno_edge_dim: int,
+        geno_hidden_dim: int,
         # Configuración Global
         embedding_dim: int,
         target_dims: dict[str, int],
@@ -133,15 +133,15 @@ class PharmagenTwoTower(nn.Module):
             pooling="mean",  # Promedio para representar la molécula entera
         )
 
-        # --- Torre 2: Haplotipo / Genoma ---
+        # --- Torre 2: genotipo / Genoma ---
         # REQUERIMIENTO: Utilizar GATv2 para los grafos del genoma.
-        self.haplo_tower: GATv2Tower = GATv2Tower(
-            in_channels=haplo_in_features,
-            hidden_channels=haplo_hidden_dim,
+        self.geno_tower: GATv2Tower = GATv2Tower(
+            in_channels=geno_in_features,
+            hidden_channels=geno_hidden_dim,
             out_channels=embedding_dim,
             num_layers=num_layers,
             heads=heads,
-            edge_dim=haplo_edge_dim,
+            edge_dim=geno_edge_dim,
             dropout=dropout,
             pooling="add",  # 'add' suele ser mejor para sumar efectos de variantes genéticas
         )
@@ -177,13 +177,13 @@ class PharmagenTwoTower(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, drug_data: Data, haplo_data: Data) -> dict[str, Tensor]:
+    def forward(self, drug_data: Data, geno_data: Data) -> dict[str, Tensor]:
         """
         Forward pass dinámico.
 
         Args:
             drug_data: Batch de grafos moleculares (PyG Batch).
-            haplo_data: Batch de grafos de haplotipos (PyG Batch).
+            geno_data: Batch de grafos de genotipos (PyG Batch).
         """
 
         # Validaciones básicas
@@ -201,22 +201,22 @@ class PharmagenTwoTower(nn.Module):
             batch=drug_data.batch,
         )
 
-        #if not (hasattr(haplo_data, "x") and hasattr(haplo_data, "edge_index")):
+        #if not (hasattr(geno_data, "x") and hasattr(geno_data, "edge_index")):
         #    raise ValueError(
-        #        "El objeto haplo_data no tiene la estructura de grafo necesaria (x, edge_index)"
+        #        "El objeto geno_data no tiene la estructura de grafo necesaria (x, edge_index)"
         #    )
 
-        # 2. Forward Torre Haplotipo (GATv2)
-        haplo_emb = self.haplo_tower(
-            x=haplo_data.x,
-            edge_index=haplo_data.edge_index,
-            edge_attr=getattr(haplo_data, "edge_attr", None),
-            batch=haplo_data.batch,
+        # 2. Forward Torre genotipo (GATv2)
+        geno_emb = self.geno_tower(
+            x=geno_data.x,
+            edge_index=geno_data.edge_index,
+            edge_attr=getattr(geno_data, "edge_attr", None),
+            batch=geno_data.batch,
         )
 
         # 3. Interacción (Concatenación)
         # Aquí se unen el espacio químico y el espacio biológico
-        combined = cat([drug_emb, haplo_emb], dim=1)
+        combined = cat([drug_emb, geno_emb], dim=1)
 
         # 4. Procesamiento conjunto
         interacted = self.interaction_mlp(combined)

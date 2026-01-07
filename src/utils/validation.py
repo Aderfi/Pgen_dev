@@ -343,7 +343,7 @@ class GraphValidator:
 
         Args:
             data: torch_geometric.data.Data object
-            data_type: Type of graph ("drug" or "haplo")
+            data_type: Type of graph ("drug" or "geno")
 
         Returns:
             True if valid

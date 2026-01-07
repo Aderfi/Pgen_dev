@@ -167,7 +167,7 @@ class PGenTrainer:
         Expects batch from DoubleTowerCollater:
         {
             'drug_batch': PyG Batch object,
-            'haplo_batch': PyG Batch object,
+            'geno_batch': PyG Batch object,
             'targets': {'target_name':  Tensor, ...}
         }
 
@@ -179,7 +179,7 @@ class PGenTrainer:
         """
         # 1. Move graph data to device
         drug_data = batch["drug_batch"].to(self.device)
-        haplo_data = batch["haplo_batch"].to(self.device)
+        geno_data = batch["geno_batch"].to(self.device)
 
         # 2. Move targets to device
         targets = {
@@ -189,7 +189,7 @@ class PGenTrainer:
         }
 
         # 3. Forward pass
-        outputs = self.model(drug_data, haplo_data)
+        outputs = self.model(drug_data, geno_data)
 
         # 4. Compute loss and metrics
         return self._calculate_loss_and_metrics(outputs, targets)

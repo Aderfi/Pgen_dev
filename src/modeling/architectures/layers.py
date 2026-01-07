@@ -1,7 +1,7 @@
 # Pharmagen - Modeling
 # Architecture: Two-Tower Graph Neural Network (GNN)
 # Tower A: Drug (Molecular Graph)
-# Tower B: Haplotype/Genome (Interaction Graph using GATv2)
+# Tower B: genotype/Genome (Interaction Graph using GATv2)
 
 import logging
 from typing import Any
@@ -21,7 +21,7 @@ MODEL_ARCHITECTURES = {
 def create_model(
     model_name: str,  # 'TwoTowerGAT'
     drug_config: dict[str, int],  # {num_features, edge_dim}
-    haplo_config: dict[str, int],  # {num_features, edge_dim}
+    geno_config: dict[str, int],  # {num_features, edge_dim}
     target_dims: dict[str, int],
     params: dict[str, Any],
 ) -> nn.Module:
@@ -45,9 +45,9 @@ def create_model(
         drug_in_features=drug_config["num_features"],
         drug_edge_dim=drug_config.get("edge_dim", 0),
         drug_hidden_dim=hidden_dim,
-        haplo_in_features=haplo_config["num_features"],
-        haplo_edge_dim=haplo_config.get("edge_dim", 0),
-        haplo_hidden_dim=hidden_dim,
+        geno_in_features=geno_config["num_features"],
+        geno_edge_dim=geno_config.get("edge_dim", 0),
+        geno_hidden_dim=hidden_dim,
         embedding_dim=embedding_dim,
         target_dims=target_dims,
         num_layers=layers,
@@ -59,7 +59,7 @@ def create_model(
 def create_gnn_model(
     model_name: str,  # 'TwoTowerGAT'
     drug_config: dict[str, int],  # {num_features, edge_dim}
-    haplo_config: dict[str, int],  # {num_features, edge_dim}
+    geno_config: dict[str, int],  # {num_features, edge_dim}
     target_dims: dict[str, int],
     params: dict[str, Any],
 ) -> nn.Module:
@@ -83,9 +83,9 @@ def create_gnn_model(
         drug_in_features=drug_config["num_features"],
         drug_edge_dim=drug_config.get("edge_dim", 0),
         drug_hidden_dim=hidden_dim,
-        haplo_in_features=haplo_config["num_features"],
-        haplo_edge_dim=haplo_config.get("edge_dim", 0),
-        haplo_hidden_dim=hidden_dim,
+        geno_in_features=geno_config["num_features"],
+        geno_edge_dim=geno_config.get("edge_dim", 0),
+        geno_hidden_dim=hidden_dim,
         embedding_dim=embedding_dim,
         target_dims=target_dims,
         num_layers=layers,

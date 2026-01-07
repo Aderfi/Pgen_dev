@@ -1,4 +1,4 @@
-"""Custom collator for batching drug-haplotype graph pairs.
+"""Custom collator for batching drug-genotype graph pairs.
 
 Handles metadata cleaning and efficient batching for PyG Data objects.
 """
@@ -100,24 +100,24 @@ class DoubleTowerCollater:
 
         # 1. Separate components
         drug_graphs = [sample["drug_data"] for sample in batch_list]
-        haplo_graphs = [sample["haplo_data"] for sample in batch_list]
+        geno_graphs = [sample["geno_data"] for sample in batch_list]
 
         # 2. Extract IDs if needed
         drug_ids = None
-        haplo_ids = None
+        geno_ids = None
 
         if self.inference_mode:
             drug_ids = self._extract_ids(drug_graphs)
-            haplo_ids = self._extract_ids(haplo_graphs)
+            geno_ids = self._extract_ids(geno_graphs)
 
         # 3. Clean metadata
         self._sanitize_graphs(drug_graphs)
-        self._sanitize_graphs(haplo_graphs)
+        self._sanitize_graphs(geno_graphs)
 
         # 4. Batch graphs
         try:
             batch_drug = Batch.from_data_list(drug_graphs)
-            batch_haplo = Batch.from_data_list(haplo_graphs)
+            batch_geno = Batch.from_data_list(geno_graphs)
         except Exception as e:
             logger.error(f"Failed to batch graphs: {e}")
             raise ValueError(f"Graph batching failed: {e}") from e
@@ -125,7 +125,7 @@ class DoubleTowerCollater:
         # 5. Re-attach metadata if in inference mode
         if self.inference_mode:
             batch_drug.meta_ids = drug_ids # type: ignore[attr-defined]
-            batch_haplo.meta_ids = haplo_ids # type: ignore[attr-defined]
+            batch_geno.meta_ids = geno_ids # type: ignore[attr-defined]
 
         # 6. Stack targets
         first_target_keys = batch_list[0]["targets"].keys()
@@ -136,6 +136,6 @@ class DoubleTowerCollater:
 
         return {
             "drug_batch": batch_drug,
-            "haplo_batch": batch_haplo,
+            "geno_batch": batch_geno,
             "targets": batched_targets,
         }

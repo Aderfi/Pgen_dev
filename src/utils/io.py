@@ -189,7 +189,7 @@ class DataLoaderUtils:
         work_df = work_df[work_df["genotype"].str.strip() != ""]
 
         # 4. CONSTRUCCIÓN DE LA LLAVE
-        work_df["haplo_key"] = (
+        work_df["geno_key"] = (
             work_df["gene"].astype(str) + "_" + work_df["genotype"].astype(str)
         )
 

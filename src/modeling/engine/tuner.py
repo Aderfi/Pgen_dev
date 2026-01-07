@@ -315,7 +315,7 @@ class PGenTuner:
             train_dataset = DoubleTowerDataset(
                 df=self.train_df,
                 drug_col=self.cfg["features"][0],
-                haplo_col="haplo_key",
+                geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
                 preload_ram=False,  # CRITICAL: Always False during Optuna
@@ -324,7 +324,7 @@ class PGenTuner:
             val_dataset = DoubleTowerDataset(
                 df=self.val_df,
                 drug_col=self.cfg["features"][0],
-                haplo_col="haplo_key",
+                geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
                 encoders=train_dataset.encoders,  # CRITICAL: Share encoders
@@ -335,7 +335,7 @@ class PGenTuner:
             try:
                 sample = train_dataset[0]
                 drug_dim = sample["drug_data"].x.shape[1]
-                haplo_dim = sample["haplo_data"].x.shape[1]
+                geno_dim = sample["geno_data"].x.shape[1]
             except Exception as e:
                 logger.error(f"❌ Trial {trial.number}:  Dimension inference failed: {e}")
                 raise DataError(f"Failed to infer dimensions from dataset:  {e}") from e
@@ -378,9 +378,9 @@ class PGenTuner:
                     "num_features": drug_dim,
                     "edge_dim": self.cfg.get("drug_edge_dim", 0),
                 },
-                haplo_config={
-                    "num_features": haplo_dim,
-                    "edge_dim": self.cfg.get("haplo_edge_dim", 0),
+                geno_config={
+                    "num_features": geno_dim,
+                    "edge_dim": self.cfg.get("geno_edge_dim", 0),
                 },
                 target_dims=target_dims,
                 params=params,

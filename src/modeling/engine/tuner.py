@@ -130,7 +130,7 @@ class PGenTuner:
             self.full_df = DataLoaderUtils.load_dataframe(
                 self.csv_path,
                 cols=self.cfg["cols"],
-                stratify_col=self.cfg. get("stratify_col", None),
+                stratify_col=self.cfg.get("stratify_col", None),
             )
         except Exception as e:
             raise DataError(f"Failed to load data from {self.csv_path}: {e}") from e

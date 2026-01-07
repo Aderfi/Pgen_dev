@@ -544,13 +544,13 @@ class DoubleTowerDataset(Dataset):
         gene, variant = haplo_str.split("_", 1)
         haplo_path = self.gene_variant_path.get(gene, {}).get(variant)
         haplo_data = self._load_graph(
-            self.haplo_cache, haplo_str, haplo_path, type_graph="haplo"
+            self.haplo_cache, haplo_str, haplo_path, type_graph="geno"
         )
 
         # Optional:  Validate graphs
         try:
             GraphValidator.validate_graph_data(drug_data, "drug")
-            GraphValidator.validate_graph_data(haplo_data, "haplo")
+            GraphValidator.validate_graph_data(haplo_data, "geno")
         except ValueError as e:
             logger.error(f"Graph validation failed at idx {idx}: {e}")
         # Targets

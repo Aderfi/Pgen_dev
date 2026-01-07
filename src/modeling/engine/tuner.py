@@ -318,7 +318,7 @@ class PGenTuner:
                 geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
-                preload_ram=True,  # CRITICAL: Always False during Optuna
+                preload_ram=False,  # CRITICAL: Always False during Optuna
             )
 
             val_dataset = DoubleTowerDataset(
@@ -328,7 +328,7 @@ class PGenTuner:
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
                 encoders=train_dataset.encoders,  # CRITICAL: Share encoders
-                preload_ram=True,
+                preload_ram=False,
             )
 
             # 4. Dimension inference

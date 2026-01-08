@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from src.config.manager import get_model_config
 
 
@@ -44,7 +45,7 @@ def test_get_model_config_success(mock_tomli_load, mock_open_file, mock_path_exi
     config = get_model_config("test_model")
 
     assert config["batch_size"] == 32
-    assert config["learning_rate"] == 0.01  # Should be overridden
+    assert config["learning_rate"] == 0.01
     assert config["features"] == ["f1"]
     assert config["targets"] == ["t1"]
     assert "multi_label_cols" in config  # merged from project

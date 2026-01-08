@@ -187,7 +187,7 @@ def _run_headless_training(args: argparse.Namespace):
                 csv_path=str(args.input),
                 epochs=args.epochs
             )
-        
+
         ConsoleIO.print_success("Training completed successfully!")
 
     # Optuna Optimization
@@ -207,13 +207,14 @@ def _run_headless_training(args: argparse.Namespace):
             n_trials=args.optuna_trials,
             epochs=args.optuna_epochs
         )
-        
+
         ConsoleIO.print_success("Optuna optimization completed!")
 
 
 def _run_headless_prediction(args: argparse.Namespace):
     """Execute prediction in headless mode."""
-    import pandas as pd
+    import polars as pl
+
     from src.modeling.engine.predictor import PGenPredictor
 
     # Validate input file exists
@@ -230,7 +231,7 @@ def _run_headless_prediction(args: argparse.Namespace):
         # Load model
         with Spinner("Loading model...", style="braille"):
             predictor = PGenPredictor(args.model)
-        
+
         ConsoleIO.print_success("Model loaded successfully")
 
         # Run predictions
@@ -244,10 +245,10 @@ def _run_headless_prediction(args: argparse.Namespace):
         # Save results
         out_name = f"{args.input.stem}_predictions_{DATE_STAMP}. csv"
         out_path = args.input.parent / out_name
-        
-        results_df = pd.DataFrame(data=results)
-        results_df.to_csv(out_path, index=False)
-        
+
+        results_df: pl.DataFrame = pl.DataFrame(data=results)
+        results_df.write_csv(out_path)
+
         ConsoleIO.print_success(f"Predictions saved to: {out_path}")
         ConsoleIO.print_info(f"Total predictions: {len(results)}")
 

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class MemoryMonitor:
     """Monitor and manage memory usage for CPU and GPU.
-    
+
     Provides utilities to track memory usage, clear caches,
     and prevent OOM errors during training.
     """
@@ -39,7 +39,7 @@ class MemoryMonitor:
     @staticmethod
     def get_cpu_memory_mb() -> float:
         """Get current CPU memory usage in MB.
-        
+
         Returns:
             Current process memory usage in megabytes.
         """
@@ -54,19 +54,19 @@ class MemoryMonitor:
     @staticmethod
     def get_gpu_memory_mb(device: Optional[torch.device] = None) -> tuple[float, float]:
         """Get GPU memory usage in MB.
-        
+
         Args:
             device: Target device (defaults to cuda:0 if available).
-            
+
         Returns:
             Tuple of (allocated_mb, reserved_mb).
         """
         if not torch.cuda.is_available():
             return 0.0, 0.0
-            
+
         if device is None:
             device = torch.device("cuda:0")
-            
+
         allocated = torch.cuda.memory_allocated(device) / 1024 / 1024
         reserved = torch.cuda.memory_reserved(device) / 1024 / 1024
         return allocated, reserved
@@ -74,7 +74,7 @@ class MemoryMonitor:
     @staticmethod
     def clear_memory(device: Optional[torch.device] = None, aggressive: bool = False):
         """Clear cached memory and run garbage collection.
-        
+
         Args:
             device: Target device for CUDA cache clearing.
             aggressive: If True, runs multiple GC passes and empties CUDA cache.
@@ -86,7 +86,7 @@ class MemoryMonitor:
                 gc.collect()
         else:
             gc.collect()
-        
+
         # GPU cleanup
         if torch.cuda.is_available():
             if device is None:
@@ -94,24 +94,24 @@ class MemoryMonitor:
             else:
                 with torch.cuda.device(device):
                     torch.cuda.empty_cache()
-                    
+
         logger.debug("Memory cleared (aggressive=%s)", aggressive)
 
     @staticmethod
     def log_memory_stats(prefix: str = "", device: Optional[torch.device] = None):
         """Log current memory statistics.
-        
+
         Args:
             prefix: Prefix for log message.
             device: Target device for GPU stats.
         """
         cpu_mem = MemoryMonitor.get_cpu_memory_mb()
         msg = f"{prefix}CPU: {cpu_mem:.1f}MB"
-        
+
         if torch.cuda.is_available():
             gpu_alloc, gpu_reserved = MemoryMonitor.get_gpu_memory_mb(device)
             msg += f" | GPU Allocated: {gpu_alloc:.1f}MB, Reserved: {gpu_reserved:.1f}MB"
-            
+
         logger.info(msg)
 
     @staticmethod
@@ -121,26 +121,26 @@ class MemoryMonitor:
         raise_error: bool = False
     ) -> bool:
         """Check if sufficient memory is available.
-        
+
         Args:
             required_mb: Required memory in megabytes.
             device: Target device to check.
             raise_error: If True, raises RuntimeError when insufficient memory.
-            
+
         Returns:
             True if sufficient memory available, False otherwise.
-            
+
         Raises:
             RuntimeError: If raise_error=True and insufficient memory.
         """
         if device is not None and device.type == "cuda":
             if not torch.cuda.is_available():
                 return True  # Skip check if CUDA not available
-                
+
             total_mem = torch.cuda.get_device_properties(device).total_memory / 1024 / 1024
             allocated, reserved = MemoryMonitor.get_gpu_memory_mb(device)
             available = total_mem - reserved
-            
+
             if available < required_mb:
                 msg = (
                     f"Insufficient GPU memory: {available:.1f}MB available, "
@@ -166,7 +166,7 @@ class MemoryMonitor:
                     return False
             except ImportError:
                 logger.warning("psutil not available, skipping CPU memory check")
-                
+
         return True
 
 
@@ -177,13 +177,13 @@ def estimate_model_memory_mb(
     gradient_factor: float = 1.0
 ) -> float:
     """Estimate memory required for a model.
-    
+
     Args:
         num_parameters: Number of model parameters.
         dtype: Data type of parameters.
         optimizer_factor: Memory multiplier for optimizer state (2.0 for Adam).
         gradient_factor: Memory multiplier for gradients (1.0 typically).
-        
+
     Returns:
         Estimated memory in megabytes.
     """
@@ -214,10 +214,10 @@ def estimate_batch_memory_mb(
     # Using float32 (4 bytes)
     total_nodes = batch_size * avg_nodes_per_graph * num_graphs
     node_memory = total_nodes * node_features * 4
-    
+
     # Edge index (2 x num_edges, long = 8 bytes)
     # Assume avg 3 edges per node
     edge_memory = total_nodes * 3 * 2 * 8
-    
+
     total_bytes = node_memory + edge_memory
     return total_bytes / 1024 / 1024

@@ -2,8 +2,6 @@
 # Collection of custom loss functions for PGenModel.
 # Includes specific logic for Multi-Label (Asymmetric) and Imbalanced (Focal/Poly) tasks.
 
-from typing import Dict, List
-
 import torch
 import torch.nn.functional as F
 from torch import nn

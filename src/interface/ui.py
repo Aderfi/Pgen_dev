@@ -324,7 +324,7 @@ class ConsoleIO:
             if min_val is not None and value < min_val:
                 ConsoleIO.print_error(f"Value must be >= {min_val}")
                 continue
-            if max_val is not None and value > max_val: 
+            if max_val is not None and value > max_val:
                 ConsoleIO.print_error(f"Value must be <= {max_val}")
                 continue
 
@@ -368,7 +368,7 @@ class ConsoleIO:
         case_sensitive: bool = False
     ) -> str:
         """
-        Prompt for a choice from a list.
+        Prompt for a choice from a list. (Enumerated input)
 
         Args:
             prompt: Message to display
@@ -382,22 +382,18 @@ class ConsoleIO:
         while True:
             choices_str = "/".join(choices)
             default_str = f" [{default}]" if default else ""
-            value = input(f"{prompt} ({choices_str}){default_str}: ").strip()
 
-            if not value and default:
-                return default
+            for i, choice in enumerate(choices):
+                print(f"{i+1}.  {choice}")
 
-            # Match choice
-            if case_sensitive:
-                if value in choices:
-                    return value
+            value = input(f"Input the number of your choice. {default_str}: ").strip()
+            index = int(value) - 1
+            if 0 <= index < len(choices):
+                with Spinner(f"Loading: {choices[index]}", style="braille").__enter__():
+                    time.sleep(1)  # Simulate loading
+                return choices[index]
             else:
-                value_lower = value.lower()
-                for choice in choices:
-                    if choice.lower() == value_lower:
-                        return choice
-
-            ConsoleIO. print_error(f"Invalid choice.  Options: {choices_str}")
+                ConsoleIO.print_error(f"Invalid choice.  Options: {choices_str}")
 
     @staticmethod
     def confirm(prompt: str, default: bool = False) -> bool:
@@ -418,11 +414,11 @@ class ConsoleIO:
             if not answer:
                 return default
 
-            if answer in ('y', 'yes', 'si', 'sí'):
+            if answer in ('y', 'yes', 'si', 'sí', 's', '+'):
                 return True
-            elif answer in ('n', 'no'):
+            elif answer in ('n', 'no', '-'):
                 return False
-            else: 
+            else:
                 ConsoleIO.print_error("Please answer 'y' or 'n'.")
 
     @staticmethod

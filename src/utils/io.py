@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from src.config.manager import DIRS, METADATA, MULTI_LABEL_COLS, VERSION
 
@@ -116,6 +116,29 @@ def print_conditions_details():
 ##############################################################################
 # DATA LOADING UTILITIES
 ##############################################################################
+TRAIN_DATA_SCHEMA = {
+    "drugs_cid": pl.String,              # Contiene pipes "5460033|2907" -> No es Int
+    "drugs": pl.String,
+    "genotype": pl.String,               # Contiene pipes y letras
+    "gene": pl.String,
+    "alleles": pl.String,
+    "phenotype_category": pl.Categorical, # Cardinalidad baja: Toxicity, Efficacy, Metabolism/PK
+    "direction_of_effect": pl.Categorical,# Cardinalidad baja: increased, decreased, __UNDETERMINED__
+    "effect_function": pl.Categorical,    # risk, severity, metabolism...
+    "effect_type": pl.Categorical,        # side effect, disease...
+    "phenotype_product": pl.String,       # Alta variabilidad
+    "metabolizer_types": pl.String,
+    "population_types": pl.Categorical,   # people, women, men...
+    "population_phenotypes_or_diseases": pl.String,
+    "comparison_allele(s)_or_genotype(s)": pl.String,
+    "comparison_metabolizer_types": pl.String,
+    "significance": pl.Categorical,       # yes, not stated
+    "is/is_not_associated": pl.Categorical, # Associated with, Not associated with
+    "variant_annotation_id": pl.Int64,    # Enteros grandes
+    "pmid": pl.Int64,                     # PubMed IDs
+    "sentence": pl.String,                # Texto largo
+    "notes": pl.String                    # Texto largo
+}
 
 STAR_ALLELE_MAP = {
             # --- CYP2D6 (Metabolizador de antidepresivos, opioides, tamoxifeno) ---
@@ -192,58 +215,70 @@ class DataLoaderUtils:
         csv_path: str | Path,
         cols: list,
         stratify_col: list[str] | str | None = None,
-    ) -> pd.DataFrame:
-        """Carga el DataFrame desde CSV."""
-        if str(csv_path).endswith(".csv"):
-            df = pd.read_csv(csv_path)
-        else:
-            df = pd.read_csv(
-                csv_path,
-                sep="\t",
+    ) -> pl.DataFrame:
+        """Carga el DataFrame desde CSV o TSV"""
+
+        path_str = str(csv_path)
+        separator = "\t" if not path_str.endswith(".csv") else ","
+        try:
+            df = pl.read_csv(
+                path_str,
+                separator=separator,
+                has_header=True,
+                columns=cols,
+                schema=TRAIN_DATA_SCHEMA,
+                null_values=["", "NA", "NaN", "null", "NA", "N/A"], # Unificación de nulos
+                encoding='utf-8',
             )
+        except Exception as e:
+            logger.error(f"Error reading CSV {path_str}: {e}")
+            raise
+
         return DataLoaderUtils.clean_and_prepare_data(df, stratify_col=stratify_col)
 
     @staticmethod
-    def normalize_multilabel_col(series: pd.Series, delimiter: str = "|") -> pd.Series:
+    def normalize_multilabel_col(col_name: str, delimiter: str = "|") -> pl.Expr:
         """
-        Patrón: String Normalization.
-        Asegura que las etiquetas multi-label sean consistentes, únicas y ordenadas.
+        Patrón: Expression Builder.
+        Devuelve una EXPRESIÓN de Polars, no modifica in-place.
+        Esto permite usarla dentro de un `with_columns` paralelizado.
+
+        Lógica: Split -> Strip -> Unique -> Sort -> Join
         """
-
-        def _clean_string(x):
-            if pd.isna(x) or str(x).strip() == "" or str(x).lower() == "unknown":
-                return ""
-            # 1. Split por el delimitador principal
-            parts = str(x).split(delimiter)
-            # 2. Limpieza de espacios, eliminación de duplicados y orden alfabético
-            cleaned_parts = sorted(list({p.strip() for p in parts if p.strip()}))
-            # 3. Re-unión con delimitador estándar
-            return delimiter.join(cleaned_parts)
-
-        return series.apply(_clean_string)
+        return (
+            pl.col(col_name)
+            .cast(pl.String)
+            .fill_null("")
+            .str.split(delimiter) # Convierte a List[String]
+            .list.eval(pl.element().str.strip_chars()) # Strip a cada elemento
+            # Filtramos strings vacíos dentro de la lista
+            .list.eval(pl.element().filter(pl.element() != ""))
+            .list.unique() # Elimina duplicados
+            .list.sort()   # Orden alfabético determinista
+            .list.join(delimiter) # Vuelve a unir en string
+        )
 
     @staticmethod
-    def add_stratify_column(df: pd.DataFrame, stratify_cols: list[str]) -> pd.DataFrame:
+    def add_stratify_column(df: pl.DataFrame, stratify_cols: list[str]) -> pl.DataFrame:
         """
         Agrega una columna '_stratify' al DataFrame para uso en train_test_split.
         Combina múltiples columnas en una sola etiqueta estratificada.
         """
         if not stratify_cols:
             return df
+        valid_cols = [c for c in stratify_cols if c in df.columns]
+        if not valid_cols:
+            return df
 
-        def _combine_stratify(row):
-            return "_".join(str(row[col]) for col in stratify_cols if col in row)
-
-        if len(stratify_cols) == 1 and stratify_cols[0] in df.columns:
-            df["_stratify"] = df[stratify_cols[0]].astype(str)
-        else:
-            df["_stratify"] = df.apply(_combine_stratify, axis=1)
-        return df
+        return df.with_columns(
+            _stratify=pl.concat_str(valid_cols, separator="_", ignore_nulls=True)
+            .alias("_stratify")
+        )
 
     @staticmethod
-    def clean_and_prepare_data( # noqa
-        df: pd.DataFrame, stratify_col: list[str] | str | None = None
-    ) -> pd.DataFrame:
+    def clean_and_prepare_data(
+        df: pl.DataFrame, stratify_col: list[str] | str | None = None
+    ) -> pl.DataFrame:
         """
         Limpia y prepara el DataFrame para entrenamiento.
 
@@ -261,108 +296,110 @@ class DataLoaderUtils:
         Returns:
             DataFrame limpio con columna 'geno_key' añadida
         """
-        work_df = df.copy()  # noqa
+        count_pre = len(df)
 
-        # 1-2. Limpieza inicial (igual que antes)
-        count_pre = len(work_df)
-        work_df = work_df.dropna(subset=["gene", "genotype"])
-
-        mask_valid = (
-            (work_df["gene"].str.strip() != "") &
-            (work_df["genotype"].str.strip() != "")
+        # Definimos expresiones de limpieza de strings
+        clean_gene = pl.col("gene").cast(pl.String).str.strip_chars()
+        clean_genotype = (
+            pl.col("genotype")
+            .cast(pl.String)
+            .str.strip_chars()
+            .str.replace(r"^REF_SEQ\|", "") # Regex replacement
         )
-        work_df = work_df[mask_valid].copy()
+
+        # Filtramos nulos y strings vacíos APLICANDO EXPRESIONES.
+        work_df = df.filter(
+            pl.col("gene").is_not_null() &
+            pl.col("genotype").is_not_null() &
+            (clean_gene != "") &
+            (clean_genotype != "")
+        ).with_columns([
+            clean_gene.alias("gene"),
+            clean_genotype.alias("genotype"),
+            # Manejo seguro de columna 'alleles' si no existe
+            pl.col("alleles").fill_null("").str.strip_chars()
+            if "alleles" in df.columns else pl.lit("").alias("alleles")
+        ])
 
         logger.info(f"Eliminadas {count_pre - len(work_df)} filas inválidas.")
         count_before = len(work_df)
 
-        # 3. CONSTRUCCIÓN DE GENO_KEY - Enfoque híbrido optimizado
+        # CONSTRUCCIÓN DE GENO_KEY
+        def generate_keys(struct: dict) -> list[str]:
+            gene = struct["gene"]
+            genotype = struct["genotype"]
+            alleles = struct["alleles"]
 
-        # Pre-procesar columnas
-        genes = work_df["gene"].astype(str).str.strip()
-        genotypes = (
-            work_df["genotype"].astype(str)
-            .str.strip()
-            .str.replace(r"^REF_SEQ\|", "", regex=True)
+            keys = set()
+
+            # Prioridad 1: Star alleles en columna 'alleles'
+            if alleles and "*" in alleles:
+                for part in alleles.split("/"):
+                    part = part.strip()
+                    if "*" in part:
+                        keys.add(f"{gene}_{part}")
+
+            # Prioridad 2: rsIDs en 'genotype' -> Mapeo -> Star Alleles
+            parts = [p.strip() for p in genotype.split("|") if p.strip()]
+
+            for rsid in parts:
+                if rsid in RSID_TO_STAR_ALLELES:
+                    for star in RSID_TO_STAR_ALLELES[rsid]:
+                        if "*" in star:
+                            suffix = "*" + star.split("*")[-1]
+                            keys.add(f"{gene}_{suffix}")
+                        else:
+                            keys.add(f"{gene}_{star}")
+
+                elif not keys:
+                    # Fallback RSID
+                    keys.add(f"{gene}_{rsid}")
+
+            # Prioridad 3: Fallback Final
+            if not keys and parts:
+                 keys.add(f"{gene}_{parts[0]}")
+
+            return list(keys)
+
+        work_df = work_df.with_columns(
+                geno_key = pl.struct(["gene", "genotype", "alleles"])
+                    .map_elements(generate_keys, return_dtype=pl.List(pl.String))
+                    .alias("geno_key")
         )
 
-        has_alleles_col = "alleles" in work_df.columns
-        if has_alleles_col:
-            alleles = work_df["alleles"].fillna("").astype(str).str.strip()
-        else:
-            alleles = pd.Series("", index=work_df.index)
+        work_df = (work_df.explode("geno_key").unique())
 
-        # Construir lista de geno_keys para cada fila
-        results = []
-
-        for idx, (gene, genotype, allele_str) in enumerate(zip(genes, genotypes, alleles)):
-            row_data = work_df.iloc[idx]. to_dict()
-            geno_keys = set()
-
-            # Prioridad 1: Star alleles directos
-            if "*" in allele_str:
-                for allele in allele_str.split("/"):
-                    allele = allele.strip()
-                    if "*" in allele:
-                        geno_keys.add(f"{gene}_{allele}")
-
-            # Prioridad 2: rsID -> star allele
-            for rsid in genotype.split("|"):
-                rsid = rsid.strip()
-                if rsid in RSID_TO_STAR_ALLELES:
-                    for star_allele in RSID_TO_STAR_ALLELES[rsid]:
-                        if "*" in star_allele:
-                            star_suffix = "*" + star_allele.split("*")[-1]
-                            geno_keys.add(f"{gene}_{star_suffix}")
-                        else:
-                            geno_keys.add(f"{gene}_{star_allele}")
-                elif not geno_keys:
-                    # Fallback solo si no hay matches
-                    geno_keys.add(f"{gene}_{rsid}")
-
-            # Si aún vacío, usar primer rsID
-            if not geno_keys:
-                geno_keys.add(f"{gene}_{genotype.split('|')[0]}")
-
-            # Crear una fila por cada geno_key
-            for gk in geno_keys:
-                row_copy = row_data.copy()
-                row_copy["geno_key"] = gk
-                results.append(row_copy)
-
-        # Reconstruir DataFrame
-        work_df = pd.DataFrame(results)
-        work_df = work_df.drop_duplicates()
-
-        logger.info(
-            f"Expansión:  {count_before} -> {len(work_df)} filas "
+        logger.debug(
+            f"Expansión: {count_before} -> {len(work_df)} filas "
             f"({len(work_df) - count_before:+d})"
         )
 
-        # 4-5. Normalización y estratificación (igual que antes)
+        expressions = []
         for col in MULTI_LABEL_COLS:
             if col in work_df.columns:
-                work_df[col] = DataLoaderUtils.normalize_multilabel_col(work_df[col])
+                expressions.append(
+                    DataLoaderUtils.normalize_multilabel_col(col).alias(col)
+                )
 
+        if expressions:
+            work_df = work_df.with_columns(expressions)
+
+        # 5. Estratificación
+        # ---------------------------------------------
         if stratify_col:
-            work_df = DataLoaderUtils. add_stratify_column(
-                work_df,
-                stratify_cols=[stratify_col] if isinstance(stratify_col, str) else stratify_col,
-            )
+            cols_to_stratify = [stratify_col] if isinstance(stratify_col, str) else stratify_col
+            work_df = DataLoaderUtils.add_stratify_column(work_df, cols_to_stratify)
 
         logger.info(f"Dataframe final: {len(work_df)} filas con geno_key.")
-
         return work_df
 
     @staticmethod
     def _build_drug_index(drug_lib: Path) -> dict[str, Path]:
         """Mapea los compound_id con sus rutas reales en disco."""
         index_drugs = {}
-        # Listamos todos los archivos .pt una sola vez
         for file_path in drug_lib.glob("*.pt"):
-            # Extraemos el ID del nombre del archivo (ej: '10007' de '10007_chlorphentermine.pt')
-            # El ID es todo lo que está antes del primer guion bajo
             match = re.match(r"^(\d+)_", file_path.name)
+
             if match:
                 drug_id = match.group(1)
                 index_drugs[drug_id] = file_path
@@ -374,10 +411,8 @@ class DataLoaderUtils:
         # Estructura del dict: { gene_id: str, variants: [{variant_name(star5 or rs...):Path}] }
 
         index_genes = {}
-        # Listamos todos los archivos .pt una sola vez
         for file_path in variant_lib.glob("*.pt"):
-            # gene_id es todo lo que está antes del primer guion bajo
-            filename_clean = file_path.stem  # Nombre sin extensión
+            filename_clean = file_path.stem
 
             gene_id, variant = filename_clean.split("_", 1)
 

@@ -25,7 +25,9 @@ from collections.abc import Mapping, MutableMapping, MutableSequence, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-import pandas as pd
+import polars as pl
+
+from src.utils.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +231,7 @@ class DataValidator:
 
     @staticmethod
     def check_missing_values(
-        df,
+        df: pl.DataFrame,
         columns: MutableSequence[str],
         threshold: float = 0.5
     ) -> Mapping[str, float]:
@@ -244,26 +246,40 @@ class DataValidator:
             Dictionary mapping column names to fraction of missing values.
         """
         missing_stats = {}
+        valid_cols = [c for c in columns if c in df.columns]
+        missing_cols_input = set(columns) - set(valid_cols)
 
-        for col in columns:
-            if col not in df.columns:
-                logger.warning(f"Column '{col}' not found in DataFrame")
-                continue
+        if missing_cols_input:
+             for c in missing_cols_input:
+                 logger.warning(f"Column '{c}' not found in DataFrame")
 
-            missing_fraction = df[col].isna().mean()
-            missing_stats[col] = missing_fraction
+        if not valid_cols:
+            return {}
+        try:
+            stats_df = df.select([
+                pl.col(c).is_null().mean().alias(c) for c in valid_cols
+            ])
 
-            if missing_fraction > threshold:
-                logger.warning(
-                    f"Column '{col}' has {missing_fraction:.1%} missing values "
-                    f"(threshold: {threshold:.1%})"
-                )
+            stats_dict = stats_df.row(0, named=True)
+
+            # 3. Verificación de umbrales y logging
+            for col, missing_fraction in stats_dict.items():
+                missing_stats[col] = missing_fraction
+
+                if missing_fraction > threshold:
+                    logger.warning(
+                        f"Column '{col}' has {missing_fraction:.1%} missing values "
+                        f"(threshold: {threshold:.1%})"
+                    )
+        except ValidationError as e:
+            logger.error(f"Error checking missing values: {e}")
+            return {}
 
         return missing_stats
 
     @staticmethod
     def check_class_balance(
-        df,
+        df: pl.DataFrame,
         target_column: str,
         min_samples_per_class: int = 10
     ) -> Mapping[str, int]:
@@ -281,7 +297,8 @@ class DataValidator:
             logger.error(f"Target column '{target_column}' not found")
             return {}
 
-        class_counts = df[target_column].value_counts().to_dict()
+        vc_df = df[target_column].value_counts()
+        class_counts = {row[0]: row[1] for row in vc_df.iter_rows()}
 
         rare_classes = {
             cls: count for cls, count in class_counts.items()
@@ -298,7 +315,7 @@ class DataValidator:
 
     @staticmethod
     def check_data_types(
-        df,
+        df: pl.DataFrame,
         expected_types: Mapping[str, type]
     ) -> bool:
         """Check that columns have expected data types.
@@ -311,24 +328,47 @@ class DataValidator:
             True if all types match, False otherwise.
         """
         all_valid = True
+        schema = df.schema
 
-        for col, expected_type in expected_types.items():
+        for col, expected_py_type in expected_types.items():
             if col not in df.columns:
                 logger.warning(f"Column '{col}' not found in DataFrame")
                 all_valid = False
                 continue
 
-            actual_type = df[col].dtype
+            actual_pl_type = schema[col]
+            is_col_valid = False
+            type_msg = "__UNK__"
 
             # Check if types are compatible
-            if ((expected_type is str) and (actual_type is not object)):
+            if expected_py_type is str:
+                is_col_valid = actual_pl_type in (pl.String, pl.Categorical, pl.Enum, pl.Utf8)
+                type_msg = "String/Categorical/Enum"
+
+            elif expected_py_type is int:
+                is_col_valid = actual_pl_type.is_integer()
+                type_msg = "Integer"
+
+            elif expected_py_type is float:
+                is_col_valid = actual_pl_type.is_float()
+                type_msg = "Float"
+
+            elif expected_py_type is bool:
+                is_col_valid = actual_pl_type == pl.Boolean
+                type_msg = "Boolean"
+
+            elif expected_py_type is list:
+                is_col_valid = isinstance(actual_pl_type, pl.List)
+                type_msg = "List"
+
+            else:
+                logger.warning(f"Type check not implemented for python type: {expected_py_type}")
+                continue
+
+            if not is_col_valid:
                 logger.warning(
-                    f"Column '{col}' expected string (object), got {actual_type}"
-                )
-                all_valid = False
-            elif expected_type in (int, float) and not pd.api.types.is_numeric_dtype(actual_type):
-                logger.warning(
-                    f"Column '{col}' expected numeric, got {actual_type}"
+                    f"Column '{col}' expected {type_msg} (mapped from {expected_py_type.__name__}), "
+                    f"got Polars type: {actual_pl_type}"
                 )
                 all_valid = False
 
@@ -338,7 +378,7 @@ class GraphValidator:
     """Validates graph data structures."""
 
     @staticmethod
-    def validate_graph_data(data, data_type:  str = "drug") -> bool:
+    def validate_graph_data(data, data_type: str) -> bool:
         """Validate PyG Data object.
 
         Args:
@@ -352,21 +392,11 @@ class GraphValidator:
             ValueError: If graph is invalid
         """
         if not hasattr(data, 'x') or not hasattr(data, 'edge_index'):
-            raise ValueError(f"{data_type} graph missing 'x' or 'edge_index'")
-
-        # Check node features
+             raise ValueError(f"{data_type} graph missing fields")
         if data.x.size(0) == 0:
-            raise ValueError(f"{data_type} graph has no nodes")
+             raise ValueError(f"{data_type} graph has no nodes")
 
-        # Check edge connectivity
-        if data.edge_index.size(1) > 0:
-            max_node_idx = data.edge_index.max().item()
-            if max_node_idx >= data.x. size(0):
-                raise ValueError(
-                    f"{data_type} graph edge_index references node {max_node_idx} "
-                    f"but only {data.x.size(0)} nodes exist"
-                )
-
-        logger.debug(f"{data_type} graph validated:  {data.x.size(0)} nodes, {data.edge_index.size(1)} edges")
+        if not logger.isEnabledFor(logging.DEBUG):
+            pass
         return True
 

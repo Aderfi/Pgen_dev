@@ -7,8 +7,8 @@ import logging
 from collections.abc import Mapping, MutableSequence, Set
 from typing import Any, cast
 
-import optuna
 import torch
+from optuna import Trial, TrialPruned
 from torch import nn
 from torch.amp.autocast_mode import autocast
 from torch.amp.grad_scaler import GradScaler
@@ -308,7 +308,7 @@ class PGenTrainer:
         val_loader: DataLoader,
         epochs: int,
         patience: int,
-        trial:  optuna.Trial | None = None,
+        trial: Trial | None = None,
     ) -> float:
         """Main training loop with context-aware behavior.
 
@@ -348,7 +348,7 @@ class PGenTrainer:
                 logger.error(f"❌ {msg}")
 
                 if trial:
-                    raise optuna.TrialPruned(msg)
+                    raise TrialPruned(msg)
                 else:
                     raise TrainingError(msg)
 
@@ -369,7 +369,7 @@ class PGenTrainer:
             if trial:
                 trial.report(v_loss, epoch)
                 if trial.should_prune():
-                    raise optuna.TrialPruned()
+                    raise TrialPruned()
 
             # ✅ Early stopping with context-aware checkpointing
             if v_loss < self.best_loss:

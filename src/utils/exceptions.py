@@ -25,15 +25,30 @@ Follows best practices:
 - In the face of ambiguity, refuse the temptation to guess
 """
 
+from collections.abc import Mapping
+from typing import Any
 
+
+#### Base Exception ####
 class PharmagenException(Exception):
     """Base exception for all Pharmagen-specific errors.
 
     All custom exceptions should inherit from this base class
     to allow catching all Pharmagen errors with a single except clause.
     """
-    pass
+    def __init__(self, message: str, details: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
 
+    def __str__(self):
+        if self.details:
+            details_str = "|".join(f"{k}={v}" for k, v in self.details.items())
+            return f"{self.message} | Context: {{{details_str}}}"
+        return self.message
+
+# DERIVED EXCEPTIONS #
+# SECONDARY EXCEPTION CLASSES #
 
 class ConfigurationError(PharmagenException):
     """Raised when configuration is invalid or missing.
@@ -45,7 +60,6 @@ class ConfigurationError(PharmagenException):
     """
     pass
 
-
 class DataError(PharmagenException):
     """Raised when data is invalid or incompatible.
 
@@ -56,7 +70,6 @@ class DataError(PharmagenException):
     """
     pass
 
-
 class ModelError(PharmagenException):
     """Raised when model creation or loading fails.
 
@@ -66,7 +79,6 @@ class ModelError(PharmagenException):
         - Missing model files
     """
     pass
-
 
 class MemoryError(PharmagenException):
     """Raised when memory constraints are violated.
@@ -82,6 +94,76 @@ class MemoryError(PharmagenException):
     """
     pass
 
+class OptimizationError(PharmagenException):
+    """Raised when optimization/training fails.
+
+    Examples:
+        - Loss becomes NaN
+        - Gradient explosion
+        - Optuna trial failures
+    """
+    pass
+
+class ResourceError(PharmagenException):
+    """Raised when system resources are insufficient.
+
+    Examples:
+        - Disk space exhausted
+        - File handle limits exceeded
+        - Network connectivity issues
+    """
+    pass
+
+class TrainingError(PharmagenException):
+    """Raised when optimization/training fails.
+
+    Examples:
+        - Loss becomes NaN
+        - Gradient explosion
+        - Optuna trial failures
+    """
+    pass
+
+class ValidationError(PharmagenException, IndexError, ValueError):
+    """Raised when validation of inputs or configurations fails.
+
+    Examples:
+        - Missing required fields
+        - Invalid parameter values
+        - Data schema mismatches
+    """
+    pass
+
+# TERTIARY EXCEPTION CLASSES #
+
+class ConvergenceError(TrainingError):
+    """Raised when training becomes unstable.
+
+    Examples:
+        - Loss is NaN or Inf
+        - Gradient explosion detected
+    """
+    pass
+
+class BioinformaticsError(DataError):
+    """Raised when bio-formats or genomic data are invalid.
+
+    Examples:
+        - VCF file parsing failure
+        - Mismatch between FASTA and GFF
+        - RSID not found in database
+    """
+    pass
+
+class EncoderError(DataError):
+    """Raised when encoding/decoding fails.
+
+    Examples:
+        - Unknown category in test data
+        - Missing fitted encoder
+        - Incompatible encoder classes
+    """
+    pass
 
 class GraphError(DataError):
     """Raised when graph data is invalid or corrupt.
@@ -93,34 +175,11 @@ class GraphError(DataError):
     """
     pass
 
-
-class EncoderError(DataError):
-    """Raised when encoding/decoding fails.
-    
-    Examples:
-        - Unknown category in test data
-        - Missing fitted encoder
-        - Incompatible encoder classes
-    """
-    pass
-
-
-class OptimizationError(PharmagenException):
-    """Raised when optimization/training fails.
+class HardwareError(ResourceError):
+    """Raised specifically for GPU/CUDA/MPS issues.
 
     Examples:
-        - Loss becomes NaN
-        - Gradient explosion
-        - Optuna trial failures
-    """
-    pass
-
-class TrainingError(PharmagenException):
-    """Raised when optimization/training fails.
-
-    Examples:
-        - Loss becomes NaN
-        - Gradient explosion
-        - Optuna trial failures
+        - CUDA OOM (Out Of Memory)
+        - Device mismatch (Tensor on CPU vs Model on GPU)
     """
     pass

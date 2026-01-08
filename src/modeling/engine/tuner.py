@@ -9,11 +9,12 @@ import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import optuna
 import optuna.logging
+import polars as pl
 import torch
 import torch.multiprocessing as mp
 from optuna.pruners import HyperbandPruner, MedianPruner, NopPruner, PatientPruner
@@ -27,9 +28,9 @@ from src.config.manager import DIRS, get_model_config
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
 from src.interface.ui import ConsoleIO
-from src.modeling.architectures. layers import create_gnn_model
-from src.modeling.engine. trainer import PGenTrainer
-from src.utils.exceptions import ConfigurationError, DataError, ModelError
+from src.modeling.architectures.layers import create_gnn_model
+from src.modeling.engine.trainer import PGenTrainer
+from src.utils.exceptions import ConfigurationError, DataError
 from src.utils.io import DataLoaderUtils
 from src.utils.memory import (
     MemoryMonitor,
@@ -45,8 +46,10 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # Constants
 MIN_DATASET_SIZE = 1000
 DEFAULT_MAX_BATCH_SIZE = 128
-MEMORY_WARNING_THRESHOLD = 0.75  # 75% of available GPU memory
+MEMORY_WARNING_THRESHOLD = 0.75
 
+LASTINF = False
+N_JOBS = 2
 
 class PGenTuner:
     """
@@ -103,6 +106,7 @@ class PGenTuner:
         self.sampler_type = sampler_type
         self.pruner_type = pruner_type
 
+
         # Validación de parámetros y configuración
         try:
             self.cfg = get_model_config(model_name)
@@ -127,7 +131,7 @@ class PGenTuner:
         # Validación y carga de datos
         logger.info(f"📂 Loading data for tuning from {self.csv_path}...")
         try:
-            self.full_df = DataLoaderUtils.load_dataframe(
+            self.full_df: pl.DataFrame = DataLoaderUtils.load_dataframe(
                 self.csv_path,
                 cols=self.cfg["cols"],
                 stratify_col=self.cfg.get("stratify_col", None),
@@ -144,8 +148,9 @@ class PGenTuner:
         # Validación de calidad de datos
         logger.info("🔍 Validating data quality...")
         missing_stats = DataValidator.check_missing_values(
-            self.full_df,
-            self.cfg["features"] + self.cfg["targets"],
+            df = self.full_df,
+            columns = [c for c in (self.cfg["features"] + self.cfg["targets"])
+                      if c in self.full_df.columns],
             threshold=0.5,
         )
         if any(frac > 0.3 for frac in missing_stats. values()): # noqa
@@ -161,18 +166,21 @@ class PGenTuner:
                     min_samples_per_class=10,
                 )
 
+        stratify_labels = None
+        if "_stratify" in self.full_df.columns:
+            stratify_labels = self.full_df["_stratify"]
+            logger.debug("\tUsing stratification column '_stratify' for split.")
+
         # Split data
         self.train_df, self.val_df = train_test_split(
             self.full_df,
             test_size=0.2,
-            stratify=None,
+            stratify=stratify_labels,
             random_state=self.seed,
         )
         logger.info(
             f"✅ Tuning data ready: {len(self.train_df)} train, {len(self.val_df)} val"
         )
-
-        # ✅ MEJORA 7: Log initial memory state
         MemoryMonitor.log_memory_stats("Initial memory - ")
 
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
@@ -201,7 +209,6 @@ class PGenTuner:
         optuna_conf = self.cfg.get("params_optuna", {})
 
         for param_name, args in optuna_conf.items():
-            # Skip non-searchable config keys
             if param_name in {"patience", "epochs"}:
                 continue
 
@@ -311,14 +318,14 @@ class PGenTuner:
                         )
                         raise optuna. TrialPruned("Batch size exceeds memory limits")
 
-            # 3. Dataset construction (always fresh per trial)
+            # 3. Dataset construction
             train_dataset = DoubleTowerDataset(
                 df=self.train_df,
                 drug_col=self.cfg["features"][0],
                 geno_col="geno_key",
                 target_cols=self.cfg["targets"],
                 multilabel_cols=self.cfg.get("multi_label_cols", []),
-                preload_ram=False,  # CRITICAL: Always False during Optuna
+                preload_ram=False,
             )
 
             val_dataset = DoubleTowerDataset(
@@ -340,17 +347,12 @@ class PGenTuner:
                 logger.error(f"❌ Trial {trial.number}:  Dimension inference failed: {e}")
                 raise DataError(f"Failed to infer dimensions from dataset:  {e}") from e
 
-            target_dims = {
-                col: len(train_dataset.encoders[col].classes_)
-                for col in self.cfg["targets"]
-                if col in train_dataset.encoders
-            }
-
-            # Fallback for missing target dimensions
-            for t in self.cfg["targets"]:
-                if t not in target_dims:
-                    logger.warning(f"⚠️ Target '{t}' not in encoders, defaulting to dim=1")
-                    target_dims[t] = 1
+            target_dims = {}
+            for col in self.cfg["targets"]:
+                if col in train_dataset.encoders:
+                    target_dims[col] = len(train_dataset.encoders[col].classes_)
+                else:
+                    target_dims[col] = 1
 
             # 5. DataLoaders
             collater = DoubleTowerCollater()
@@ -424,14 +426,12 @@ class PGenTuner:
                 patience=self.patience,
                 trial=trial,
             )
-            try:
+            if logger.isEnabledFor(logging.DEBUG) and LASTINF is True:
                 num_params = sum(p.numel() for p in model.parameters())
                 model_mem = estimate_model_memory_mb(num_params)
                 logger.debug(
                     f"🧠 Trial {trial.number}:  Model params={num_params: ,}, mem~{model_mem:.1f}MB"
                 )
-            except: # noqa
-                pass
 
             return result
 
@@ -449,13 +449,13 @@ class PGenTuner:
             raise optuna.TrialPruned(f"Unexpected error: {e}")
         finally:
             # Enhanced cleanup with list comprehension
-            local_vars_to_cleanup = [
-                'train_loader', 'val_loader', 'train_dataset', 'val_dataset',
-                'model', 'optimizer', 'scheduler', 'trainer', 'uncertainty_net'
-            ]
-            for var_name in local_vars_to_cleanup:
-                if var_name in locals():
-                    del locals()[var_name]
+            #local_vars_to_cleanup = [
+            #    'train_loader', 'val_loader', 'train_dataset', 'val_dataset',
+            #    'model', 'optimizer', 'scheduler', 'trainer', 'uncertainty_net'
+            #]
+            #for var_name in local_vars_to_cleanup:
+            #    if var_name in locals():
+            #        del locals()[var_name]
 
             # Aggressive memory cleanup
             MemoryMonitor.clear_memory(aggressive=True)
@@ -707,24 +707,19 @@ def run_optuna_study(
 
     current_method = mp.get_start_method(allow_none=True)
     if current_method != 'spawn':
-
         if current_method is not None:
             logger.warning(
                 f"⚠️ Overriding multiprocessing:  '{current_method}' → 'spawn' "
                 f"(required for CUDA safety)"
             )
-
         try:
             mp.set_start_method('spawn', force=True)
             logger.debug("✅ Multiprocessing:  'spawn' (CUDA-safe)")
         except RuntimeError as e:
             logger.error(f"❌ Failed to configure multiprocessing: {e}")
-            if "cuda" in str(e).lower() or torch.cuda.is_available():
-                raise  # Re-raise si CUDA está disponible (crítico)
-            else:
-                logger.warning("   Continuing (CPU-only mode)")
+            if torch.cuda.is_available():
+                logger.warning("   Running with potential CUDA instability if not using spawn.")
 
-    # ✅ MEJORA 22: Use ConsoleIO for better output
     ConsoleIO.print_header("Optuna Hyperparameter Optimization")
     ConsoleIO.print_info(f"Model: {model_name}")
     ConsoleIO.print_info(f"Data: {csv_path}")
@@ -740,7 +735,13 @@ def run_optuna_study(
         sampler_type=sampler,
         pruner_type=pruner,
     )
-    study = tuner.run_tuning(n_trials=n_trials, n_jobs=4)
+
+    if epochs:
+        if "params_optuna" in tuner.cfg:
+            tuner.cfg["params_optuna"]["epochs"] = epochs
+            logger.info(f"   Overriding epochs: {epochs}")
+
+    study = tuner.run_tuning(n_trials=n_trials, n_jobs=N_JOBS)
 
     # ✅ MEJORA 23: Better final summary
     ConsoleIO.print_divider("=")
@@ -758,10 +759,18 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 2: # noqa
         print("Usage: python tuner.py <model_name> [csv_path] [n_trials]")
+        # Ejemplo: python tuner.py TwoTowerGAT data/train.tsv 50
         sys.exit(1)
 
-    model = sys.argv[1]
-    data = sys.argv[2] if len(sys.argv) > 2 else "train_data/train_data.tsv" # noqa
-    trials = int(sys.argv[3]) if len(sys.argv) > 3 else 50 # noqa
+    model_arg = sys.argv[1]
+    # Default path compatible con estructura del proyecto
+    data_arg = sys.argv[2] if len(sys.argv) > 2 else "train_data/train_data.tsv" # noqa
+    trials_arg = int(sys.argv[3]) if len(sys.argv) > 3 else 50  # noqa
 
-    run_optuna_study(model, data, trials)
+    try:
+        run_optuna_study(model_arg, data_arg, trials_arg)
+    except KeyboardInterrupt:
+        print("\n🛑 Tuning cancelled by user.")
+    except Exception as e:
+        logger.exception(f"CRITICAL ERROR: {e}")
+        sys.exit(1)

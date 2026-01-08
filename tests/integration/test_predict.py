@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-from src.predict import PGenPredictor
+
+from src.modeling.engine.predictor import PGenPredictor
 
 
 @pytest.fixture

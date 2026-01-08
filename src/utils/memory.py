@@ -72,7 +72,7 @@ class MemoryMonitor:
         return allocated, reserved
 
     @staticmethod
-    def clear_memory(device: Optional[torch.device] = None, aggressive: bool = False):
+    def clear_memory(device: torch.device | None = None, aggressive: bool = False):
         """Clear cached memory and run garbage collection.
 
         Args:

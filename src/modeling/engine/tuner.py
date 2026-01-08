@@ -6,6 +6,7 @@
 # Copyright (C) 2025 Adrim Hamed Outmani
 
 import datetime
+import gc
 import json
 import logging
 from pathlib import Path
@@ -33,7 +34,7 @@ from src.modeling.engine.trainer import PGenTrainer
 from src.utils.exceptions import ConfigurationError, DataError
 from src.utils.io import DataLoaderUtils
 from src.utils.memory import (
-    MemoryMonitor,
+    #MemoryMonitor,
     estimate_batch_memory_mb,
     estimate_model_memory_mb,
 )
@@ -128,60 +129,102 @@ class PGenTuner:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.figures_dir.mkdir(parents=True, exist_ok=True)
 
-        # Validación y carga de datos
-        logger.info(f"📂 Loading data for tuning from {self.csv_path}...")
-        try:
-            self.full_df: pl.DataFrame = DataLoaderUtils.load_dataframe(
-                self.csv_path,
-                cols=self.cfg["cols"],
-                stratify_col=self.cfg.get("stratify_col", None),
-            )
-        except Exception as e:
-            raise DataError(f"Failed to load data from {self.csv_path}: {e}") from e
 
-        if len(self.full_df) < MIN_DATASET_SIZE:
-            raise DataError(
-                f"Dataset too small for Optuna tuning:  {len(self.full_df)} samples "
-                f"(minimum: {MIN_DATASET_SIZE})"
-            )
+        self._initialize_static_data()
 
-        # Validación de calidad de datos
+    def _initialize_static_data(self):
+        """
+        Loads data, splits it, creates Dataset objects, and infers dimensions ONCE.
+        This prevents memory leaks during trials.
+        """
+        logger.info(f"📂 Loading and preparing static data from {self.csv_path}...")
+
+        full_df = DataLoaderUtils.load_dataframe(
+            self.csv_path,
+            cols=self.cfg["cols"],
+            stratify_col=self.cfg.get("stratify_col", None),
+        )
+
+        if len(full_df) < MIN_DATASET_SIZE:
+            raise DataError(f"Dataset too small: {len(full_df)}")
+        stratify_labels = full_df["_stratify"] if "_stratify" in full_df.columns else None
+
+                # Validación de calidad de datos
         logger.info("🔍 Validating data quality...")
         missing_stats = DataValidator.check_missing_values(
-            df = self.full_df,
+            df = full_df,
             columns = [c for c in (self.cfg["features"] + self.cfg["targets"])
-                      if c in self.full_df.columns],
+                      if c in full_df.columns],
             threshold=0.5,
         )
-        if any(frac > 0.3 for frac in missing_stats. values()): # noqa
+        if any(frac > 0.3 for frac in missing_stats.values()): # noqa
             logger.warning(
                 f"⚠️ High missing values detected: {missing_stats}"
             )
 
         for target in self.cfg["targets"]:
-            if target in self.full_df. columns:
+            if target in full_df.columns:
                 DataValidator.check_class_balance(
-                    self.full_df,
+                    full_df,
                     target,
                     min_samples_per_class=10,
                 )
 
-        stratify_labels = None
-        if "_stratify" in self.full_df.columns:
-            stratify_labels = self.full_df["_stratify"]
-            logger.debug("\tUsing stratification column '_stratify' for split.")
+        #MemoryMonitor.log_memory_stats("Initial memory - ")
 
-        # Split data
-        self.train_df, self.val_df = train_test_split(
-            self.full_df,
+        train_df, val_df = train_test_split(
+            full_df,
             test_size=0.2,
             stratify=stratify_labels,
             random_state=self.seed,
         )
-        logger.info(
-            f"✅ Tuning data ready: {len(self.train_df)} train, {len(self.val_df)} val"
+
+        logger.info(f"✅ Split created: {len(train_df)} train, {len(val_df)} val")
+        logger.info("🛠️  Instantiating static Datasets...")
+
+        self.train_dataset = DoubleTowerDataset(
+            df=train_df,
+            drug_col=self.cfg["features"][0],
+            geno_col="geno_key",
+            target_cols=self.cfg["targets"],
+            multilabel_cols=self.cfg.get("multi_label_cols", []),
+            preload_ram=False,
         )
-        MemoryMonitor.log_memory_stats("Initial memory - ")
+
+        self.val_dataset = DoubleTowerDataset(
+            df=val_df,
+            drug_col=self.cfg["features"][0],
+            geno_col="geno_key",
+            target_cols=self.cfg["targets"],
+            multilabel_cols=self.cfg.get("multi_label_cols", []),
+            encoders=self.train_dataset.encoders,
+            preload_ram=False,
+        )
+
+        logger.info("📏 Inferring input dimensions from a sample...")
+        try:
+            sample = self.train_dataset[0]
+            self.drug_dim = sample["drug_data"].x.shape[1]
+            self.geno_dim = sample["geno_data"].x.shape[1]
+
+            self.target_dims = {}
+            for col in self.cfg["targets"]:
+                if col in self.train_dataset.encoders:
+                    self.target_dims[col] = len(self.train_dataset.encoders[col].classes_)
+                else:
+                    self.target_dims[col] = 1
+
+            logger.info(f"   Drug Dim: {self.drug_dim}, Geno Dim: {self.geno_dim}")
+        except Exception as e:
+            raise DataError(f"Failed to infer dimensions: {e}") from e
+
+        # E.CLEANUP (Critical for Memory)
+        del full_df
+        del train_df
+        del val_df
+        del stratify_labels
+        #MemoryMonitor.clear_memory()
+        #MemoryMonitor.log_memory_stats("Static Initialization Complete - ")
 
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
         """
@@ -244,7 +287,7 @@ class PGenTuner:
 
         return suggestions
 
-    def objective(self, trial: optuna. Trial) -> float: # noqa
+    def objective(self, trial: optuna.Trial) -> float: # noqa
         """
         Optuna objective function for single trial.
 
@@ -266,9 +309,10 @@ class PGenTuner:
         Raises:
             optuna. TrialPruned: If trial should be terminated early.
         """
-        # Clear memory before starting trial
-        MemoryMonitor. clear_memory(aggressive=True)
-        MemoryMonitor.log_memory_stats(f"🔬 Trial {trial.number} start - ")
+        #MemoryMonitor.clear_memory(aggressive=True)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        #MemoryMonitor.log_memory_stats(f"🔬 Trial {trial.number} start - ")
 
         try:
             # 1. Hyperparameter suggestion
@@ -299,73 +343,18 @@ class PGenTuner:
             )
             logger.debug(f"💾 Trial {trial.number}:  Estimated batch memory={estimated_batch_mem:.1f}MB")
 
-            # Preventive OOM check
-            if torch.cuda.is_available():
-                available_mem = torch.cuda.get_device_properties(0).total_memory / 1024**2
-                mem_ratio = estimated_batch_mem / available_mem
-
-                if mem_ratio > MEMORY_WARNING_THRESHOLD:
-                    logger.warning(
-                        f"⚠️ Trial {trial.number}: High memory usage expected "
-                        f"({estimated_batch_mem:.0f}MB / {available_mem:.0f}MB = {mem_ratio:.1%})"
-                    )
-                    trial.set_user_attr("high_memory_risk", True)
-
-                    # Optional: Aggressively prune high-memory trials
-                    if mem_ratio > 0.85:  # noqa 85% threshold 
-                        logger.error(
-                            f"❌ Trial {trial.number}:  Batch size too large, pruning preemptively"
-                        )
-                        raise optuna. TrialPruned("Batch size exceeds memory limits")
-
-            # 3. Dataset construction
-            train_dataset = DoubleTowerDataset(
-                df=self.train_df,
-                drug_col=self.cfg["features"][0],
-                geno_col="geno_key",
-                target_cols=self.cfg["targets"],
-                multilabel_cols=self.cfg.get("multi_label_cols", []),
-                preload_ram=False,
-            )
-
-            val_dataset = DoubleTowerDataset(
-                df=self.val_df,
-                drug_col=self.cfg["features"][0],
-                geno_col="geno_key",
-                target_cols=self.cfg["targets"],
-                multilabel_cols=self.cfg.get("multi_label_cols", []),
-                encoders=train_dataset.encoders,  # CRITICAL: Share encoders
-                preload_ram=False,
-            )
-
-            # 4. Dimension inference
-            try:
-                sample = train_dataset[0]
-                drug_dim = sample["drug_data"].x.shape[1]
-                geno_dim = sample["geno_data"].x.shape[1]
-            except Exception as e:
-                logger.error(f"❌ Trial {trial.number}:  Dimension inference failed: {e}")
-                raise DataError(f"Failed to infer dimensions from dataset:  {e}") from e
-
-            target_dims = {}
-            for col in self.cfg["targets"]:
-                if col in train_dataset.encoders:
-                    target_dims[col] = len(train_dataset.encoders[col].classes_)
-                else:
-                    target_dims[col] = 1
-
-            # 5. DataLoaders
             collater = DoubleTowerCollater()
             train_loader = DataLoader(
-                train_dataset,
+                self.train_dataset,
                 batch_size=batch_size,
                 shuffle=True,
                 collate_fn=collater,
                 num_workers=0,
                 pin_memory=True,
             )
+
             val_loader = DataLoader(
-                val_dataset,
+                self.val_dataset,
                 batch_size=batch_size,
                 shuffle=False,
                 collate_fn=collater,
@@ -377,14 +366,14 @@ class PGenTuner:
             model = create_gnn_model(
                 model_name=self.model_name,
                 drug_config={
-                    "num_features": drug_dim,
+                    "num_features": self.drug_dim,
                     "edge_dim": self.cfg.get("drug_edge_dim", 0),
                 },
                 geno_config={
-                    "num_features": geno_dim,
+                    "num_features": self.geno_dim,
                     "edge_dim": self.cfg.get("geno_edge_dim", 0),
                 },
-                target_dims=target_dims,
+                target_dims=self.target_dims,
                 params=params,
             ).to(device)
 
@@ -400,7 +389,7 @@ class PGenTuner:
                 uncertainty_module=uncertainty_net,
             )
 
-            scheduler = torch.optim.lr_scheduler. ReduceLROnPlateau(
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode="min", factor=0.5, patience=5
             )
 
@@ -418,7 +407,7 @@ class PGenTuner:
             )
 
             # 10. Training with memory monitoring
-            MemoryMonitor.log_memory_stats(f"🏋️ Trial {trial.number} before training - ")
+            #MemoryMonitor.log_memory_stats(f"🏋️ Trial {trial.number} before training - ")
             result = trainer.fit(
                 train_loader,
                 val_loader,
@@ -440,26 +429,18 @@ class PGenTuner:
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 logger.error(f"❌ Trial {trial.number}: OOM error: {e}")
-                MemoryMonitor.clear_memory(device=device, aggressive=True) # type: ignore
+                #MemoryMonitor.clear_memory(device=device, aggressive=True) # type: ignore
                 raise optuna.TrialPruned("Out of memory")
             logger.error(f"❌ Trial {trial.number}: RuntimeError: {e}")
             raise optuna.TrialPruned(f"RuntimeError: {e}")
         except Exception as e:
-            logger. error(f"❌ Trial {trial.number}: Unexpected error: {e}", exc_info=True)
+            logger.error(f"❌ Trial {trial.number}: Unexpected error: {e}", exc_info=True)
             raise optuna.TrialPruned(f"Unexpected error: {e}")
         finally:
-            # Enhanced cleanup with list comprehension
-            #local_vars_to_cleanup = [
-            #    'train_loader', 'val_loader', 'train_dataset', 'val_dataset',
-            #    'model', 'optimizer', 'scheduler', 'trainer', 'uncertainty_net'
-            #]
-            #for var_name in local_vars_to_cleanup:
-            #    if var_name in locals():
-            #        del locals()[var_name]
-
-            # Aggressive memory cleanup
-            MemoryMonitor.clear_memory(aggressive=True)
-            MemoryMonitor.log_memory_stats(f"🧹 Trial {trial.number} cleanup - ")
+            #MemoryMonitor.clear_memory(aggressive=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            #MemoryMonitor.log_memory_stats(f"🧹 Trial {trial.number} cleanup - ")
 
     def _create_sampler(self) -> optuna.samplers.BaseSampler:
         """
@@ -509,18 +490,16 @@ class PGenTuner:
         Returns:
             Completed Optuna study object.
         """
-        n_jobs = 4
+        n_jobs = 3
         if n_jobs is None:
             n_jobs = 4 if torch.cuda.is_available() else 1
 
         logger.info(f"🚀 Starting Optuna Study:  {self.study_name} w/ n_jobs={n_jobs}")
         logger.info(f"📊 Sampler: {self.sampler_type}, Pruner: {self.pruner_type}")
 
-        # ✅ MEJORA 17: Use factory methods for sampler/pruner
         sampler = self._create_sampler()
         pruner = self._create_pruner()
 
-        # Setup study storage
         storage_url = self.reports_dir / "database" / f"{self.study_name}.db"
         storage_url.parent.mkdir(parents=True, exist_ok=True)
         db_path = f"sqlite:///{storage_url.resolve()}"
@@ -537,13 +516,12 @@ class PGenTuner:
         if n_jobs > 1:
             logger.info("⚙️ Running in parallel mode.  TQDM bar disabled.")
             study.optimize(
-                self. objective,
+                self.objective,
                 n_trials=n_trials,
                 n_jobs=n_jobs,
                 gc_after_trial=True,
             )
         else:
-            # Single-job mode with progress bar
             with tqdm(total=n_trials, desc="Optuna Trials", colour="blue") as pbar:
                 def callback(study, trial):
                     pbar.update(1)
@@ -568,7 +546,7 @@ class PGenTuner:
         self._save_results(study)
         return study
 
-    def _save_results(self, study: optuna. Study):
+    def _save_results(self, study: optuna.Study):
         """
         Generate comprehensive reports and visualizations.
         """
@@ -601,7 +579,7 @@ class PGenTuner:
                 "n_trials": len(study.trials),
                 "n_completed": len(completed_trials),
                 "n_pruned": len([
-                    t for t in study. trials
+                    t for t in study.trials
                     if t.state == optuna.trial.TrialState.PRUNED
                 ]),
                 "n_failed": len([
@@ -640,11 +618,11 @@ class PGenTuner:
         ConsoleIO.print_info(f"Pruned:  {report['statistics']['n_pruned']}")
 
         if report['statistics']['n_failed'] > 0:
-            ConsoleIO. print_warning(f"Failed:  {report['statistics']['n_failed']}")
+            ConsoleIO.print_warning(f"Failed:  {report['statistics']['n_failed']}")
 
         # Visualizations
         try:
-            from optuna.visualization. matplotlib import (
+            from optuna.visualization.matplotlib import (
                 plot_optimization_history,
                 plot_param_importances,
             )
@@ -668,7 +646,7 @@ class PGenTuner:
                 importance_path = self.figures_dir / f"{self.study_name}_importance.png"
                 plt.savefig(importance_path, dpi=150)
                 plt.close()
-                logger. info(f"📊 Importance plot saved to {importance_path}")
+                logger.info(f"📊 Importance plot saved to {importance_path}")
 
             logger.info("✅ Optimization plots generated successfully")
 
@@ -743,7 +721,6 @@ def run_optuna_study(
 
     study = tuner.run_tuning(n_trials=n_trials, n_jobs=N_JOBS)
 
-    # ✅ MEJORA 23: Better final summary
     ConsoleIO.print_divider("=")
     ConsoleIO.print_success("🎉 Optuna Study Completed!")
     ConsoleIO.print_info(f"Best Loss: {study.best_value:.4f}")

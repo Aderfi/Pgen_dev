@@ -13,7 +13,7 @@
 cols = ["drugs_cid", "drugs", "genotype", "gene", "phenotype_category"]
 features = ["drugs_cid", "genotype"]
 targets = ["phenotype_category"]
-stratify_col = "phenotype_category"  # Column used for stratified splitting
+#stratify_col = "phenotype_category"  # Column used for stratified splitting
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---

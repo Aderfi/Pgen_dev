@@ -43,8 +43,14 @@ class GATv2Tower(nn.Module):
                 GATv2Conv(curr_in, hidden_channels, heads=heads, edge_dim=edge_dim, concat=True)
             )
             self.norms.append(GraphNorm(out_dim))
-            self.skips.append(nn.Linear(curr_in, out_dim))
+            #self.skips.append(nn.Linear(curr_in, out_dim))
+            if curr_in != out_dim:
+                self.skips.append(nn.Linear(curr_in, out_dim))
+            else:
+                self.skips.append(nn.Identity()) # Ahorro masivo de memoria
+
             curr_in = out_dim
+
 
         # Proyección final post-pooling
         self.post_pool_mlp = nn.Sequential(
@@ -100,17 +106,21 @@ class GATv2Tower(nn.Module):
 class PharmagenTwoTower(nn.Module):
     def __init__(
         self,
+
         # Configuración Torre Fármaco
         drug_in_features: int,
         drug_edge_dim: int,
         drug_hidden_dim: int,
+
         # Configuración Torre genotipo
         geno_in_features: int,
         geno_edge_dim: int,
         geno_hidden_dim: int,
+
         # Configuración Global
         embedding_dim: int,
         target_dims: dict[str, int],
+
         # Hiperparámetros
         num_layers: int = 3,
         heads: int = 4,
@@ -120,8 +130,6 @@ class PharmagenTwoTower(nn.Module):
         self.target_dims: dict[str, int] = target_dims
 
         # --- Torre 1: Fármaco ---
-        # Se puede usar GATv2 también aquí, o cambiar a GINEConv si se prefiere,
-        # pero GATv2 es excelente para capturar farmacóforos complejos.
         self.drug_tower = GATv2Tower(
             in_channels=drug_in_features,
             hidden_channels=drug_hidden_dim,
@@ -134,7 +142,6 @@ class PharmagenTwoTower(nn.Module):
         )
 
         # --- Torre 2: genotipo / Genoma ---
-        # REQUERIMIENTO: Utilizar GATv2 para los grafos del genoma.
         self.geno_tower: GATv2Tower = GATv2Tower(
             in_channels=geno_in_features,
             hidden_channels=geno_hidden_dim,
@@ -143,11 +150,10 @@ class PharmagenTwoTower(nn.Module):
             heads=heads,
             edge_dim=geno_edge_dim,
             dropout=dropout,
-            pooling="add",  # 'add' suele ser mejor para sumar efectos de variantes genéticas
+            pooling="add",
         )
 
         # --- Interaction & Prediction Heads ---
-        # Combinamos las dos torres. La dimensión será embedding_dim * 2 (concatenación)
         combined_dim = embedding_dim * 2
 
         # Creamos una red densa (MLP) para procesar la interacción antes de los cabezales finales
@@ -187,10 +193,10 @@ class PharmagenTwoTower(nn.Module):
         """
 
         # Validaciones básicas
-        #if not (hasattr(drug_data, "x") and hasattr(drug_data, "edge_index")):
-        #    raise ValueError(
-        #        "El objeto drug_data no tiene la estructura de grafo necesaria (x, edge_index)"
-        #    )
+        if not (hasattr(drug_data, "x") and hasattr(drug_data, "edge_index")):
+            raise ValueError(
+                "El objeto drug_data no tiene la estructura de grafo necesaria (x, edge_index)"
+            )
 
         # 1. Forward Torre Fármaco
         # Extraemos atributos de aristas si existen, si no None

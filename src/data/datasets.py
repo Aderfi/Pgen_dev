@@ -477,7 +477,7 @@ class DoubleTowerDataset(Dataset):
 
             if path:
                 try:
-                    self.drug_cache[drug_id] = torch.load(path, weights_only=False)
+                    self.drug_cache[drug_id] = torch.load(path, map_location='cpu', weights_only=False)
                 except Exception as e:
                     logger.warning(f"Failed to load drug {drug_id}: {e}")
 
@@ -507,7 +507,7 @@ class DoubleTowerDataset(Dataset):
                 path = gene_dict.get(variant) if gene_dict else None
 
                 if path:
-                    self.geno_cache[geno_str] = torch.load(path, weights_only=False)
+                    self.geno_cache[geno_str] = torch.load(path, map_location='cpu', weights_only=False)
 
             except Exception as e:
                 logger.warning(f"Failed to load variant {geno_str}: {e}")
@@ -595,7 +595,7 @@ class DoubleTowerDataset(Dataset):
 
         if path and path.exists():
             try:
-                data = torch.load(path, weights_only=False)
+                data = torch.load(path, map_location='cpu', weights_only=False)
 
                 # Handle metadata based on mode
                 if self.inference_mode:

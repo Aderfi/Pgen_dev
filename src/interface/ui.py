@@ -213,22 +213,22 @@ class ConsoleIO:
     @staticmethod
     def print_success(msg: Any):
         """Print success message with ✅."""
-        print(f"{MessageType.SUCCESS. value} {msg}")
+        print(f"{MessageType.SUCCESS.value}  {msg}")
 
     @staticmethod
     def print_error(msg: Any):
         """Print error message with ❌."""
-        print(f"{MessageType.ERROR.value} {msg}", file=sys.stderr)
+        print(f"{MessageType.ERROR.value}  {msg}", file=sys.stderr)
 
     @staticmethod
     def print_warning(msg: Any):
         """Print warning message with ⚠️."""
-        print(f"{MessageType.WARNING.value} {msg}")
+        print(f"{MessageType.WARNING.value}  {msg}")
 
     @staticmethod
     def print_info(msg: Any):
         """Print info message with ℹ️."""
-        print(f"{MessageType.INFO. value} {msg}")
+        print(f"{MessageType.INFO.value} {msg}")
 
     @staticmethod
     def print_divider(char: str = "-", width: int = 60):

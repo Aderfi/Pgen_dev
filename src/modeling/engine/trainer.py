@@ -4,6 +4,7 @@
 
 
 import logging
+import math
 from collections.abc import Mapping, MutableSequence, Set
 from typing import Any, cast
 
@@ -19,7 +20,6 @@ from src.config.manager import DIRS
 from src.utils.checkpoint import CheckpointManager
 from src.utils.exceptions import TrainingError
 from src.utils.losses import MultiTaskUncertaintyLoss
-from src.utils.memory import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -250,8 +250,8 @@ class PGenTrainer:
         self.model.train()
         total_metrics = {"loss": 0.0, "acc": 0.0}
         n_batches = len(loader)
-        if not self.from_optuna:
-            MemoryMonitor.log_memory_stats(f"Epoch {self.current_epoch} start - ")
+        #if not self.from_optuna:
+        #    MemoryMonitor.log_memory_stats(f"Epoch {self.current_epoch} start - ")
 
         # Progress bar (disabled during Optuna)
         progress_iteration = (
@@ -277,14 +277,8 @@ class PGenTrainer:
             for k, v in metrics.items():
                 total_metrics[k] += v
 
-            # Periodic memory cleanup to prevent gradual accumulation
-            if batch_idx % 50 == 0 and batch_idx > 0:
-                MemoryMonitor.clear_memory(
-                    device=self.device,
-                    aggressive=not self.from_optuna
-                )
-        if not self.from_optuna:
-            MemoryMonitor.log_memory_stats(f"Epoch {self.current_epoch} end - ")
+        #if not self.from_optuna:
+        #    MemoryMonitor.log_memory_stats(f"Epoch {self.current_epoch} end - ")
 
         return {k:  v / n_batches for k, v in total_metrics.items()}
 
@@ -343,7 +337,7 @@ class PGenTrainer:
             train_loss = train_metrics["loss"]
 
             # ✅ NaN detection with context-aware error handling
-            if torch.isnan(torch.tensor(train_loss)):
+            if math.isnan(train_loss):
                 msg = f"Training loss is NaN at epoch {epoch}"
                 logger.error(f"❌ {msg}")
 

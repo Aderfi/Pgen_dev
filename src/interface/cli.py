@@ -6,7 +6,6 @@ import datetime
 import logging
 import sys
 import time
-from functools import lru_cache
 from pathlib import Path
 
 # Project Imports
@@ -26,21 +25,18 @@ DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")
 # ==============================================================================
 
 
-@lru_cache(maxsize=1)
 def _get_train_pipeline():
     """Lazy import with automatic cache of train_pipeline."""
     from src.pipeline import train_pipeline
     return train_pipeline
 
 
-@lru_cache(maxsize=1)
 def _get_optuna_study():
     """Lazy import with automatic cache of run_optuna_study."""
     from src.modeling.engine.tuner import run_optuna_study
     return run_optuna_study
 
 
-@lru_cache(maxsize=1)
 def _get_predictor_class():
     """Lazy import with automatic cache of PGenPredictor."""
     from src.modeling.engine.predictor import PGenPredictor

@@ -17,12 +17,17 @@ targets = ["phenotype_category"]
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
-drug_in_features = 25   
-drug_edge_dim = 7
+drug_node_features = 25   
+drug_attrs_features = 7
+
+    # EDGES --> Bond_Type[SINGLE, DOUBLE, TRIPLE, AROMATIC], Conjugated[1,0], In_Ring[1,0], Stereo[1,0], [start, end], [end, start]
+
+
 # Haplo Tower (From all_in_one.py)
-geno_in_features = 9   # [backbone, split/merge, ref, alt, score]
-geno_edge_dim = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
-geno_idx = 2    # Use 0 if you did NOT apply the edge fix in all_in_one.py
+geno_node_features = 9   # [backbone, split/merge, ref, alt, score]
+geno_attrs_features = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
+
+
 
 # --- OPTUNA SEARCH SPACE ---
 # These define the range/choices for the Tuner

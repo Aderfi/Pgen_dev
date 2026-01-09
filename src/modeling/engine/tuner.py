@@ -293,7 +293,7 @@ class PGenTuner:
 
             return result
 
-    def tune(self, n_trials: int, n_jobs: int = 1) -> optuna.Study:
+    def tune(self, n_trials: int, n_jobs: int | None = 1) -> optuna.Study:
         """Executes the optimization study."""
 
         # Sampler/Pruner Factory
@@ -317,25 +317,34 @@ class PGenTuner:
         )
 
         logger.info(f"🚀 Starting Study: {self.study_name}")
-
-        # Progress Bar Callback
-        with tqdm(total=n_trials, desc="Trials", colour="blue") as pbar:
-            def callback(study, trial):
-                pbar.update(1)
-                completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-                if completed:
-                    best = study.best_trial
-                    pbar.set_postfix({"Best": f"{best.value:.4f}", "Trial": trial.number})
-                else:
-                    pbar.set_postfix({"Status": trial.state.name})
-
+        if n_jobs is None:
+            n_jobs = 1
+        if n_jobs > 1:
             study.optimize(
                 self.objective,
                 n_trials=n_trials,
-                n_jobs=1,
-                callbacks=[callback],
+                n_jobs=n_jobs,
                 gc_after_trial=True
             )
+        elif n_jobs == 1:
+            # Progress Bar Callback
+            with tqdm(total=n_trials, desc="Trials", colour="blue") as pbar:
+                def callback(study, trial):
+                    pbar.update(1)
+                    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+                    if completed:
+                        best = study.best_trial
+                        pbar.set_postfix({"Best": f"{best.value:.4f}", "Trial": trial.number})
+                    else:
+                        pbar.set_postfix({"Status": trial.state.name})
+
+                study.optimize(
+                    self.objective,
+                    n_trials=n_trials,
+                    n_jobs=1,
+                    callbacks=[callback],
+                    gc_after_trial=True
+                )
 
         self._save_results(study)
         return study

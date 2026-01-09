@@ -275,6 +275,7 @@ DPYD_RS_MAP = {
 
 # Global Variables for Worker access logic (adapted for Polars map_elements)
 GLOBAL_GENOME = None
+GLOBAL_GENE_TREES = None
 GLOBAL_CHROM_MAPPING = {
     "1": "NC_000001.11",
     "2": "NC_000002.12",
@@ -316,7 +317,7 @@ def smiles_to_graph_complete(smiles: str):
 
     if not isinstance(smiles, str):
         return None
-    mol = Chem.MolFromSmiles(smiles)
+    mol: rdchem.Mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
 
@@ -324,12 +325,14 @@ def smiles_to_graph_complete(smiles: str):
     atom_features = []
     for atom in mol.GetAtoms():
         features = [atom.GetAtomicNum() / 100.0]
+        features.append(atom.GetDegree())
+
+
         features += one_hot_encoding(atom.GetDegree(), [0, 1, 2, 3, 4])
         features += one_hot_encoding(atom.GetFormalCharge(), [-2, -1, 0, 1, 2])
         features += one_hot_encoding(atom.GetHybridization(), [rdchem.HybridizationType.SP, rdchem.HybridizationType.SP2, rdchem.HybridizationType.SP3])
         features += one_hot_encoding(atom.GetTotalNumHs(), [0, 1, 2, 3, 4])
         features += one_hot_encoding(atom.GetChiralTag(), [rdchem.ChiralType.CHI_UNSPECIFIED, rdchem.ChiralType.CHI_TETRAHEDRAL_CW, rdchem.ChiralType.CHI_TETRAHEDRAL_CCW])
-        features.append(atom.GetFormalCharge())
         features.append(1 if atom.GetIsAromatic() else 0)
         features.append(atom.GetMass() * 0.01)
         atom_features.append(features)
@@ -342,7 +345,7 @@ def smiles_to_graph_complete(smiles: str):
         start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
         bond_feats = one_hot_encoding(bond.GetBondType(), [rdchem.BondType.SINGLE, rdchem.BondType.DOUBLE, rdchem.BondType.TRIPLE, rdchem.BondType.AROMATIC])
         bond_feats += [1 if bond.GetIsConjugated() else 0, 1 if bond.IsInRing() else 0, 1 if bond.GetStereo() != rdchem.BondStereo.STEREONONE else 0]
-
+        # Bond_Type[SINGLE, DOUBLE, TRIPLE, AROMATIC], Conjugated[1,0], In_Ring[1,0], Stereo[1,0], [start, end], [end, start]
         edge_indices += [[start, end], [end, start]]
         edge_attrs += [bond_feats, bond_feats]
 

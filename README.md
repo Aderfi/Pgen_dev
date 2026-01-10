@@ -17,7 +17,7 @@ The system's core utilizes a customized **DeepFM (Deep Factorization Machines)**
 ## 🚀 Key Features
 
 - **Hybrid Architecture:** ~~DeepFM model featuring dynamic **embeddings** and **attention mechanisms** to capture complex drug-gene interactions.~~
-                            Pharmagen was categorical model. Now working on a GNN structure based on GATv2
+                            \n\tPharmagen was categorical model. Now working on a GNN structure based on GATv2
 - **Flexible Inference:**
   - **Interactive Mode (CLI):** Optimized for rapid, individual queries.
   - **Batch Mode:** For processing large patient datasets via CSV/TSV files.

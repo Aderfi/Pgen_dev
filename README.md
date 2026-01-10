@@ -32,9 +32,7 @@ El núcleo del sistema utiliza una arquitectura **DeepFM (Deep Factorization Mac
 - **Python:** Versión **3.10** (Estrictamente recomendada).
 - **Entorno Virtual:** Se recomienda encarecidamente usar `venv` o `conda`. (Preferiblemente con `venv`)
 - **Hardware Mínimo:**
-  - RAM: 16GB (32GB recomendado para Optuna)
-  - GPU: 6GB VRAM (12GB+ recomendado)
-  - Almacenamiento: 10GB libres
+    ... 
 
 ---
 

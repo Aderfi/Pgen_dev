@@ -17,7 +17,8 @@ The system's core utilizes a customized **DeepFM (Deep Factorization Machines)**
 ## 🚀 Key Features
 
 - **Hybrid Architecture:** ~~DeepFM model featuring dynamic **embeddings** and **attention mechanisms** to capture complex drug-gene interactions.~~
-                            \n\tPharmagen was categorical model. Now working on a GNN structure based on GATv2
+  Pharmagen was categorical model. **Now working on a GNN structure based on GATv2**
+
 - **Flexible Inference:**
   - **Interactive Mode (CLI):** Optimized for rapid, individual queries.
   - **Batch Mode:** For processing large patient datasets via CSV/TSV files.
@@ -31,16 +32,16 @@ The system's core utilizes a customized **DeepFM (Deep Factorization Machines)**
 
 - **Operating System:** Fully compatible with **Debian 13 (Trixie)** and **Windows 11**.
 - **Python:** Version **3.10** (Strictly recommended).
-- **Virtual Environment:** Use of `venv` or `conda` is highly encouraged (preferably `venv`).
+- **Virtual Environment:** Use of `venv` or `conda` is highly encouraged (preferably `venv` through UV).
 - **Hardware Requirements:**
-    * [Add CPU/GPU/RAM requirements here]
+    * [CPU/GPU/RAM requirements]
 
 ---
 
 ## 📚 Documentation
 
-- **[Memory Optimization Guide](docs/MEMORY_OPTIMIZATION.md)** – Guidelines for preventing OOM (Out of Memory) errors and implementing memory management best practices.
-- **[Code Quality Guidelines](docs/CODE_QUALITY.md)** – Project coding standards and implementation of SOLID principles.
+- **[Memory Optimization Guide](docs/MEMORY_OPTIMIZATION.md)** – Guidelines for preventing OOM (Out of Memory) errors and implementing memory management best practices. --> Doc redacted by AI (Gemini) so i can have an accesible sumup
+- **[Code Quality Guidelines](docs/CODE_QUALITY.md)** – Project coding standards and implementation of SOLID principles. --> Doc redacted by AI (Gemini) so i can have an accesible sumup
 
 ---
 

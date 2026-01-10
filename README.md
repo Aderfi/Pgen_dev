@@ -30,9 +30,9 @@ The system's core utilizes a customized **DeepFM (Deep Factorization Machines)**
 
 ## 📋 Prerequisites
 
-- **Operating System:** Fully compatible with **Debian 13 (Trixie)** and **Windows 11**.
+- **Operating System:** Developed on **Debian 13 (Trixie)** and **Windows 11**. 
 - **Python:** Version **3.10** (Strictly recommended).
-- **Virtual Environment:** Use of `venv` or `conda` is highly encouraged (preferably `venv` through UV).
+- **Virtual Environment:** Use of `venv` or `conda` is highly encouraged ****(preferably `venv` through `UV`)****. if `conda` --> `mamba`
 - **Hardware Requirements:**
     * [CPU/GPU/RAM requirements]
 

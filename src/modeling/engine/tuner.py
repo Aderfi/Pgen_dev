@@ -43,25 +43,22 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # Constants
 MIN_DATASET_SIZE = 1000
 DEFAULT_MAX_BATCH_SIZE = 128
-N_JOBS = 1  # Mantener en 1 para estabilidad con CUDA/GNNs
+N_JOBS = 1
 
 @contextmanager
 def trial_context(trial_number: int, device: torch.device) -> Generator[None, None, None]:
     """
     Context Manager to handle Trial setup, error handling (OOM), and cleanup.
-    Follows Pythonic resource management patterns.
     """
     # 1. Setup (Clean state)
     gc.collect()
     if device.type == 'cuda':
         torch.cuda.empty_cache()
-
     try:
         yield
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
             logger.error(f"❌ Trial {trial_number}: OOM Error. Pruning.")
-            # Limpieza agresiva antes de lanzar la excepción
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             raise optuna.TrialPruned("CUDA OOM")
@@ -265,33 +262,30 @@ class PGenTuner:
     def objective(self, trial: optuna.Trial) -> float:
         """Atomic Unit of Work (The Trial)."""
 
-        # Use context manager for robust cleanup
-        with trial_context(trial.number, self.device):
-            # 1. Hyperparameters
-            params = self._suggest_params(trial)
-            batch_size = min(int(params.get("batch_size", 64)), self.max_batch_size)
-            epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
+        #with trial_context(trial.number, self.device):
+        # 1. Hyperparameters
+        params = self._suggest_params(trial)
+        batch_size = min(int(params.get("batch_size", 64)), self.max_batch_size)
+        epochs = int(self.cfg.get("params_optuna", {}).get("epochs", 50))
 
-            # 2. DataLoaders (Created fresh per trial for safety, but components reused)
-            # num_workers=0 to avoid multiprocessing overhead/errors in Windows
-            train_loader = DataLoader(
-                self.train_dataset, batch_size=batch_size, shuffle=True,
-                collate_fn=self.collater, num_workers=0, pin_memory=True
-            )
-            val_loader = DataLoader(
-                self.val_dataset, batch_size=batch_size, shuffle=False,
-                collate_fn=self.collater, num_workers=0, pin_memory=True
-            )
+        # 2. DataLoaders
+        train_loader = DataLoader(
+            self.train_dataset, batch_size=batch_size, shuffle=True,
+            collate_fn=self.collater, num_workers=0, pin_memory=True
+        )
+        val_loader = DataLoader(
+            self.val_dataset, batch_size=batch_size, shuffle=False,
+            collate_fn=self.collater, num_workers=0, pin_memory=True
+        )
 
-            # 3. Build & Train
-            # Note: We don't need to keep 'model' reference here, trainer holds it
-            _, trainer = self._build_pipeline(params)
+        # 3. Build & Train
+        _, trainer = self._build_pipeline(params)
 
-            result = trainer.fit(
-                train_loader, val_loader, epochs=epochs, patience=self.patience, trial=trial
-            )
+        result = trainer.fit(
+            train_loader, val_loader, epochs=epochs, patience=self.patience, trial=trial
+        )
 
-            return result
+        return result
 
     def tune(self, n_trials: int, n_jobs: int | None = 1) -> optuna.Study:
         """Executes the optimization study."""
@@ -360,7 +354,7 @@ class PGenTuner:
         is_minimize = study.direction == optuna.study.StudyDirection.MINIMIZE
 
         best_trial = study.best_trial
-        completed_trials.sort(key=lambda t: t.value, reverse=not is_minimize) # type: ignore
+        completed_trials.sort(key=lambda t: t.value, reverse=not is_minimize) # type: ignore ; Linter bug
         top_5 = completed_trials[:5]
 
         # JSON Report

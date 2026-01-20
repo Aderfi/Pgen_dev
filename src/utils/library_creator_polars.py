@@ -5,12 +5,15 @@ import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import networkx as nx
 import polars as pl
 import torch
 from pyfaidx import Fasta
+from rdkit import Chem
+from rdkit.Chem import rdchem
 from torch_geometric.data import Data
 from tqdm import tqdm
 
@@ -312,9 +315,6 @@ GLOBAL_CHROM_MAPPING = {
 
 
 def smiles_to_graph_complete(smiles: str):
-    from rdkit import Chem
-    from rdkit.Chem import rdchem
-
     if not isinstance(smiles, str):
         return None
     mol: rdchem.Mol = Chem.MolFromSmiles(smiles)

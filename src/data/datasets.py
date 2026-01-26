@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 UNKNOWN_CATEGORY_LABEL = "__UNKNOWN__"
-EMPTY_GRAPH_NODE_DIM = 5
+#EMPTY_GRAPH_NODE_DIM = 5
 PRELOAD_THRESHOLD = 5000  # Max samples for RAM preloading
 GC_INTERVAL = 1000  # Garbage collection interval
 
@@ -134,11 +134,8 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
 
             if isinstance(enc, MultiLabelBinarizer):
                 # --- PATRÓN MULTI-LABEL (Batch Mapping) ---
-                # 1. Definimos una función de transformación pura de Python para el map_batches
-                #    Esto es necesario porque Scikit-learn es una "caja negra" para Polars.
                 def apply_mlb(series: pl.Series) -> pl.Series:
-                    # A. Pre-procesamiento en Polars (Split) -> a Python List
-                    #    Manejamos nulos como listas vacías antes de salir a Python
+                    # A. Pre-procesamiento en Polars (Split) -> Python List
                     parsed = series.str.split("|").fill_null(
                         pl.lit([], dtype=pl.List(pl.String))
                     ).to_list()
@@ -147,8 +144,6 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
                     matrix = enc.transform(parsed)
 
                     # C. Empaquetado para Polars
-                    #    Convertimos la matriz (N_samples, N_classes) a una Serie de Listas.
-                    #    Cada fila del DF tendrá una lista [0, 1, 0...]
                     return pl.Series([list(row) for row in matrix], dtype=pl.List(pl.Int8))
 
                 # 2. Añadimos la expresión a la cola
@@ -171,9 +166,6 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
                     unknown_idx = -1
 
                 # 3. Detección de valores desconocidos para Logging (Requisito del usuario)
-                #    Hacemos un chequeo rápido antes de transformar.
-                #    Nota: Esto añade un poco de cómputo, pero respeta tu lógica de negocio.
-                #    Verificamos qué valores de la columna NO están en las claves del mapa.
                 if logger.isEnabledFor(logging.DEBUG):
                     unique_vals_in_col = df.select(pl.col(col).drop_nulls().unique()).to_series().to_list()
                     unknown_count = sum(1 for v in unique_vals_in_col if v not in class_mapping)
@@ -182,7 +174,6 @@ class PGenProcessor(BaseEstimator, TransformerMixin):
                         logger.warning(f"Column '{col}': found values not in encoder classes. Mapping to '{UNKNOWN_CATEGORY_LABEL}' (ID: {unknown_idx})")
 
                 # 4. Mapeo, Replacement y Casteo
-                #    'default': UNK_VAL ->unknown_idx.
                 expressions.append(
                     pl.col(col)
                     .cast(pl.String)

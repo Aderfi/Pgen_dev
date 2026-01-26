@@ -59,8 +59,6 @@ from src.interface.cli import main_menu_loop
 from src.interface.ui import ConsoleIO, Spinner
 from src.utils.logger import setup_logging
 
-# from src.utils.system import check_environment_and_setup
-
 # --- Setup de Rutas ---
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(PROJECT_ROOT))

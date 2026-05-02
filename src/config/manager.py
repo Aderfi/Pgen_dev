@@ -90,6 +90,14 @@ DIRS = {
     "encoders": _resolve(_PATHS_CFG["models"]["encoders"]),
 }
 
+# Flat aliases used by genomics modules (Phase 3 will replace these with Pydantic Settings)
+DATA_DIR = DIRS["data"]
+_GENOME_CFG = _PATHS_CFG.get("genome_references", {})
+REF_GENOME_DIR = _resolve(_GENOME_CFG.get("ref_genome_dir", "data/ref_genome"))
+REF_GENOME_FASTA = _resolve(
+    _GENOME_CFG.get("ref_genome_fasta", "data/ref_genome/HSapiens_GChr38.fa")
+)
+
 # Ensure directories exist
 for d in DIRS.values():
     d.mkdir(parents=True, exist_ok=True)

@@ -6,8 +6,6 @@ from collections.abc import Mapping, MutableSequence, Set
 from typing import Any
 
 import torch
-from torch import nn
-
 from src.utils.losses import (
     AdaptiveFocalLoss,
     AsymmetricLoss,
@@ -15,6 +13,7 @@ from src.utils.losses import (
     MultiTaskUncertaintyLoss,
     PolyLoss,
 )
+from torch import nn
 
 logger = logging.getLogger(__name__)
 

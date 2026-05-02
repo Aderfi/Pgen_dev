@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List
 
 # Imports de configuración
-from src.cfg.config import DATA_DIR, PROJECT_ROOT, REF_GENOME_FASTA
+from src.config.manager import DATA_DIR, PROJECT_ROOT, REF_GENOME_FASTA
 
 logger = logging.getLogger(__name__)
 

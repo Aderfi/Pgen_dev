@@ -18,7 +18,7 @@ import requests
 from tqdm.auto import tqdm
 
 # Configuración del Proyecto
-from src.cfg.config import REF_GENOME_DIR, REF_GENOME_FASTA
+from src.config.manager import REF_GENOME_DIR, REF_GENOME_FASTA
 
 logger = logging.getLogger(__name__)
 

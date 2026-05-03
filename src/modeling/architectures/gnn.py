@@ -32,10 +32,10 @@ class GATv2Tower(nn.Module):
         self.dropout: float = dropout
 
         self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList() # Normalizaciones de grafo
+        self.norms = nn.ModuleList()  # graph normalization layers
         self.skips = nn.ModuleList()
 
-        # Input ayer
+        # Build the GAT stack with residual projections.
         curr_in = in_channels
         for i in range(num_layers):
             out_dim = hidden_channels * heads
@@ -43,16 +43,15 @@ class GATv2Tower(nn.Module):
                 GATv2Conv(curr_in, hidden_channels, heads=heads, edge_dim=edge_dim, concat=True)
             )
             self.norms.append(GraphNorm(out_dim))
-            #self.skips.append(nn.Linear(curr_in, out_dim))
+            # Identity skip when dims already match — saves a Linear layer of params.
             if curr_in != out_dim:
                 self.skips.append(nn.Linear(curr_in, out_dim))
             else:
-                self.skips.append(nn.Identity()) # Ahorro masivo de memoria
+                self.skips.append(nn.Identity())
 
             curr_in = out_dim
 
-
-        # Proyección final post-pooling
+        # Post-pooling projection.
         self.post_pool_mlp = nn.Sequential(
             nn.Linear(curr_in, curr_in),
             nn.ELU(),
@@ -67,20 +66,20 @@ class GATv2Tower(nn.Module):
         batch: Tensor,
     ) -> Tensor:
         """
-        x: Características de los nodos [Num_Nodes, Num_Features]
-        edge_index: Conectividad del grafo [2, Num_Edges]
-        edge_attr: Características de los enlaces [Num_Edges, Edge_Dim] (opcional)
-        batch: Vector de asignación de nodos a grafos en el batch [Num_Nodes]
+        Args:
+            x:          node features          [num_nodes, num_features]
+            edge_index: graph connectivity     [2, num_edges]
+            edge_attr:  optional edge features [num_edges, edge_dim]
+            batch:      node→graph mapping     [num_nodes]
         """
 
         for i in range(self.num_layers):
             x_in = x
 
-            # 1. Message Passing (Attention)
+            # 1. Message passing (attention)
             x = self.convs[i](x, edge_index, edge_attr=edge_attr)
 
-            # 2. Skip Connection (Residual) + BatchNorm + Activation
-            # Proyectamos la entrada original si las dimensiones no coinciden para la suma residual
+            # 2. Residual skip + GraphNorm + activation
             if self.skips[i] is not None:
                 x_in = self.skips[i](x_in)
 
@@ -89,7 +88,7 @@ class GATv2Tower(nn.Module):
             x = F.elu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
 
-        # 3. Global Pooling (Readout) - Convierte nodo-level a grafo-level
+        # 3. Readout: aggregate node-level → graph-level
         if self.pooling == "mean":
             x_graph = global_mean_pool(x, batch)
         elif self.pooling == "add":
@@ -106,22 +105,18 @@ class GATv2Tower(nn.Module):
 class PharmagenTwoTower(nn.Module):
     def __init__(
         self,
-
-        # Configuración Torre Fármaco
+        # Drug tower configuration
         drug_in_features: int,
         drug_edge_dim: int,
         drug_hidden_dim: int,
-
-        # Configuración Torre genotipo
+        # Genotype tower configuration
         geno_in_features: int,
         geno_edge_dim: int,
         geno_hidden_dim: int,
-
-        # Configuración Global
+        # Global / shared
         embedding_dim: int,
         target_dims: dict[str, int],
-
-        # Hiperparámetros
+        # Hyperparameters
         num_layers: int = 3,
         heads: int = 4,
         dropout: float = 0.1,

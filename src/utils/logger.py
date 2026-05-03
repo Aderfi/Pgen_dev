@@ -24,7 +24,7 @@ from src.config.manager import DIRS
 def setup_logging(name="Pharmagen", level=None, console_level=None):
     logger_root = logging.getLogger()
     if logger_root.handlers:
-        return logger_root  # ya configurado
+        return logger_root  # already configured
 
     log_file = DIRS["logs"] / f"{name}_{datetime.now():%Y-%m-%d}.log"
 

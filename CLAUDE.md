@@ -8,86 +8,102 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Drug tower** — molecular graphs derived from SMILES via RDKit (atomic + bond features).
 - **Genotype tower** — variant topology graphs built from VCFs/TSVs validated against GRCh38.
-- Towers are encoded with `GATv2Tower` (see `src/modeling/architectures/gnn.py`) and fused into multi-task heads sized by `target_dims`.
+- Towers are encoded with `GATv2Tower` (`src/modeling/architectures/gnn.py`) and fused into multi-task heads sized by `target_dims`.
 
-Earlier DeepFM code is referenced in places but is being phased out in favor of the GNN architecture.
+DeepFM code referenced in some places is being phased out in favor of the GNN.
+
+## Refactor Status
+
+This codebase is mid-refactor. The current plan and progress are in **`Ref.md`**. As of the last commit, Phases 0–3, 4a, 6 (partial), and 7 are complete:
+
+- ✅ **Phase 0–1** — `src/CAJON DE SASTRE/` moved to `BACKUPS/`; broken imports restored under `src/utils/`.
+- ✅ **Phase 2** — Pydantic v2 domain models in `src/domain/` (Drug, Variant, Gene, StarAllele, Position, Genotype, GraphMetadata, PredictionRequest/Result). 66 tests.
+- ✅ **Phase 3** — Pydantic Settings in `src/config/`. `Settings` + `ModelConfig` (with discriminated `OptunaSpec` union for `["log", lo, hi]` / `["int", …]` / etc.). TOMLs moved to `src/config/data/`. `src/config/manager.py` is now a back-compat shim that exposes `DIRS`, `SEED`, `MULTI_LABEL_COLS`, etc. derived from the typed Settings. 25 tests.
+- ✅ **Phase 4a** — Star-allele table extracted from `src/interface/io.py` to `data/dicts/star_alleles.tsv`, loaded via `src/genomics/star_alleles.py::StarAlleleMap`. 16 tests.
+- ⏳ **Phase 4b–f** (deferred) — split `DoubleTowerDataset`, `DataLoaderUtils`, `PGenTrainer` into focused units. The current `src/data/datasets.py` is still a god object.
+- ✅ **Phase 5 (partial)** — `subprocess.run(shell=True, ...)` removed from `src/genomics/ngs_pipeline.py`; `bwa mem | samtools sort` runs via Python `Popen` plumbing. `src/genomics/variant_val.py::iter_variants` uses pysam for full VCF iteration with build-mismatch detection. `input()` calls removed from library code.
+- ✅ **Phase 6 (partial)** — Spanish translated in `src/genomics/{ref_genome,ngs_pipeline,variant_val}.py`, `src/utils/logger.py`, `src/modeling/architectures/gnn.py`. `MemoryError` renamed to `PharmagenMemoryError` (with alias for back-compat); `ValidationError` no longer multi-inherits `IndexError, ValueError`. **Spanish remains in `src/data/datasets.py` and `src/data/lib_builder_polars.py`** — those are user-WIP files left for Phase 4.
+- ✅ **Phase 7** — FastAPI inference service under `src/api/`. 19 tests.
+- ⏳ **Phase 8** — CI workflow + docs sweep.
+
+## Layout
+
+```
+src/
+├── api/                 # FastAPI service (Phase 7)
+│   ├── main.py          # create_app() factory + lifespan
+│   ├── deps.py          # PredictorRegistry + DI
+│   ├── schemas.py       # HTTP envelopes
+│   └── routers/         # health, models, predict, library
+├── domain/              # Pydantic v2 domain models (Phase 2)
+│   ├── drug.py          # Drug + Drug.from_smiles()
+│   ├── variant.py       # GenomeBuild, Position, Variant, Genotype
+│   ├── gene.py          # Gene, StarAllele, AlleleFunction
+│   ├── graph.py         # GraphKind, GraphMetadata, GraphPair
+│   └── prediction.py    # PredictionRequest, PredictionResult
+├── config/              # Pydantic Settings (Phase 3)
+│   ├── __init__.py      # Public API: get_settings, get_model_config, …
+│   ├── settings.py      # Settings (env-overridable via PHARMAGEN_*)
+│   ├── models.py        # ModelConfig + OptunaSpec discriminated union
+│   ├── paths.py         # Paths model with ensure_dirs()
+│   ├── manager.py       # back-compat shim (DIRS, SEED, …)
+│   └── data/            # paths.toml, settings.toml, models.toml
+├── genomics/
+│   ├── star_alleles.py  # StarAlleleMap from data/dicts/ (Phase 4a)
+│   ├── reference.py     # was ref_genome.py — translated, no shell=True
+│   ├── ngs_pipeline.py  # 4-phase NGS pipeline, argv-based subprocess
+│   └── variant_val.py   # iter_variants() with build-mismatch validation
+├── modeling/            # Largely unchanged; trainer/predictor still use legacy shim
+├── data/                # ⚠️ user WIP (datasets.py is the next god object to split)
+├── interface/           # CLI + console utilities (Phase 4 will move into src/cli/)
+├── utils/               # exceptions, logger, restored memory/validation/etc.
+└── pipeline.py          # train_pipeline orchestrator
+```
 
 ## Environment & Commands
 
-The project is managed with **uv** (`uv.lock` is the source of truth). Python is pinned to **3.14** in `.python-version` and `pyproject.toml`, but `ruff`/`mypy` still target `py310` — when adjusting tooling, expect this discrepancy.
+The project is managed with **uv**. Python is pinned to **3.14**; ruff/mypy still target `py310` (a discrepancy worth fixing in Phase 8).
 
 ```bash
-# Install (editable, dev extras)
-uv sync --extra dev
+uv sync --extra dev           # install
+ruff check . && ruff format .
 
-# Run the app — interactive menu (default)
-python main.py
-
-# Headless training
-python main.py --mode train --model TwoTowerGAT --input train_data/train_data.tsv --epochs 100
-
-# Optuna hyperparameter search
-python main.py --mode train --optuna --optuna-trials 50 --optuna-epochs 30
-
-# Headless prediction (writes <stem>_predictions_<date>.csv next to the input)
+# CLI
+python main.py                # interactive menu (default)
+python main.py --mode train --model TwoTowerGAT --input data/train.tsv --epochs 100
 python main.py --mode predict --model TwoTowerGAT --input data/test.csv
 
-# Lint / format / type-check
-ruff check .
-ruff format .
-mypy src
+# FastAPI inference service
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+# → http://localhost:8000/docs (auto OpenAPI)
+# → GET /health, GET /v1/models, POST /v1/predict (single + /batch),
+#   GET /v1/library/{drugs,genes,genes/{symbol}}
 
-# Tests (pytest discovers under tests/, see tests/pytest.ini)
-pytest tests/
-pytest tests/unit/
-pytest tests/integration/
-pytest tests/ -m "not slow"          # skip slow
-pytest tests/ -m "not cuda"          # skip GPU-only
-pytest tests/unit/config/test_manager.py::TestName::test_case  # single test
-pytest tests/ --cov=src --cov-report=html
+# Tests (use --override-ini to skip the addopts coverage flag in pyproject.toml,
+# which references a "pharmagen" package that doesn't exist)
+python -m pytest tests/unit/ -q --override-ini="addopts="
+python -m pytest tests/unit/api/ -q --override-ini="addopts="
+python -m pytest tests/unit/domain/ -v --override-ini="addopts="
 ```
 
-Note: `pyproject.toml`'s `[tool.pytest.ini_options]` and `tests/pytest.ini` disagree (the former adds `--cov=pharmagen` which doesn't exist as a package). Tests are typically driven by `tests/pytest.ini`; if a `pytest` invocation fails on coverage flags, run from `tests/` or override `--cov=src`.
+## Conventions to keep
 
-## Repository State — Mid-Refactor
+- **Pydantic everywhere at boundaries.** New code accepting external input (HTTP, CLI args, TSV rows, TOML) goes through `src/domain/` or `src/config/` models — `dict[str, Any]` is banned in those layers.
+- **Coordinates are 1-based.** `Position.pos` matches FASTA/VCF conventions. Anything 0-based is internal-only and named `_0based`.
+- **Genome build is part of every Position.** Build mismatch is a fail-fast error (`BioinformaticsError`), not a warning. See `iter_variants` for the pattern.
+- **Star alleles come from `data/dicts/star_alleles.tsv`.** Don't reintroduce hardcoded tables in code. Add a row to the TSV instead.
+- **No `shell=True` in subprocess calls.** Use argv lists. For pipes, use `subprocess.Popen` plumbing (see `ngs_pipeline.MappingAlignmentAnalysis.map_reads`).
+- **No `input()` in library code.** Interactive prompts live in `src/interface/cli.py` or future `src/cli/workflows/`. Library functions take parameters or return generators.
+- **Use `get_settings()` / `get_model_config()` in new code**, not `from src.config.manager import DIRS, SEED, …`. The shim exists for legacy callers and will be removed in a follow-up phase.
+- **No emoji in log messages.** Emoji are for `ConsoleIO` user-facing output. Log messages use `logger.info("Doing X (sample=%s)", sample_id)` style.
+- **English everywhere.** Spanish identifiers/comments in `src/` are tech debt to fix; `BACKUPS/` is exempted.
 
-The current branch (`main`, ahead of commit `6644538 "Commit before refactor"`) is **mid-restructure**. Several modules imported by `src/pipeline.py` have been deleted from `src/utils/` but not yet replaced:
+## Outstanding tech debt
 
-- Deleted: `src/utils/{checkpoint,data_utils,io,library_creator,library_creator_polars,losses,memory,metrics,module_builder,system,validation}.py`
-- New (untracked): `src/types/`, `src/data/lib_builder_polars.py`, `src/data/lib_builder_v2.py`, `src/interface/io.py`, `docs/LIBRARY_BUILDER.md`, `src/CAJON DE SASTRE/` (a scratch/junk drawer — avoid editing).
-
-Consequence: `from src.pipeline import train_pipeline` will currently fail at import time. When working in the pipeline/training path, expect to re-wire imports to the new homes (likely under `src/data/`, `src/types/`, and a future `src/utils/` rebuild) rather than restoring the deleted files. Verify what exists before assuming an import path is valid.
-
-## Architecture
-
-### Configuration (`src/config/`)
-- `manager.py` is the canonical entry — it loads three TOMLs at import time (`paths.toml`, `settings.toml`, `models.toml`), exposes `DIRS`, `SEED`, `MULTI_LABEL_COLS`, `PROJECT_ROOT`, and `get_model_config(model_name)`. It validates everything against `ConfigValidator` (currently in the deleted `src/utils/validation.py` — see refactor note).
-- `loader.py` defines an alternative `ModelConfigLoader` class but `manager.get_model_config` is what the rest of the code calls.
-- Model definitions live in `src/config/models.toml`. Each model (e.g. `TwoTowerGAT`) declares `cols`, `features`, `targets`, dimension hints, and two parameter blocks: `[Model.params]` (active hyperparameters) and `[Model.optuna]` (search space, with values like `["log", 1e-4, 1e-2]`, `["categorical", 64, 128]`, `["int", 4, 6]`).
-
-### Training Path (`src/pipeline.py` → `src/modeling/engine/`)
-`train_pipeline` orchestrates: load+validate config → load+validate data → split → estimate memory → build `DoubleTowerDataset` (validation reuses train's `encoders` — critical) → infer real `drug_dim`/`haplo_dim`/`target_dims` from a sample → build `DoubleTowerCollater` DataLoaders → `create_gnn_model(...)` → `PGenTrainer.fit(...)`. Optuna goes through `src/modeling/engine/tuner.py::run_optuna_study`, and `PGenTrainer` has an `from_optuna` mode that disables checkpointing/compilation.
-
-### Data (`src/data/`)
-- `datasets.py` — `DoubleTowerDataset` returns dicts with `drug_data` and `haplo_data` PyG `Data` objects.
-- `collator.py` — `DoubleTowerCollater` batches the two towers into a single batch.
-- `lib_builder_polars.py` / `lib_builder_v2.py` — graph-library builders (drugs from SMILES, variants from VCF/TSV against `data/ref_genome/HSapiens_GChr38.fa`). See `docs/LIBRARY_BUILDER.md` for input schemas.
-
-### Genomics (`src/genomics/`)
-VCF handling, reference genome wrappers, and variant validation. Variants must be **1-based**; `start_pos` is decremented internally before FASTA lookup. Mismatches typically come from chromosome naming (`chr1` vs `NC_000001`) — `GLOBAL_CHROM_MAPPING` handles this.
-
-### Interface (`src/interface/`)
-- `cli.py` — interactive menu (`main_menu_loop`), uses lazy imports (`_get_train_pipeline`, etc.) to keep startup fast.
-- `ui.py` — `ConsoleIO`, `Spinner`, `ProgressBar` primitives. Use these instead of bare `print` for user-facing output.
-- `io.py` — license/notice printing.
-
-### Outputs / Artifacts
-Everything is rooted at `PROJECT_ROOT` (3 levels up from `src/config/manager.py`). Models save to `src/pgen_model/models/`, encoders to `src/pgen_model/encoders/`, Optuna reports to `reports/optuna_reports/`, training reports to `reports/train_reports/`, logs to `logs/`. These are auto-created on import of `manager.py`.
-
-## Conventions
-
-- New columns/targets must be added to **both** `models.toml` (`cols`, `features`, `targets`) **and** the relevant dataset/encoder logic — `train_dataset.encoders` is reused by validation, so anything missing there breaks dimension inference at `_infer_dimensions`.
-- For multi-label targets, append the column name to `[project].multi_label_cols` in `settings.toml`; it flows through as `MULTI_LABEL_COLS`.
-- Errors raised from training/data/config code should use the typed exception hierarchy in `src/utils/exceptions.py` (`ConfigurationError`, `DataError`, `ModelError`, `MemoryError`/`PharmagenMemoryError`, etc.) rather than bare `ValueError`/`RuntimeError`.
-- Data files (`data/`, `train_data/`, `src/library/`, model artifacts) are gitignored and excluded from AI context via `.aiexclude` — don't expect them to be readable in fresh checkouts.
-- Don't edit anything under `src/CAJON DE SASTRE/` — it's a scratch directory.
+- `src/data/datasets.py` is 820 lines and mixes loading/encoding/caching/validation. Phase 4 will split into `GraphCache`, `EncoderRegistry`, slim `DoubleTowerDataset`.
+- `src/modeling/engine/trainer.py` has dual-mode logic (standard vs Optuna) gated by `from_optuna` flag. Phase 4f will split into `StandardTrainer` + `OptunaTrialTrainer` over a common `TrainingLoop` base.
+- `src/data/lib_builder_v2.py` has `...` stubs in `molecule_graph_builder()` and `main()`. Either complete or remove.
+- `src/genomics/vcf_handler/wrapper.py` (32 lines) calls a non-existent C++ binary. Either remove or guard behind `shutil.which("vcf_tool")`.
+- `pyproject.toml` `[tool.pytest.ini_options].addopts` includes `--cov=pharmagen` which doesn't exist as a package. Override with `--override-ini="addopts="` until fixed.
+- `tests/pytest.ini` has its own (older) coverage config. Both should be unified in Phase 8.
+- `src/config/manager.py` calls `paths.ensure_dirs()` on import — that's a side effect for back-compat. New code should call `get_settings().paths.ensure_dirs()` explicitly (see `src/api/main.py::lifespan`).

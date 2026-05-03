@@ -80,19 +80,20 @@ class ModelError(PharmagenException):
     """
     pass
 
-class MemoryError(PharmagenException):
+class PharmagenMemoryError(PharmagenException):
     """Raised when memory constraints are violated.
 
     Examples:
         - Insufficient memory for batch size
         - OOM during training
         - Cache size exceeds limits
-
-    Note:
-        This shadows Python's built-in MemoryError.
-        Use fully qualified name if needed: builtins.MemoryError
     """
     pass
+
+
+# Backwards-compatible alias. New code should use PharmagenMemoryError to
+# avoid shadowing the built-in.
+MemoryError = PharmagenMemoryError
 
 class OptimizationError(PharmagenException):
     """Raised when optimization/training fails.
@@ -124,7 +125,7 @@ class TrainingError(PharmagenException):
     """
     pass
 
-class ValidationError(PharmagenException, IndexError, ValueError):
+class ValidationError(PharmagenException):
     """Raised when validation of inputs or configurations fails.
 
     Examples:

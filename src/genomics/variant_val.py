@@ -1,170 +1,172 @@
 # Pharmagen - Pharmacogenetic Prediction and Therapeutic Efficacy
 # Copyright (C) 2025 Adrim Hamed Outmani
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Licensed under the GNU GPLv3. See LICENSE file in the project root.
+"""VCF parsing and variant validation against a reference FASTA.
 
+Bioinformatics conventions:
+    - VCF coordinates are 1-based; pysam exposes ``record.pos`` (1-based) and
+      ``record.start`` (0-based, half-open). We compare REF using the
+      half-open ``[start, stop)`` slice from pysam, which already matches
+      the underlying FASTA bytes.
+    - Multi-allelic sites and missing genotypes ('./.') are handled
+      explicitly.
+    - The interactive VCF picker is intentionally NOT in this module — it
+      lives in the CLI layer (src/cli/workflows/genomics.py once Phase 4f
+      lands). Library code never calls ``input()``.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Generator, Iterable
 from pathlib import Path
-from typing import Any, Dict, Optional
-from collections.abc import Generator
+from typing import Any
 
-import pysam  # type: ignore      # Biblioteca solo disponible en Linux/Unix
+import pysam  # type: ignore[import-not-found]
 
-import src.cfg.config as cfg
-
-# Rutas constantes
-RUTA_FASTA = cfg.REF_GENOME_FASTA
-RUTA_VCF_DIR = Path(cfg.DATA_DIR, "raw")
+from src.config.manager import DATA_DIR, REF_GENOME_FASTA
+from src.utils.exceptions import BioinformaticsError
 
 
-def seleccionar_vcf(vcf_path: Path = RUTA_VCF_DIR) -> Path | None:
+logger = logging.getLogger(__name__)
+
+
+# Default locations — keep available for legacy callers/scripts.
+DEFAULT_FASTA: Path = REF_GENOME_FASTA
+DEFAULT_VCF_DIR: Path = Path(DATA_DIR, "raw")
+
+
+def list_vcf_files(vcf_dir: Path = DEFAULT_VCF_DIR) -> list[Path]:
+    """Return the .vcf.gz files available under ``vcf_dir`` (sorted)."""
+    if not vcf_dir.exists():
+        return []
+    return sorted(vcf_dir.glob("*.vcf.gz"))
+
+
+def decode_genotype(record: Any, sample_id: str) -> dict[str, Any]:
+    """Decode a single sample's genotype from a pysam VariantRecord.
+
+    Handles missing calls, homozygous (ref/alt), heterozygous, and compound
+    heterozygous (Alt1/Alt2) cases.
+
+    Returns a dict with::
+
+        {
+            "type":   "Homozygous Reference" | "Homozygous Alternate"
+                     | "Heterozygous" | "Compound Heterozygous"
+                     | "Missing",
+            "alleles": "A/G"  # or "./." for missing
+        }
     """
-    Lista y permite seleccionar un archivo VCF.gz del directorio.
-    """
-    # Usamos list(path.glob) que es más moderno que glob.glob
-    vcf_files = list(vcf_path.glob("*.vcf.gz"))
-
-    if not vcf_files:
-        print(f"❌ No se encontraron archivos .vcf.gz en {vcf_path}")
-        return None
-
-    print("\n📂 Pacientes disponibles:")
-    for i, vcf_file in enumerate(vcf_files):
-        print(f"  {i + 1}. {vcf_file.name.replace('.vcf.gz', '')}")
-
-    while True:
-        try:
-            entrada = input("\nSelecciona el número del paciente (o 'q' para salir): ")
-            if entrada.lower() == "q":
-                return None
-
-            seleccion = int(entrada) - 1
-            if 0 <= seleccion < len(vcf_files):
-                return vcf_files[seleccion]
-            print("⚠️ Selección fuera de rango.")
-        except ValueError:
-            print("⚠️ Por favor, introduce un número válido.")
-
-
-def decodificar_genotipo(record, sample_id: str) -> dict[str, Any]:
-    """
-    Interpreta dinámicamente el genotipo, manejando multialélicos y nulos.
-    """
-    # Obtener llamada de genotipo (ej: (0, 1) o (None, None))
     gt_tuple = record.samples[sample_id]["GT"]
 
-    # Caso: Dato faltante (./.)
     if None in gt_tuple:
-        return {"tipo": "No Llamado/Missing", "alelos": "./."}
+        return {"type": "Missing", "alleles": "./."}
 
-    # Mapear índices a bases reales
-    # record.alleles es una tupla con (REF, ALT1, ALT2...)
-    # Ej: record.alleles = ('A', 'T', 'G') -> índice 0='A', 1='T', 2='G'
-    alelos_decodificados = [record.alleles[idx] for idx in gt_tuple]
-    alelos_str = "/".join(alelos_decodificados)
+    decoded_alleles = [record.alleles[idx] for idx in gt_tuple]
+    allele_str = "/".join(decoded_alleles)
 
-    # Determinar tipo
-    if len(set(gt_tuple)) == 1:
-        # Si todos los índices son iguales (0/0, 1/1, 2/2)
-        if gt_tuple[0] == 0:
-            tipo = "Homocigoto Referencia (WT)"
-        else:
-            tipo = "Homocigoto Alternativo"
+    unique_indices = set(gt_tuple)
+    if len(unique_indices) == 1:
+        gt_type = "Homozygous Reference" if gt_tuple[0] == 0 else "Homozygous Alternate"
+    elif 0 in unique_indices:
+        gt_type = "Heterozygous"
     else:
-        # Índices distintos (0/1, 1/2)
-        if 0 in gt_tuple:
-            tipo = "Heterocigoto"
-        else:
-            tipo = "Heterocigoto Compuesto (Alt1/Alt2)"
+        gt_type = "Compound Heterozygous"
 
-    return {"tipo": tipo, "alelos": alelos_str}
+    return {"type": gt_type, "alleles": allele_str}
 
 
-def procesar_paciente(
-    vcf_path: Path, fasta_path: Path, region: str | None = None
-) -> Generator[dict, None, None]:
-    """
-    Generador que procesa variantes. Usa 'yield' para eficiencia de memoria.
-    Permite filtrar por región (ej: 'chr1:1000-2000').
+def iter_variants(
+    vcf_path: Path,
+    fasta_path: Path = DEFAULT_FASTA,
+    region: str | None = None,
+    *,
+    skip_ref_blocks: bool = True,
+) -> Generator[dict[str, Any], None, None]:
+    """Yield validated variants from a VCF, one record at a time.
+
+    Each variant is validated against ``fasta_path``: records whose REF doesn't
+    match the FASTA at that position are logged and skipped (this catches
+    build mismatches — e.g. supplying a GRCh37 VCF with a GRCh38 FASTA).
+
+    Args:
+        vcf_path: Path to the VCF (gzipped or not).
+        fasta_path: Reference genome FASTA (must be indexed; .fai needed).
+        region: Optional pysam region string (e.g. ``"chr1:1000-2000"``).
+        skip_ref_blocks: If True, skip records with no ALT (gVCF reference
+            blocks). Set False to retain them.
+
+    Yields:
+        ``{chrom, pos, ref, alts, quality, genotype, zygosity}`` per variant.
+
+    Raises:
+        FileNotFoundError: VCF or FASTA missing.
+        BioinformaticsError: VCF has no samples, or pysam fails to open.
     """
     if not vcf_path.exists():
-        raise FileNotFoundError(f"No existe el VCF: {vcf_path}")
+        msg = f"VCF not found: {vcf_path}"
+        raise FileNotFoundError(msg)
+    if not fasta_path.exists():
+        msg = f"FASTA not found: {fasta_path}"
+        raise FileNotFoundError(msg)
 
-    # Uso de Context Managers (with) para cierre automático de archivos
-    with (
-        pysam.FastaFile(str(fasta_path)) as genome,
-        pysam.VariantFile(str(vcf_path)) as vcf,
-    ):
-        sample_id = list(vcf.header.samples)[0]
-        print(f"\n🔬 Analizando: {sample_id} | Archivo: {vcf_path.name}")
-        print("-" * 60)
+    try:
+        vcf = pysam.VariantFile(str(vcf_path))
+        genome = pysam.FastaFile(str(fasta_path))
+    except OSError as e:
+        msg = f"failed to open VCF/FASTA: {e}"
+        raise BioinformaticsError(msg) from e
 
-        # fetch permite ir directo a una región si se especifica, o iterar todo si es None
+    try:
+        samples: Iterable[str] = vcf.header.samples
+        sample_list = list(samples)
+        if not sample_list:
+            msg = f"VCF has no sample columns: {vcf_path}"
+            raise BioinformaticsError(msg)
+        sample_id = sample_list[0]
+        logger.info("Analyzing sample %s (%s)", sample_id, vcf_path.name)
+
         iterator = vcf.fetch(region=region) if region else vcf
 
         for record in iterator:
-            # Saltar variantes sin ALT (bloques homocigotos de referencia típicos en gVCF)
-            if not record.alts:
+            if skip_ref_blocks and not record.alts:
                 continue
 
-            # --- VALIDACIÓN DE INTEGRIDAD (Tu lógica original mejorada) ---
-            # start en pysam es 0-based, stop es exclusivo
             try:
-                ref_genome = genome.fetch(
+                ref_from_fasta = genome.fetch(
                     record.chrom, record.start, record.stop
                 ).upper()
             except KeyError:
-                print(f"⚠️ Contig {record.chrom} no encontrado en FASTA.")
+                logger.warning("Contig %s not found in FASTA — skipping.", record.chrom)
                 continue
 
-            if ref_genome != record.ref:
-                print(
-                    f"🚨 MISMATCH {record.chrom}:{record.pos}. VCF_REF={record.ref} vs FASTA={ref_genome}"
+            if ref_from_fasta != record.ref:
+                logger.warning(
+                    "REF mismatch at %s:%s — VCF=%s FASTA=%s — skipping.",
+                    record.chrom, record.pos, record.ref, ref_from_fasta,
                 )
                 continue
 
-            # --- DECODIFICACIÓN ---
-            info_gt = decodificar_genotipo(record, sample_id)
+            info_gt = decode_genotype(record, sample_id)
 
-            # Estructurar resultado
-            variant_data = {
+            yield {
                 "chrom": record.chrom,
                 "pos": record.pos,
                 "ref": record.ref,
                 "alts": record.alts,
                 "quality": record.qual,
-                "genotype": info_gt["alelos"],
-                "zygosity": info_gt["tipo"],
+                "genotype": info_gt["alleles"],
+                "zygosity": info_gt["type"],
             }
+    finally:
+        vcf.close()
+        genome.close()
 
-            yield variant_data
 
-
-if __name__ == "__main__":
-    archivo_seleccionado = seleccionar_vcf()
-
-    if archivo_seleccionado:
-        # Ejemplo: Procesar y guardar en una lista (o podrías volcarlo a CSV/Pandas)
-        # Pasamos el PATH COMPLETO, no solo el nombre
-        procesador = procesar_paciente(archivo_seleccionado, RUTA_FASTA)
-
-        try:
-            for variante in procesador:
-                # Aquí puedes filtrar solo lo que te interesa imprimir
-                if "Homocigoto Referencia" not in variante["zygosity"]:
-                    print(
-                        f"📍 {variante['chrom']}:{variante['pos']} ({variante['ref']}->{variante['alts']})"
-                    )
-                    print(f"   └── {variante['zygosity']} [{variante['genotype']}]")
-        except Exception as e:
-            print(f"❌ Error durante el procesamiento: {e}")
+# Spanish-named aliases for callers that haven't migrated yet. New code should
+# import the English names above; these will be removed in a follow-up phase
+# once the codebase is fully translated.
+seleccionar_vcf = list_vcf_files
+decodificar_genotipo = decode_genotype
+procesar_paciente = iter_variants

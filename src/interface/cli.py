@@ -10,12 +10,12 @@ from pathlib import Path
 
 # Project Imports
 from src.config.manager import DIRS, PROJECT_ROOT, get_available_models
-from src.interface.ui import ConsoleIO, ProgressBar, Spinner
-from src.utils.io import (
+from src.interface.io import (
     print_conditions_details,
     print_gnu_notice,
     print_warranty_details,
 )
+from src.interface.ui import ConsoleIO, ProgressBar, Spinner
 
 logger = logging.getLogger(__name__)
 DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")

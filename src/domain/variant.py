@@ -12,7 +12,6 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 # Accept short autosome names (1-22), sex chroms (X, Y), and mitochondrial (MT).
 # Other contigs (scaffolds, alternate haplotypes) are valid but uncommon — we
 # allow them through but require non-empty.

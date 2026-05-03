@@ -13,7 +13,6 @@ from typing import Any
 
 import polars as pl
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -26,7 +26,6 @@ from torch import nn
 from src.modeling.training import OptunaTrialTrainer, StandardTrainer, TrainingLoop
 from src.utils.losses import MultiTaskUncertaintyLoss
 
-
 __all__ = [
     "OptunaTrialTrainer",
     "PGenTrainer",

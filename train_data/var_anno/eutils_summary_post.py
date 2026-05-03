@@ -24,9 +24,9 @@ def get_snp_data_batch(rs_list):
     clean_ids = [rs.replace('rs', '').strip() for rs in rs_list if rs]
     if not clean_ids:
         return []
-    
+
     id_list_str = ",".join(clean_ids)
-    
+
     print(f"Procesando {len(clean_ids)} variantes...")
     """
     try:
@@ -38,7 +38,7 @@ def get_snp_data_batch(rs_list):
         post_handle = Entrez.epost(db="snp", id=id_list_str)
         search_results = Entrez.read(post_handle)
         post_handle.close()
-        
+
         webenv = search_results["WebEnv"]
         query_key = search_results["QueryKey"] #
 
@@ -231,7 +231,7 @@ def get_snp_data_batch(rs_list):
                     # Usamos re.escape para el cromosoma (por los puntos) y añadimos ':g\.' que es estándar en genómica
                     pattern = re.escape(spdi_chrom) + r":g\.(\d+_\d+)(del|dup|ins)"
 
-                    type_variant = re.findall(pattern, docsum_text)
+                    re.findall(pattern, docsum_text)
 
             # Construir fila
             row = {
@@ -268,7 +268,7 @@ def get_snp_data_batch_nextgen(rs_list):
     clean_ids = [rs.replace('rs', '').strip() for rs in rs_list if rs]
     if not clean_ids:
         return []
-    
+
     id_list_str = ",".join(clean_ids)
     print(f"Procesando {len(clean_ids)} variantes...")
     """
@@ -279,11 +279,11 @@ def get_snp_data_batch_nextgen(rs_list):
         # ---------------------------------------------------------------------
         # Recuerda configurar tu email si no lo has hecho fuera de la función:
         # Entrez.email = "tu_email@farmacia.com"
-        
+
         post_handle = Entrez.epost(db="snp", id=id_list_str)
         search_results = Entrez.read(post_handle)
         post_handle.close()
-        
+
         webenv = search_results["WebEnv"]
         query_key = search_results["QueryKey"]
 
@@ -511,7 +511,7 @@ def get_snp_data_batch_ULTRA(rs_list):
     clean_ids = [rs.replace('rs', '').strip() for rs in rs_list if rs]
     if not clean_ids:
         return []
-    
+
     id_list_str = ",".join(clean_ids)
     print(f"Procesando {len(clean_ids)} variantes...")
     """
@@ -522,7 +522,7 @@ def get_snp_data_batch_ULTRA(rs_list):
         post_handle = Entrez.epost(db="snp", id=id_list_str)
         search_results = Entrez.read(post_handle)
         post_handle.close()
-        
+
         webenv = search_results["WebEnv"]
         query_key = search_results["QueryKey"]
 

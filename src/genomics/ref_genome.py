@@ -16,7 +16,6 @@ from tqdm.auto import tqdm
 
 from src.config.manager import REF_GENOME_DIR, REF_GENOME_FASTA
 
-
 logger = logging.getLogger(__name__)
 
 # Ensembl primary assembly URL (no alternative haplotypes).

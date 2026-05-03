@@ -20,7 +20,6 @@ from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 
 from src.utils.exceptions import EncoderError
 
-
 logger = logging.getLogger(__name__)
 
 

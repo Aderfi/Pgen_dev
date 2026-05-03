@@ -23,7 +23,6 @@ from torch.utils.data import DataLoader
 from src.modeling.training.loop import TrainingLoop
 from src.utils.losses import MultiTaskUncertaintyLoss
 
-
 logger = logging.getLogger(__name__)
 
 

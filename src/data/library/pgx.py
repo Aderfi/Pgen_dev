@@ -26,7 +26,6 @@ import polars as pl
 
 from src.genomics.star_alleles import get_default_map
 
-
 logger = logging.getLogger(__name__)
 
 

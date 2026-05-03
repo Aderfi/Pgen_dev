@@ -15,7 +15,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 from src.api.deps import SettingsDep
 from src.api.schemas import LibraryEntry, LibraryListResponse
 
-
 router = APIRouter(prefix="/v1/library", tags=["library"])
 
 

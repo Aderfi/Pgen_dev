@@ -22,7 +22,11 @@ from typing import Any
 
 from src.config.models import (
     ModelConfig,
+)
+from src.config.models import (
     get_available_models as _get_available_models,
+)
+from src.config.models import (
     get_model_config as _get_model_config,
 )
 from src.config.settings import (
@@ -30,7 +34,6 @@ from src.config.settings import (
     Settings,
     get_settings,
 )
-
 
 # Eagerly resolve the singleton so import order matches the legacy behaviour
 # (callers expect DIRS/SEED to exist as soon as the module is imported).

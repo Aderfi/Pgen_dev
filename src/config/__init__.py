@@ -27,7 +27,6 @@ from src.config.settings import (
     get_settings,
 )
 
-
 __all__ = [
     "CategoricalSpec",
     "FloatSpec",

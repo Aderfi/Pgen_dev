@@ -19,17 +19,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
-
+import tomllib
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.config.paths import Paths
 from src.domain.variant import GenomeBuild
-
 
 # Resolved at import time once — the project root is derived from this file's
 # location (3 levels up: src/config/settings.py → src/config → src → root).

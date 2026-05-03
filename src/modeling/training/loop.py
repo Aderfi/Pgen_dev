@@ -21,7 +21,7 @@ import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, MutableSequence, Set
-from typing import Any, cast
+from typing import Any, cast, override
 
 import torch
 from torch import nn
@@ -31,7 +31,6 @@ from torch.utils.data import DataLoader
 
 from src.utils.exceptions import TrainingError
 from src.utils.losses import MultiTaskUncertaintyLoss
-
 
 logger = logging.getLogger(__name__)
 

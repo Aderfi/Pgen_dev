@@ -29,7 +29,6 @@ from tqdm.auto import tqdm
 
 from src.data.library.manifest import BuildManifest
 
-
 logger = logging.getLogger(__name__)
 
 

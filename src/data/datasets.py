@@ -36,7 +36,6 @@ from src.data.encoders import UNKNOWN_CATEGORY_LABEL, TargetEncoder
 from src.data.graph_indexing import GraphIndexBuilder
 from src.utils.exceptions import DataError, EncoderError
 
-
 logger = logging.getLogger(__name__)
 
 

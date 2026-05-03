@@ -7,7 +7,6 @@ from fastapi import APIRouter
 from src.api.deps import RegistryDep, SettingsDep, default_model_name
 from src.api.schemas import HealthResponse, ReadinessResponse
 
-
 router = APIRouter(tags=["health"])
 
 

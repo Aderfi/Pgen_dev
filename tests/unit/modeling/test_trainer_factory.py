@@ -22,7 +22,6 @@ from src.modeling.training import (
     TrainingLoop,
 )
 
-
 # ---------------------------------------------------------------------- fixtures
 
 

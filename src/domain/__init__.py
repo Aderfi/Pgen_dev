@@ -6,7 +6,7 @@ returns these models; never raw dicts or unvalidated strings.
 """
 
 from src.domain.drug import Drug
-from src.domain.gene import Gene, StarAllele, AlleleFunction
+from src.domain.gene import AlleleFunction, Gene, StarAllele
 from src.domain.graph import GraphKind, GraphMetadata, GraphPair
 from src.domain.prediction import (
     PredictionRequest,
@@ -21,7 +21,6 @@ from src.domain.variant import (
     VariantType,
     Zygosity,
 )
-
 
 __all__ = [
     "AlleleFunction",

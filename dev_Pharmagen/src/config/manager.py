@@ -193,10 +193,10 @@ def get_model_config(model_name: str) -> dict[str, Any]:
     if not all(k in final_config for k in required_keys):
         msg = f"Model config requires {required_keys}"
         raise ValueError(msg)
-    
+
     # Validate the complete configuration
     ConfigValidator.validate_model_config(final_config, model_name)
-    
+
     # Validate Optuna params if present
     if "params_optuna" in final_config:
         ConfigValidator.validate_optuna_params(final_config["params_optuna"])

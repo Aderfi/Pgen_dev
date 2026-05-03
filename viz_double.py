@@ -16,11 +16,11 @@ CONFIGURACIÓN: ajusta las rutas en la sección CONFIG al final del archivo.
 import os
 from pathlib import Path
 
-import torch
-import networkx as nx
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import networkx as nx
+import torch
 from matplotlib.lines import Line2D
 from torch_geometric.data import Data
 
@@ -209,7 +209,7 @@ def plot_genomic_graph(data: Data, title: str = None, save_path: str = None, fig
     edge_legend = [Line2D([0], [0], color=EDGE_COLORS_GENOMIC[i], linewidth=2, label=EDGE_LABELS_GENOMIC[i])
                    for i in range(3)]
 
-    leg = ax.legend(handles=node_legend + edge_legend,
+    ax.legend(handles=node_legend + edge_legend,
                     loc="upper right", fontsize=8, framealpha=0.9,
                     title="Legend", title_fontsize=9)
 
@@ -248,7 +248,7 @@ def plot_molecular_graph(data: Data, title: str = None, save_path: str = None, f
     pos = nx.spring_layout(G, seed=42, k=1.5)
 
     node_colors = [G.nodes[n].get("color", DEFAULT_ATOM_COLOR) for n in G.nodes()]
-    edge_colors = [G.edges[e].get("color", "#888888") for e in G.edges()]
+    [G.edges[e].get("color", "#888888") for e in G.edges()]
 
     # Tamaño según atomic num (átomos más pesados = más grandes)
     node_sizes = []
@@ -322,10 +322,11 @@ def _rdkit_2d_to_ax(mol, ax, data: Data, highlight_features: bool = True):
     Colorea cada átomo según sus features (convención CPK).
     Usa la API oficial de rdMolDraw2D (compatible con RDKit >= 2022).
     """
-    from rdkit.Chem.Draw import rdMolDraw2D
     from io import BytesIO
-    from PIL import Image as PILImage
+
     import numpy as np
+    from PIL import Image as PILImage
+    from rdkit.Chem.Draw import rdMolDraw2D
 
     # Construir mapa átomo → color CPK desde las features del PyG
     atom_col_map = {}
@@ -734,7 +735,7 @@ if __name__ == "__main__":
                                  save_path=out)
 
             if args.reconstruct:
-                print(f"   🔬 Reconstructing molecule with RDKit...")
+                print("   🔬 Reconstructing molecule with RDKit...")
                 out_rec = str(args.output / f"mol_{args.drug.stem}_reconstructed.png") if save else None
                 plot_molecule_reconstructed(data_drug,
                                             title=f"Molecular Reconstruction — {drug_name}",

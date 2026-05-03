@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any, Dict, Optional
-from collections.abc import Generator
 
 import pysam  # type: ignore      # Biblioteca solo disponible en Linux/Unix
 
@@ -80,12 +80,11 @@ def decodificar_genotipo(record, sample_id: str) -> dict[str, Any]:
             tipo = "Homocigoto Referencia (WT)"
         else:
             tipo = "Homocigoto Alternativo"
+    # Índices distintos (0/1, 1/2)
+    elif 0 in gt_tuple:
+        tipo = "Heterocigoto"
     else:
-        # Índices distintos (0/1, 1/2)
-        if 0 in gt_tuple:
-            tipo = "Heterocigoto"
-        else:
-            tipo = "Heterocigoto Compuesto (Alt1/Alt2)"
+        tipo = "Heterocigoto Compuesto (Alt1/Alt2)"
 
     return {"tipo": tipo, "alelos": alelos_str}
 

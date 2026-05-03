@@ -16,7 +16,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 logger = logging.getLogger(__name__)
 
 

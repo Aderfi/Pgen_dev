@@ -22,7 +22,6 @@ from typing import Literal
 import torch
 from torch_geometric.data.data import Data
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -23,7 +23,6 @@ from pathlib import Path
 
 from src.config.manager import DATA_DIR, PROJECT_ROOT, REF_GENOME_FASTA
 
-
 logger = logging.getLogger(__name__)
 
 

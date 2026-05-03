@@ -25,7 +25,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from src.config.settings import PROJECT_ROOT
 from src.domain.gene import AlleleFunction, Gene, StarAllele
 
-
 _DEFAULT_TSV = PROJECT_ROOT / "data" / "dicts" / "star_alleles.tsv"
 
 

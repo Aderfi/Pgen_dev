@@ -26,7 +26,6 @@ from src.modeling.training.loop import TrainingLoop
 from src.utils.checkpoint import CheckpointManager
 from src.utils.losses import MultiTaskUncertaintyLoss
 
-
 logger = logging.getLogger(__name__)
 
 

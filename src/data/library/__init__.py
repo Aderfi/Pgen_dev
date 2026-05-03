@@ -15,5 +15,4 @@ Or the CLI:
 from src.data.library.builder import LibraryBuilder
 from src.data.library.config import LibraryBuildConfig
 
-
 __all__ = ["LibraryBuilder", "LibraryBuildConfig"]

@@ -35,7 +35,6 @@ from src.data.library.chromosome import CHROM_TO_REFSEQ
 from src.data.library.manifest import BuildManifest
 from src.data.library.pgx import load_pgx_folder
 
-
 logger = logging.getLogger(__name__)
 
 

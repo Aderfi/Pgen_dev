@@ -29,7 +29,6 @@ from src.data.loaders import TRAIN_DATA_SCHEMA, TabularLoader
 from src.data.normalize import MultiLabelNormalizer, Stratifier
 from src.genomics.star_alleles import get_default_map as _get_star_map
 
-
 LOGS_DIR = DIRS["logs"]
 UNKNOWN_TOKEN = "__UNKNOWN__"
 

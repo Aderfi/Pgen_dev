@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from src.domain.variant import normalize_chromosome
 
-
 # GRCh38 RefSeq accessions for human chromosomes 1-22, X, Y, MT.
 CHROM_TO_REFSEQ: dict[str, str] = {
     "1":  "NC_000001.11",

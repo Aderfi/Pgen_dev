@@ -14,7 +14,6 @@ from src.data.library.drugs import (
     smiles_to_graph,
 )
 
-
 ASPIRIN = "CC(=O)Oc1ccccc1C(=O)O"
 SIMPLE_METHANE = "C"
 

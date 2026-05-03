@@ -209,7 +209,7 @@ def plot_genomic_graph(data: Data, title: str = None, save_path: str = None, fig
     edge_legend = [Line2D([0], [0], color=EDGE_COLORS_GENOMIC[i], linewidth=2, label=EDGE_LABELS_GENOMIC[i])
                    for i in range(3)]
 
-    leg = ax.legend(handles=node_legend + edge_legend,
+    ax.legend(handles=node_legend + edge_legend,
                     loc="upper right", fontsize=8, framealpha=0.9,
                     title="Legend", title_fontsize=9)
 
@@ -248,7 +248,7 @@ def plot_molecular_graph(data: Data, title: str = None, save_path: str = None, f
     pos = nx.spring_layout(G, seed=42, k=1.5)
 
     node_colors = [G.nodes[n].get("color", DEFAULT_ATOM_COLOR) for n in G.nodes()]
-    edge_colors = [G.edges[e].get("color", "#888888") for e in G.edges()]
+    [G.edges[e].get("color", "#888888") for e in G.edges()]
 
     # Tamaño según atomic num (átomos más pesados = más grandes)
     node_sizes = []

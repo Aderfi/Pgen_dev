@@ -92,6 +92,7 @@ def check_environment_and_setup():
             # Importación dinámica para evitar errores circulares o si setup no existe
             # Como main.py añade PROJECT_ROOT al path, esto debería funcionar
             import subprocess
+
             import venv_setup.setup
 
             subprocess.run([sys.executable, str(PROJECT_ROOT / "setup.py")], check=True)

@@ -4,7 +4,6 @@ import polars as pl
 
 from src.data.cleaning import GenoKeyBuilder, PharmacogenomicCleaner
 
-
 # Toy rsID table: forces deterministic outputs without depending on the
 # real catalog (which can drift as data/dicts/star_alleles.tsv evolves).
 TOY_RSID_TO_LABELS = {

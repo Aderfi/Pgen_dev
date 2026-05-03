@@ -15,7 +15,6 @@ from fastapi import Depends, HTTPException, status
 
 from src.config import Settings, get_settings
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -13,7 +13,6 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 _HGNC_SYMBOL = re.compile(r"^[A-Z][A-Z0-9-]*$")
 _ENSG_ID = re.compile(r"^ENSG\d{11}(?:\.\d+)?$")
 _STAR_ALLELE = re.compile(r"^([A-Z][A-Z0-9-]+)\*(\d+(?:\.\d+)?[A-Z]?)$")

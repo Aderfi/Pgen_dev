@@ -60,12 +60,12 @@ def dummy_graph():
     """Create a dummy PyTorch Geometric graph for testing."""
     try:
         from torch_geometric.data import Data
-        
+
         # Simple graph with 5 nodes and some edges
         x = torch.randn(5, 10)  # 5 nodes, 10 features each
         edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=torch.long)
         edge_attr = torch.randn(4, 7)  # 4 edges, 7 features each
-        
+
         return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     except ImportError:
         pytest.skip("PyTorch Geometric not installed")

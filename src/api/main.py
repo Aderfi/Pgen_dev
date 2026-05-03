@@ -19,7 +19,6 @@ from src.api.deps import get_registry
 from src.api.routers import health, library, models, predict
 from src.config import configure_logging_level, get_settings
 
-
 logger = logging.getLogger(__name__)
 
 

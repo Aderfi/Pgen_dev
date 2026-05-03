@@ -15,5 +15,4 @@ from src.modeling.training.loop import TrainingLoop
 from src.modeling.training.optuna_trainer import OptunaTrialTrainer
 from src.modeling.training.standard import StandardTrainer
 
-
 __all__ = ["OptunaTrialTrainer", "StandardTrainer", "TrainingLoop"]

@@ -28,7 +28,6 @@ from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validato
 
 from src.config.settings import CONFIG_DATA_DIR
 
-
 # ---------------------------------------------------------------------------
 # Optuna search-space specs
 # ---------------------------------------------------------------------------

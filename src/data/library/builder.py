@@ -18,7 +18,6 @@ from src.data.library.drugs import DrugGraphBuilder
 from src.data.library.genes import GenomicGraphBuilder
 from src.data.library.manifest import BuildManifest
 
-
 logger = logging.getLogger(__name__)
 
 

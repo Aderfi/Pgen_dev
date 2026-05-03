@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException, status
 from src.api.schemas import ModelDetail, ModelSummary
 from src.config import get_available_models, get_model_config
 
-
 router = APIRouter(prefix="/v1/models", tags=["models"])
 
 

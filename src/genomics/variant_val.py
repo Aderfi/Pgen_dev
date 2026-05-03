@@ -27,7 +27,6 @@ import pysam  # type: ignore[import-not-found]
 from src.config.manager import DATA_DIR, REF_GENOME_FASTA
 from src.utils.exceptions import BioinformaticsError
 
-
 logger = logging.getLogger(__name__)
 
 

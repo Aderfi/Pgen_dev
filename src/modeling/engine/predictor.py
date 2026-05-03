@@ -103,7 +103,7 @@ class PGenPredictor:
 
         # Instanciar arquitectura (Debe coincidir EXACTAMENTE con el entrenamiento)
         model = create_gnn_model(
-            model_name=self.model_name, 
+            model_name=self.model_name,
             n_features=n_features,
             target_dims=target_dims,
             params=self.params)

@@ -124,6 +124,7 @@ dependencies = [
     "pyasn1-modules==0.4.2",
     "pycparser==2.22",
     "pydantic>=2.12.5",
+    "pydantic-settings>=2.0.0",
     "pyfaidx>=0.9.0.4",
     "pygments==2.19.2",
     "pyparsing==3.2.5",

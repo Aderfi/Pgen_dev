@@ -2,7 +2,7 @@
 # Copyright (C) 2025 Adrim Hamed Outmani
 # Licensed under the GNU GPLv3. See LICENSE file in the project root.
 #
-# src/config/settings.toml
+# src/config/data/settings.toml
 [metadata]
 project_name = "Pharmagen"
 version = "0.7"

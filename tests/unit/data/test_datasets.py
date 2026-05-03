@@ -1,20 +1,24 @@
 """Tests for DoubleTowerDataset and related data classes."""
-import pandas as pd
+import logging
+
+import polars as pl
 import pytest
 
 from src.data.datasets import PRELOAD_THRESHOLD, DoubleTowerDataset
 
 
 def test_preload_warning(tmp_path, caplog):
-    """Test that preload warning is logged for large datasets."""
-    df = pd.DataFrame({
-        "drug_id": range(15000), 
-        "haplo_key": ["A_B"] * 15000
+    """A preload warning fires when the dataset exceeds PRELOAD_THRESHOLD."""
+    n = PRELOAD_THRESHOLD + 100
+    df = pl.DataFrame({
+        "drug_id": [str(i) for i in range(n)],
+        "haplo_key": ["A_B"] * n,
     })
 
-    dataset = DoubleTowerDataset(
-        df, "drug_id", "haplo_key", [], [], preload_ram=True
-    )
+    with caplog.at_level(logging.WARNING):
+        DoubleTowerDataset(
+            df, "drug_id", "haplo_key", [], [], preload_ram=True
+        )
 
     assert "may cause OOM" in caplog.text
 

@@ -45,6 +45,8 @@ Desktop.ini
 data/*
 
 # Exceptions: explicit folders we DO want to track (structure)
+# Must un-ignore the directory itself before contents are reachable.
+!data/dicts/
 !data/dicts/**
 !data/processed/.gitkeep
 !data/raw/.gitkeep

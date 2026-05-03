@@ -1,0 +1,39 @@
+gene	allele	rsids	function	notes
+CYP2D6	3	rs35742686	no_function	AS 0.0
+CYP2D6	4	rs3892097	no_function	AS 0.0
+CYP2D6	6	rs5030656	no_function	AS 0.0
+CYP2D6	9	rs5030655	decreased_function	AS 0.5
+CYP2D6	10	rs1065852	decreased_function	AS 0.25
+CYP2D6	17	rs28371706	decreased_function	AS 0.5
+CYP2D6	29	rs55811643	decreased_function	AS 0.5
+CYP2D6	41	rs28371725	decreased_function	AS 0.5
+CYP2C19	2	rs4244285	no_function	AS 0.0
+CYP2C19	3	rs4986893	no_function	AS 0.0
+CYP2C19	4	rs28399504	no_function	AS 0.0
+CYP2C19	17	rs12248560	increased_function	AS 1.0+
+CYP2C9	2	rs1799853	decreased_function	AS 0.5
+CYP2C9	3	rs1057910	decreased_function	severe; AS 0.0
+CYP2C9	5	rs28371686	decreased_function
+CYP2C9	6	rs9332131	no_function	AS 0.0
+CYP2C9	8	rs7900194	decreased_function
+CYP2C9	11	rs28371685	decreased_function
+DPYD	2A	rs3918290	no_function	AS 0.0
+DPYD	13	rs55886062	no_function	AS 0.0
+DPYD	9A	rs1801159	normal_function	AS 1.0
+SLCO1B1	5	rs4149056	no_function	AS 0.0
+SLCO1B1	15	rs4149056|rs2306283	no_function	haplotype; AS 0.0
+SLCO1B1	37	rs2306283	normal_function	AS 1.0
+CYP3A5	3	rs776746	no_function	non-expresser; AS 0.0
+CYP3A5	6	rs10276036	no_function	AS 0.0
+CYP3A5	7	rs41303343	no_function	AS 0.0
+NUDT15	2	rs116855232|rs147390019	no_function	AS 0.0
+NUDT15	3	rs116855232	no_function	AS 0.0
+NAT2	5	rs1801280	no_function	slow acetylator; AS 0.0
+NAT2	6	rs1799930	no_function	slow acetylator; AS 0.0
+NAT2	7	rs1799931	no_function	slow acetylator; AS 0.0
+NAT2	12	rs1208	increased_function	rapid acetylator; AS 1.0
+NAT2	14	rs1801279	no_function	slow acetylator; AS 0.0
+CYP4F2	3	rs2108622	decreased_function	affects vitamin K metabolism
+CYP2B6	6	rs2279343|rs3211371	decreased_function	efavirenz
+CYP2B6	18	rs28399499	no_function	AS 0.0
+CYP1A2	1F	rs762551	increased_function	smoking inducibility

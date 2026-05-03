@@ -213,6 +213,51 @@ Replace dict-based config with Pydantic-validated objects. `dict[str, Any]` is b
 
 ---
 
+### Phase 4.5 — Library Builder Refactor *(target: 6–10 hr)*
+
+The library builder is critical infrastructure: it pre-computes drug + variant graphs offline so training can lazy-load from disk (the user's solution to limited compute). Two files exist today and only one mostly works:
+
+- `src/data/lib_builder_polars.py` (883 LOC) — the working Polars/pyfaidx/RDKit/networkx implementation, but coupled by module globals (`GLOBAL_GENOME`, `GLOBAL_CHROM_MAPPING`), hardcoded paths, Spanish comments, shell-script-based file organization, no resume support.
+- `src/data/lib_builder_v2.py` (62 LOC) — abandoned Pydantic refactor with `...` stubs. Delete.
+
+Replace with a clean `src/data/library/` package:
+
+```
+src/data/library/
+├── __init__.py
+├── chromosome.py     # CHROM ↔ RefSeq accession map
+├── config.py         # LibraryBuildConfig (Pydantic) + path resolution
+├── drugs.py          # smiles_to_graph + DrugGraphBuilder; CID-keyed .pt files
+├── genes.py          # GenomicGraphBuilder + variant validation against FASTA
+├── pgx.py            # Per-gene PharmVar VCF folder loader
+├── manifest.py       # Resume tracking — JSON manifest of completed work
+├── organize.py       # Pure-Python file organization (no bash/PowerShell)
+├── builder.py        # Top-level orchestrator
+└── __main__.py       # CLI: python -m src.data.library
+```
+
+**Invariants to preserve** (consumers in `src/data/graph_indexing.py`):
+- Drug filename: `<cid>_<safe_name>.pt`
+- Gene filename: `<gene>_<variant>.pt` in `<gene>/` subdirs
+- "star" prefix in variant name → `*` (e.g., `star4` → `*4`) on the consumer side
+- 25 drug node features, 7 drug edge features
+- 9 gene node features, 3 gene edge features
+
+**Key fixes** beyond the pure rewrite:
+- Eliminate module-level globals; FASTA handle is a constructor arg.
+- Use `get_settings().paths` instead of `BASE_DIR = Path("data")` etc.
+- Use `data/dicts/star_alleles.tsv` for known function metadata where possible.
+- Skip on existing `.pt` (resume); `--force` to overwrite.
+- Replace shell organize scripts with `pathlib.Path.rename` / `shutil.move`.
+- `logging` instead of `print`.
+- `BioinformaticsError`/`DataError` from `src.utils.exceptions`.
+
+**Acceptance:** old `.pt` artifacts in `src/library/` remain valid (consumer-side `GraphIndexBuilder` still works). `python -m src.data.library --help` runs. Smoke tests for SMILES→graph dimension stability and `safe_filename`.
+
+**Commit:** `refactor(library): rewrite library builder as src/data/library/ package`
+
+---
+
 ### Phase 4 — Decompose God Objects *(target: 12–16 hr)*
 
 Targets: `DoubleTowerDataset`, `DataLoaderUtils`, `PGenTrainer`. Each is split along SRP lines.

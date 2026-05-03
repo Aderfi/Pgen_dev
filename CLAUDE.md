@@ -20,6 +20,7 @@ This codebase is mid-refactor. The current plan and progress are in **`Ref.md`**
 - ✅ **Phase 2** — Pydantic v2 domain models in `src/domain/` (Drug, Variant, Gene, StarAllele, Position, Genotype, GraphMetadata, PredictionRequest/Result). 66 tests.
 - ✅ **Phase 3** — Pydantic Settings in `src/config/`. `Settings` + `ModelConfig` (with discriminated `OptunaSpec` union for `["log", lo, hi]` / `["int", …]` / etc.). TOMLs moved to `src/config/data/`. `src/config/manager.py` is now a back-compat shim that exposes `DIRS`, `SEED`, `MULTI_LABEL_COLS`, etc. derived from the typed Settings. 25 tests.
 - ✅ **Phase 4a** — Star-allele table extracted from `src/interface/io.py` to `data/dicts/star_alleles.tsv`, loaded via `src/genomics/star_alleles.py::StarAlleleMap`. 16 tests.
+- ✅ **Phase 4.5** — Library builder rewritten as `src/data/library/` package (drugs, genes, pgx, chromosome, manifest, organize, config, builder, `__main__`). Replaces `lib_builder_polars.py` (883 LOC, module globals, shell scripts) and the abandoned `lib_builder_v2.py` stub. CLI: `python -m src.data.library`. Resume support via `build_manifest.json`. 47 tests; consumer contract (5105 drugs, 2353 gene variants) preserved.
 - ⏳ **Phase 4b–f** (deferred) — split `DoubleTowerDataset`, `DataLoaderUtils`, `PGenTrainer` into focused units. The current `src/data/datasets.py` is still a god object.
 - ✅ **Phase 5 (partial)** — `subprocess.run(shell=True, ...)` removed from `src/genomics/ngs_pipeline.py`; `bwa mem | samtools sort` runs via Python `Popen` plumbing. `src/genomics/variant_val.py::iter_variants` uses pysam for full VCF iteration with build-mismatch detection. `input()` calls removed from library code.
 - ✅ **Phase 6 (partial)** — Spanish translated in `src/genomics/{ref_genome,ngs_pipeline,variant_val}.py`, `src/utils/logger.py`, `src/modeling/architectures/gnn.py`. `MemoryError` renamed to `PharmagenMemoryError` (with alias for back-compat); `ValidationError` no longer multi-inherits `IndexError, ValueError`. **Spanish remains in `src/data/datasets.py` and `src/data/lib_builder_polars.py`** — those are user-WIP files left for Phase 4.
@@ -54,7 +55,20 @@ src/
 │   ├── ngs_pipeline.py  # 4-phase NGS pipeline, argv-based subprocess
 │   └── variant_val.py   # iter_variants() with build-mismatch validation
 ├── modeling/            # Largely unchanged; trainer/predictor still use legacy shim
-├── data/                # ⚠️ user WIP (datasets.py is the next god object to split)
+├── data/
+│   ├── datasets.py      # ⚠️ god object — Phase 4 will split
+│   ├── collator.py
+│   ├── graph_indexing.py
+│   └── library/         # offline graph builder (Phase 4.5)
+│       ├── builder.py   # LibraryBuilder orchestrator
+│       ├── config.py    # LibraryBuildConfig (Pydantic)
+│       ├── drugs.py     # smiles_to_graph + DrugGraphBuilder (25/7 schema)
+│       ├── genes.py     # GenomicGraphBuilder (9/3 schema, FASTA validation)
+│       ├── pgx.py       # PharmVar VCF folder loader
+│       ├── chromosome.py # CHROM ↔ RefSeq map
+│       ├── manifest.py  # resume tracking
+│       ├── organize.py  # pure-Python file organization
+│       └── __main__.py  # python -m src.data.library
 ├── interface/           # CLI + console utilities (Phase 4 will move into src/cli/)
 ├── utils/               # exceptions, logger, restored memory/validation/etc.
 └── pipeline.py          # train_pipeline orchestrator

@@ -35,7 +35,7 @@ Pharmagen has four user-facing surfaces — all of them sit on top of the same d
        │          │   cleaning.py (PharmacogenomicCleaner)       │
        │          │   normalize.py / collator.py / graph_indexing.py
        │          └──────────────────────────────────┘           │
-       │                                                          │
+       │                                                         │
        └─► src/pipeline.py orchestrates training; predictions read this on-disk library.
 ```
 

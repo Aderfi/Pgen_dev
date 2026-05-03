@@ -118,7 +118,7 @@ def _validate_row(
 
     pos_0 = int(pos) - 1
     try:
-        fasta_seq = str(fasta[fasta_key][pos_0 : pos_0 + len(ref)].seq).upper()
+        fasta_seq = str(fasta[fasta_key][pos_0 : pos_0 + len(ref)].seq).upper() # type: ignore[union-attr]
     except (KeyError, IndexError, ValueError) as e:
         return False, fasta_key, f"FASTA fetch failed: {e}"
 

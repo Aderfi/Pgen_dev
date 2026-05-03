@@ -1,121 +1,187 @@
-**README languages &#8594;** **[ENG](#-pharmagen-eng)  /  [ESP](#-pharmagen-esp)**
+**README languages →** **[ENG](#-pharmagen-eng)  /  [ESP](#-pharmagen-esp)**
 
 ---
+
 # 💊 Pharmagen {#eng}
 
 Author: Adrim Hamed Outmani (@Aderfi)
 
-![Python Version](https://img.shields.io/badge/python-3.10-blue.svg)
+![Python Version](https://img.shields.io/badge/python-3.14-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-009688.svg)
+![Pydantic](https://img.shields.io/badge/Pydantic-v2-e92063.svg)
 ![Status](https://img.shields.io/badge/status-Beta-orange.svg)
 
 > **Pharmacogenetic Prediction and Therapeutic Efficacy via Deep Learning.**
 
-**Pharmagen** is an advanced bioinformatics software suite designed to predict phenotypic outcomes, direction of effect, and adverse drug reaction (ADR) types based on a patient's genomic profile (Gene/Allele) and prescribed medications.
+**Pharmagen** is a bioinformatics suite that maps a patient's genomic profile (gene/allele) and prescribed medications to phenotypic outcomes, direction-of-effect, and adverse-drug-reaction types.
 
-The system's core utilizes a customized **DeepFM (Deep Factorization Machines)** architecture, which combines the deep learning capabilities of Transformers with the efficiency of Factorization Machines in capturing sparse variable interactions.
-
----
-
-## 🚀 Key Features
-
-- **Hybrid Architecture:** ~~DeepFM model featuring dynamic **embeddings** and **attention mechanisms** to capture complex drug-gene interactions.~~
-  Pharmagen was categorical model. **Now working on a GNN structure based on GATv2**
-
-- **Flexible Inference:**
-  - **Interactive Mode (CLI):** Optimized for rapid, individual queries.
-  - **Batch Mode:** For processing large patient datasets via CSV/TSV files.
-- **Automated Optimization:** Native integration with **Optuna** for automated hyperparameter tuning and framework optimization.
-- **Modular Configuration:** A TOML-based system (`models.toml`, `config.toml`) that allows users to define new architectures and parameters without modifying the core source code.
-- **Bioinformatics Pipeline:** End-to-end processing from genomic sequencing data (VCF files) and ATC code mapping to final clinical prediction.
+The active architecture is a **Two-Tower Graph Neural Network** built on **GATv2** (PyTorch Geometric) — a drug tower over molecular SMILES graphs, a genotype tower over variant-topology graphs, fused into multi-task heads. (The earlier DeepFM design is being phased out.)
 
 ---
 
-## 📋 Prerequisites
+## 🚀 Key features
 
-- **Operating System:** Developed on **Debian 13 (Trixie)** and **Windows 11**. 
-- **Python:** Version **3.10** (Strictly recommended).
-- **Virtual Environment:** Use of `venv` or `conda` is highly encouraged ****(preferably `venv` through `UV`)****. if `conda` --> `mamba`
-- **Hardware Requirements:**
-    * [CPU/GPU/RAM requirements]
+- **Two-Tower GATv2 GNN** — drug-molecule + genotype graphs encoded with attention; multi-task prediction heads for phenotype category, direction of effect, and ADR.
+- **Offline graph library** — all drug + variant graphs are built once and stored to disk (`src/library/`); training and inference lazy-load. Critical for limited-compute environments.
+- **FastAPI inference service** — typed Pydantic request/response, OpenAPI docs at `/docs`, health/ready probes, lazy model loading.
+- **Optuna integration** — hyperparameter search with per-trial pruning and a discriminated `OptunaSpec` union (categorical / int / float / log) parsed from `models.toml`.
+- **Pydantic v2 throughout** — domain models (`Drug`, `Variant`, `StarAllele`, `Genotype`, `PredictionRequest`, …) at every boundary; configuration via `pydantic-settings`.
+- **NGS pipeline** — FastQC → BWA-MEM → Picard → Freebayes → VEP, no `shell=True`, sane subprocess plumbing.
 
 ---
 
 ## 📚 Documentation
 
-- **Graph Library Build** &#8594; **[ENG](docs/BUILD_LIBRARY.md) / [ESP](docs/BUILD_LIBRARY_ES.md)** - Guide for 
-- **[Memory Optimization Guide](docs/MEMORY_OPTIMIZATION.md)** – Guidelines for preventing OOM (Out of Memory) errors and implementing memory management best practices. --> Doc redacted by AI (Gemini) so i can have an accesible sumup
-- **[Code Quality Guidelines](docs/CODE_QUALITY.md)** – Project coding standards and implementation of SOLID principles. --> Doc redacted by AI (Gemini) so i can have an accesible sumup
+- **[Architecture](docs/ARCHITECTURE.md)** — module map, data flow, conventions.
+- **[Quick Start](docs/QUICK_START.md)** — install, build the library, train, serve, query the API.
+- **[Library Builder](docs/LIBRARY_BUILDER.md)** — input contracts, CLI flags, resume support, schema.
+- **[Memory Optimization](docs/MEMORY_OPTIMIZATION.md)** — OOM avoidance during training & Optuna.
+- **[Code Quality](docs/CODE_QUALITY.md)** — Zen of Python + SOLID examples.
+- **[Refactor plan & history](Ref.md)** — phased rewrite of `src/`.
+
+For AI assistants: `CLAUDE.md` documents working conventions and current refactor state.
 
 ---
 
-## 🛠️ Installation and Setup
+## 📋 Prerequisites
 
-Pharmagen includes an automated configuration assistant for streamlined deployment.
+- **OS:** Linux (developed on Debian 13). Windows works with WSL2; macOS is untested.
+- **Python:** **3.14** (pinned in `.python-version`). The project is managed with [`uv`](https://github.com/astral-sh/uv); `uv.lock` is the source of truth.
+- **GPU:** CUDA-capable card recommended; CPU works for inference and small training runs.
+- **External tools** (only needed for the NGS pipeline): `samtools`, `bwa`, `fastp`, `fastqc`, `picard`, `freebayes`, `vcftools`, `vep`.
 
-### 1. Clone the repository
+---
+
+## 🛠️ Quick install
 
 ```bash
-git clone [https://github.com/Aderfi/Pharmagen.git](https://github.com/Aderfi/Pharmagen.git)
+git clone https://github.com/Aderfi/Pharmagen.git
 cd Pharmagen
+uv sync --extra dev
+source .venv/bin/activate
 ```
+
 ---
+
+## ⚡ At a glance
+
+```bash
+# Build the offline graph library (one-time, resumable)
+python -m src.data.library
+
+# Train
+python main.py --mode train --model TwoTowerGAT --input train_data/train_data.tsv
+
+# Hyperparameter search
+python main.py --mode train --optuna --optuna-trials 50
+
+# Inference API
+uvicorn src.api.main:app --reload         # → http://localhost:8000/docs
+
+# Interactive CLI menu
+python main.py
+```
+
+```python
+# Programmatic prediction
+from fastapi.testclient import TestClient
+from src.api.main import create_app
+
+client = TestClient(create_app())
+client.post("/v1/predict", json={
+    "drug_cid": 2244,
+    "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}
+}).json()
+```
+
 ---
+
+## 🧪 Testing
+
+```bash
+pytest tests/unit/ -q --override-ini="addopts="     # 237 tests
+```
+
+---
+
 ---
 
 # 💊 Pharmagen {#ESP}
 
-Author: Adrim Hamed Outmani (@Aderfi)
+Autor: Adrim Hamed Outmani (@Aderfi)
 
-![Python Version](https://img.shields.io/badge/python-3.10-blue.svg)
+![Python Version](https://img.shields.io/badge/python-3.14-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-009688.svg)
 ![Status](https://img.shields.io/badge/status-Beta-orange.svg)
 
+> **Predicción farmacogenética y eficacia terapéutica mediante Deep Learning.**
 
-> **Predicción Farmacogenética y Eficacia Terapéutica mediante Deep Learning.**
+**Pharmagen** es una suite bioinformática que mapea el perfil genómico del paciente (gen/alelo) y las medicaciones prescritas a resultados fenotípicos, dirección del efecto y tipos de reacciones adversas.
 
-**Pharmagen** es un software avanzado de bioinformática diseñado para predecir resultados fenotípicos, dirección del efecto y tipos de efectos adversos en pacientes basándose en su perfil genómico (Gen/Alelo) y fármacos prescritos.
-
-El núcleo del sistema utiliza una arquitectura **DeepFM (Deep Factorization Machines)** personalizada, que combina la capacidad de aprendizaje profundo de los Transformers con la eficiencia en interacciones de variables dispersas de las Máquinas de Factorización.
-
-
-## 🚀 Características Principales
-
-- **Arquitectura Híbrida:** Modelo DeepFM con _Embeddings_ dinámicos y _Attention Mechanism_ para capturar interacciones complejas fármaco-gen.
-- **Inferencia Flexible:**
-  - Modo Interactivo (CLI) para consultas rápidas.
-  - Modo _Batch_ para procesar grandes volúmenes de pacientes (CSV/TSV).
-- **Optimización Automatizada:** Integración nativa con **Optuna** para la búsqueda de hiperparámetros.
-- **Configuración Modular:** Sistema basado en archivos TOML (`models.toml`, `config.toml`) que permite definir nuevas arquitecturas sin tocar el código.
-- **Pipeline Bioinformático:** Procesamiento de secuenciaciones genómicas a archivos VCF y mapeo a códigos ATC para la predicción.
+La arquitectura activa es una **Red Neuronal de Grafos Two-Tower** basada en **GATv2** (PyTorch Geometric) — torre de fármaco sobre grafos moleculares SMILES, torre de genotipo sobre grafos de topología de variantes, fusionadas en cabezas multi-tarea. (El diseño DeepFM previo está siendo retirado.)
 
 ---
 
-## 📋 Requisitos Previos
+## 🚀 Características principales
 
-- **Sistema Operativo:** Linux, macOS o Windows.
-- **Python:** Versión **3.10** (Estrictamente recomendada).
-- **Entorno Virtual:** Se recomienda encarecidamente usar `venv` o `conda`. (Preferiblemente con `venv`)
-- **Hardware Mínimo:**
-    ... 
+- **GNN Two-Tower con GATv2** — grafos fármaco-molécula + genotipo codificados con atención; cabezas de predicción multi-tarea.
+- **Librería de grafos offline** — todos los grafos de fármacos y variantes se construyen una vez y se almacenan en disco (`src/library/`); entrenamiento e inferencia hacen lazy-load. Esencial para entornos con cómputo limitado.
+- **Servicio de inferencia FastAPI** — request/response tipados con Pydantic, documentación OpenAPI en `/docs`, sondas health/ready, carga perezosa del modelo.
+- **Integración Optuna** — búsqueda de hiperparámetros con pruning por trial y unión discriminada `OptunaSpec` (categorical / int / float / log) parseada desde `models.toml`.
+- **Pydantic v2 en toda la base** — modelos de dominio (`Drug`, `Variant`, `StarAllele`, `Genotype`, `PredictionRequest`, …) en cada frontera; configuración vía `pydantic-settings`.
+- **Pipeline NGS** — FastQC → BWA-MEM → Picard → Freebayes → VEP, sin `shell=True`, subprocesos sanos.
 
 ---
 
 ## 📚 Documentación
 
-- **[Memory Optimization Guide](docs/MEMORY_OPTIMIZATION.md)** - Prevención de errores OOM y mejores prácticas de memoria
-- **[Code Quality Guidelines](docs/CODE_QUALITY.md)** - Estándares de código y principios SOLID
+- **[Arquitectura (EN)](docs/ARCHITECTURE.md)** — mapa de módulos, flujo de datos, convenciones.
+- **[Quick Start (EN)](docs/QUICK_START.md)** — instalar, construir la librería, entrenar, servir, consumir la API.
+- **[Library Builder (EN)](docs/LIBRARY_BUILDER.md)** — contratos de entrada, flags de la CLI, soporte de resume, esquemas.
+- **[Memory Optimization (EN)](docs/MEMORY_OPTIMIZATION.md)** — evitar OOM en entrenamiento y Optuna.
+- **[Code Quality (EN)](docs/CODE_QUALITY.md)** — ejemplos de Zen of Python + SOLID.
+- **[Plan e historia del refactor (EN)](Ref.md)** — reescritura por fases de `src/`.
+
+> La documentación técnica está en inglés tras el refactor de localización (Fase 6). El README mantiene su estructura bilingüe.
 
 ---
 
-## 🛠️ Instalación y Configuración
+## 📋 Requisitos
 
-Pharmagen incluye un asistente de configuración automatizado.
+- **SO:** Linux (desarrollado en Debian 13). Windows funciona con WSL2; macOS no probado.
+- **Python:** **3.14** (fijado en `.python-version`). Gestionado con [`uv`](https://github.com/astral-sh/uv); `uv.lock` es la fuente de verdad.
+- **GPU:** Tarjeta con CUDA recomendada; CPU funciona para inferencia y entrenamientos pequeños.
 
-### 1. Clonar el repositorio
+---
+
+## 🛠️ Instalación rápida
 
 ```bash
-git clone [Pharmagen](https://github.com/Aderfi/Pharmagen)
-cd pharmagen
+git clone https://github.com/Aderfi/Pharmagen.git
+cd Pharmagen
+uv sync --extra dev
+source .venv/bin/activate
 ```
 
+---
+
+## ⚡ Vista rápida
+
+```bash
+# Construir la librería offline (una sola vez, resumible)
+python -m src.data.library
+
+# Entrenar
+python main.py --mode train --model TwoTowerGAT --input train_data/train_data.tsv
+
+# Búsqueda de hiperparámetros
+python main.py --mode train --optuna --optuna-trials 50
+
+# API de inferencia
+uvicorn src.api.main:app --reload         # → http://localhost:8000/docs
+
+# Menú CLI interactivo
+python main.py
+```

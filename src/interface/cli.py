@@ -5,17 +5,16 @@
 import datetime
 import logging
 import sys
-import time
 from pathlib import Path
 
 # Project Imports
-from src.config.manager import DIRS, PROJECT_ROOT, get_available_models
+from src.config import PROJECT_ROOT, get_available_models, get_settings
 from src.interface.io import (
     print_conditions_details,
     print_gnu_notice,
     print_warranty_details,
 )
-from src.interface.ui import ConsoleIO, ProgressBar, Spinner
+from src.interface.ui import ConsoleIO, Spinner
 
 logger = logging.getLogger(__name__)
 DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")
@@ -33,13 +32,13 @@ def _get_train_pipeline():
 
 def _get_optuna_study():
     """Lazy import with automatic cache of run_optuna_study."""
-    from src.modeling.engine.tuner import run_optuna_study
+    from src.model.engine.tuner import run_optuna_study
     return run_optuna_study
 
 
 def _get_predictor_class():
     """Lazy import with automatic cache of PGenPredictor."""
-    from src.modeling.engine.predictor import PGenPredictor
+    from src.model.engine.predictor import PGenPredictor
     return PGenPredictor
 
 
@@ -91,7 +90,7 @@ def run_training_flow():
     ConsoleIO.print_success(f"Selected model: {model_name}")
 
     # 2. Select Data File
-    default_data = DIRS["data"] / "processed" / "train_data. tsv"
+    default_data = get_settings().paths.data / "processed" / "train_data. tsv"
     if not default_data.exists():
         # Fallback to project root default if exists
         fallback = PROJECT_ROOT / "train_data" / "train_data.tsv"

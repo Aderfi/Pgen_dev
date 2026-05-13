@@ -54,10 +54,10 @@ from pathlib import Path
 from typing import cast
 
 # --- Imports del Proyecto ---
-from src.config.manager import DIRS
+from src.config import get_settings
 from src.interface.cli import main_menu_loop
 from src.interface.ui import ConsoleIO, Spinner
-from src.utils.logger import setup_logging
+from src.core import setup_logging
 
 # --- Setup de Rutas ---
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -65,7 +65,7 @@ sys.path.append(str(PROJECT_ROOT))
 
 # Constantes
 DATE_STAMP = datetime.now().strftime("%Y-%m-%d")
-LOGS_DIR = DIRS["logs"]
+LOGS_DIR = get_settings().paths.logs
 
 # Logger
 logger = logging.getLogger("Pharmagen")
@@ -190,7 +190,7 @@ def _run_headless_training(args: argparse.Namespace):
 
     # Optuna Optimization
     else:
-        from src.modeling.engine.tuner import run_optuna_study
+        from src.model.engine.tuner import run_optuna_study
 
         logger.info(f"Starting Optuna optimization: {args.model}")
         ConsoleIO.print_header("Optuna Hyperparameter Optimization")
@@ -213,7 +213,7 @@ def _run_headless_prediction(args: argparse.Namespace):
     """Execute prediction in headless mode."""
     import polars as pl
 
-    from src.modeling.engine.predictor import PGenPredictor
+    from src.model.engine.predictor import PGenPredictor
 
     # Validate input file exists
     if not args.input.exists():

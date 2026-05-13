@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import polars as pl
 import pytest
 
 from src.data.loaders import DEFAULT_NULL_VALUES, TRAIN_DATA_SCHEMA, TabularLoader

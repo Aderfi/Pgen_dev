@@ -24,8 +24,12 @@ from typing import Any
 
 import pysam  # type: ignore[import-not-found]
 
-from src.config.manager import DATA_DIR, REF_GENOME_FASTA
-from src.utils.exceptions import BioinformaticsError
+from src.config import get_settings as _get_settings
+
+_paths = _get_settings().paths
+DATA_DIR = _paths.data
+REF_GENOME_FASTA = _paths.ref_genome_fasta
+from src.core import BioinformaticsError
 
 logger = logging.getLogger(__name__)
 
@@ -163,9 +167,3 @@ def iter_variants(
         genome.close()
 
 
-# Spanish-named aliases for callers that haven't migrated yet. New code should
-# import the English names above; these will be removed in a follow-up phase
-# once the codebase is fully translated.
-seleccionar_vcf = list_vcf_files
-decodificar_genotipo = decode_genotype
-procesar_paciente = iter_variants

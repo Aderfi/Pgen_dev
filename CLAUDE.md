@@ -14,71 +14,50 @@ DeepFM code referenced in some places is being phased out in favor of the GNN.
 
 ## Refactor Status
 
-This codebase is mid-refactor. The current plan and progress are in **`Ref.md`**. As of the last commit, Phases 0–3, 4a, 6 (partial), and 7 are complete:
+This codebase has completed the core refactor. The original plan is in **`Ref.md`**. Highlights:
 
-- ✅ **Phase 0–1** — `src/CAJON DE SASTRE/` moved to `BACKUPS/`; broken imports restored under `src/utils/`.
-- ✅ **Phase 2** — Pydantic v2 domain models in `src/domain/` (Drug, Variant, Gene, StarAllele, Position, Genotype, GraphMetadata, PredictionRequest/Result). 66 tests.
-- ✅ **Phase 3** — Pydantic Settings in `src/config/`. `Settings` + `ModelConfig` (with discriminated `OptunaSpec` union for `["log", lo, hi]` / `["int", …]` / etc.). TOMLs moved to `src/config/data/`. `src/config/manager.py` is now a back-compat shim that exposes `DIRS`, `SEED`, `MULTI_LABEL_COLS`, etc. derived from the typed Settings. 25 tests.
-- ✅ **Phase 4a** — Star-allele table extracted from `src/interface/io.py` to `data/dicts/star_alleles.tsv`, loaded via `src/genomics/star_alleles.py::StarAlleleMap`. 16 tests.
-- ✅ **Phase 4.5** — Library builder rewritten as `src/data/library/` package (drugs, genes, pgx, chromosome, manifest, organize, config, builder, `__main__`). Replaces `lib_builder_polars.py` (883 LOC, module globals, shell scripts) and the abandoned `lib_builder_v2.py` stub. CLI: `python -m src.data.library`. Resume support via `build_manifest.json`. 47 tests; consumer contract (5105 drugs, 2353 gene variants) preserved.
-- ✅ **Phase 4b** — `DataLoaderUtils` split into `src/data/loaders.py::TabularLoader`, `src/data/normalize.py::{MultiLabelNormalizer,Stratifier}`, `src/data/cleaning.py::{GenoKeyBuilder,PharmacogenomicCleaner}`. `src/interface/io.py::DataLoaderUtils` is now a thin compat facade. 26 tests.
-- ✅ **Phase 4c** — `DoubleTowerDataset` (820 LOC) decomposed into `src/data/cache.py::GraphCache` (RAM cache + dummy-graph fallback + GraphDims), `src/data/encoders.py::TargetEncoder`, and a slim 330-line `DoubleTowerDataset` that composes them. 20 tests; both pre-existing dataset test failures fixed.
-- ✅ **Phase 4d** — `PGenTrainer` (429 LOC, dual-mode `from_optuna` flag) split into `src/modeling/training/{loop,standard,optuna_trainer}.py`. `TrainingLoop` is the abstract base; `StandardTrainer` adds checkpointing + `torch.compile` + tqdm; `OptunaTrialTrainer` adds trial reporting + pruning + NaN→`TrialPruned`. `src/modeling/engine/trainer.py::PGenTrainer` is now a tiny factory. 14 tests.
-- ✅ **Phase 5 (partial)** — `subprocess.run(shell=True, ...)` removed from `src/genomics/ngs_pipeline.py`; `bwa mem | samtools sort` runs via Python `Popen` plumbing. `src/genomics/variant_val.py::iter_variants` uses pysam for full VCF iteration with build-mismatch detection. `input()` calls removed from library code.
-- ✅ **Phase 6 (partial)** — Spanish translated in `src/genomics/{ref_genome,ngs_pipeline,variant_val}.py`, `src/utils/logger.py`, `src/modeling/architectures/gnn.py`. `MemoryError` renamed to `PharmagenMemoryError` (with alias for back-compat); `ValidationError` no longer multi-inherits `IndexError, ValueError`. **Spanish remains in `src/data/datasets.py` and `src/data/lib_builder_polars.py`** — those are user-WIP files left for Phase 4.
-- ✅ **Phase 7** — FastAPI inference service under `src/api/`. 19 tests.
-- ⏳ **Phase 8** — CI workflow + docs sweep.
+- ✅ **Phases 0–7** complete: backups extracted, Pydantic domain models (`src/domain/`), Pydantic Settings (`src/config/`), star-allele table externalized, `src/data/library/` rebuilt, `DataLoaderUtils` split (`loaders`/`normalize`/`cleaning`), `DoubleTowerDataset` decomposed (`cache`/`encoders`), `PGenTrainer` split (`loop`/`standard`/`optuna_trainer`), `subprocess.run(shell=True, …)` purged, Spanish translated, FastAPI service under `src/api/`.
+- ✅ **Post-refactor cleanup** — `src/modeling/` renamed to `src/model/`; `src/utils/` split into `src/core/{exceptions,log,validation}.py`; `src/config/manager.py` shim removed; the `vcf_handler/` package deleted (calling a non-existent C++ binary); `dev_Pharmagen/` pre-refactor snapshot moved to `BACKUPS/dev_Pharmagen_snapshot/` (also reachable via tag `pre-refactor-2026-05`); stray data artefacts and the duplicate `src/library_archive.tar.gz` removed.
+- ⏳ **Phase 8 pending** — CI workflow and a final docs sweep.
 
 ## Layout
 
 ```
 src/
-├── api/                 # FastAPI service (Phase 7)
-│   ├── main.py          # create_app() factory + lifespan
-│   ├── deps.py          # PredictorRegistry + DI
-│   ├── schemas.py       # HTTP envelopes
-│   └── routers/         # health, models, predict, library
-├── domain/              # Pydantic v2 domain models (Phase 2)
-│   ├── drug.py          # Drug + Drug.from_smiles()
-│   ├── variant.py       # GenomeBuild, Position, Variant, Genotype
-│   ├── gene.py          # Gene, StarAllele, AlleleFunction
-│   ├── graph.py         # GraphKind, GraphMetadata, GraphPair
-│   └── prediction.py    # PredictionRequest, PredictionResult
-├── config/              # Pydantic Settings (Phase 3)
-│   ├── __init__.py      # Public API: get_settings, get_model_config, …
-│   ├── settings.py      # Settings (env-overridable via PHARMAGEN_*)
-│   ├── models.py        # ModelConfig + OptunaSpec discriminated union
-│   ├── paths.py         # Paths model with ensure_dirs()
-│   ├── manager.py       # back-compat shim (DIRS, SEED, …)
-│   └── data/            # paths.toml, settings.toml, models.toml
-├── genomics/
-│   ├── star_alleles.py  # StarAlleleMap from data/dicts/ (Phase 4a)
-│   ├── reference.py     # was ref_genome.py — translated, no shell=True
-│   ├── ngs_pipeline.py  # 4-phase NGS pipeline, argv-based subprocess
-│   └── variant_val.py   # iter_variants() with build-mismatch validation
-├── modeling/            # Largely unchanged; trainer/predictor still use legacy shim
+├── api/                 # FastAPI service (create_app + routers + DI)
+├── core/                # Cross-cutting: exception hierarchy, logging, validators
+├── config/              # Pydantic Settings (settings/models/paths + data/*.toml)
+├── domain/              # Pydantic v2 domain models (Drug, Variant, Gene, …)
 ├── data/
-│   ├── datasets.py      # ⚠️ god object — Phase 4 will split
+│   ├── cache.py         # GraphCache + GraphDims
+│   ├── cleaning.py      # GenoKeyBuilder + PharmacogenomicCleaner
 │   ├── collator.py
+│   ├── datasets.py      # Slim DoubleTowerDataset composing cache + encoder
+│   ├── encoders.py      # TargetEncoder
 │   ├── graph_indexing.py
-│   └── library/         # offline graph builder (Phase 4.5)
-│       ├── builder.py   # LibraryBuilder orchestrator
-│       ├── config.py    # LibraryBuildConfig (Pydantic)
-│       ├── drugs.py     # smiles_to_graph + DrugGraphBuilder (25/7 schema)
-│       ├── genes.py     # GenomicGraphBuilder (9/3 schema, FASTA validation)
-│       ├── pgx.py       # PharmVar VCF folder loader
-│       ├── chromosome.py # CHROM ↔ RefSeq map
-│       ├── manifest.py  # resume tracking
-│       ├── organize.py  # pure-Python file organization
-│       └── __main__.py  # python -m src.data.library
-├── interface/           # CLI + console utilities (Phase 4 will move into src/cli/)
-├── utils/               # exceptions, logger, restored memory/validation/etc.
+│   ├── loaders.py       # TabularLoader
+│   ├── normalize.py     # MultiLabelNormalizer + Stratifier
+│   └── library/         # Offline graph builder (python -m src.data.library)
+├── genomics/
+│   ├── ngs_pipeline.py  # 4-phase NGS pipeline (argv-based subprocess)
+│   ├── ref_genome.py    # Reference handling
+│   ├── star_alleles.py  # StarAlleleMap (data/dicts/star_alleles.tsv)
+│   └── variant_val.py   # iter_variants() with build-mismatch detection
+├── interface/           # CLI + console utilities (ui.py, cli.py, io.py)
+├── library/             # On-disk graph cache: .pt files for drugs/ + gene_graphs/
+├── model/               # Was src/modeling/ — renamed post-refactor
+│   ├── architectures/   # GATv2 layers + assembly (create_gnn_model)
+│   ├── checkpoint.py    # CheckpointManager
+│   ├── engine/          # predictor + tuner
+│   ├── factories.py     # LossFactory + OptimizerFactory
+│   ├── losses.py        # MultiTaskUncertaintyLoss
+│   └── training/        # TrainingLoop, StandardTrainer, OptunaTrialTrainer
 └── pipeline.py          # train_pipeline orchestrator
 ```
 
 ## Environment & Commands
 
-The project is managed with **uv**. Python is pinned to **3.14**; ruff/mypy still target `py310` (a discrepancy worth fixing in Phase 8).
+The project is managed with **uv**. Python is pinned to **3.14** and ruff/mypy target `py314`.
 
 ```bash
 uv sync --extra dev           # install
@@ -95,11 +74,10 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 # → GET /health, GET /v1/models, POST /v1/predict (single + /batch),
 #   GET /v1/library/{drugs,genes,genes/{symbol}}
 
-# Tests (use --override-ini to skip the addopts coverage flag in pyproject.toml,
-# which references a "pharmagen" package that doesn't exist)
-python -m pytest tests/unit/ -q --override-ini="addopts="
-python -m pytest tests/unit/api/ -q --override-ini="addopts="
-python -m pytest tests/unit/domain/ -v --override-ini="addopts="
+# Tests — addopts in pyproject.toml uses --cov=src now, so no override needed.
+python -m pytest tests/unit/ -q
+python -m pytest tests/unit/api/ -q
+python -m pytest tests/unit/domain/ -v
 ```
 
 ## Conventions to keep
@@ -109,17 +87,17 @@ python -m pytest tests/unit/domain/ -v --override-ini="addopts="
 - **Genome build is part of every Position.** Build mismatch is a fail-fast error (`BioinformaticsError`), not a warning. See `iter_variants` for the pattern.
 - **Star alleles come from `data/dicts/star_alleles.tsv`.** Don't reintroduce hardcoded tables in code. Add a row to the TSV instead.
 - **No `shell=True` in subprocess calls.** Use argv lists. For pipes, use `subprocess.Popen` plumbing (see `ngs_pipeline.MappingAlignmentAnalysis.map_reads`).
-- **No `input()` in library code.** Interactive prompts live in `src/interface/cli.py` or future `src/cli/workflows/`. Library functions take parameters or return generators.
-- **Use `get_settings()` / `get_model_config()` in new code**, not `from src.config.manager import DIRS, SEED, …`. The shim exists for legacy callers and will be removed in a follow-up phase.
+- **No `input()` in library code.** Interactive prompts live in `src/interface/cli.py`. Library functions take parameters or return generators.
+- **Use `get_settings()` / `get_model_config()` in new code.** The old `src.config.manager` shim has been removed.
+- **Exceptions, logging, validators live in `src/core/`.** Import via `from src.core import EncoderError`, `from src.core import setup_logging`, etc. — not the old flat-`src/` modules.
 - **No emoji in log messages.** Emoji are for `ConsoleIO` user-facing output. Log messages use `logger.info("Doing X (sample=%s)", sample_id)` style.
 - **English everywhere.** Spanish identifiers/comments in `src/` are tech debt to fix; `BACKUPS/` is exempted.
 
 ## Outstanding tech debt
 
-- `src/data/datasets.py` is 820 lines and mixes loading/encoding/caching/validation. Phase 4 will split into `GraphCache`, `EncoderRegistry`, slim `DoubleTowerDataset`.
-- `src/modeling/engine/trainer.py` has dual-mode logic (standard vs Optuna) gated by `from_optuna` flag. Phase 4f will split into `StandardTrainer` + `OptunaTrialTrainer` over a common `TrainingLoop` base.
-- `src/data/lib_builder_v2.py` has `...` stubs in `molecule_graph_builder()` and `main()`. Either complete or remove.
-- `src/genomics/vcf_handler/wrapper.py` (32 lines) calls a non-existent C++ binary. Either remove or guard behind `shutil.which("vcf_tool")`.
-- `pyproject.toml` `[tool.pytest.ini_options].addopts` includes `--cov=pharmagen` which doesn't exist as a package. Override with `--override-ini="addopts="` until fixed.
-- `tests/pytest.ini` has its own (older) coverage config. Both should be unified in Phase 8.
-- `src/config/manager.py` calls `paths.ensure_dirs()` on import — that's a side effect for back-compat. New code should call `get_settings().paths.ensure_dirs()` explicitly (see `src/api/main.py::lifespan`).
+- `src/library/` still mixes generated `.pt` graph caches with the (now-empty) `__init__.py` package marker; tightly coupled to `src/api/routers/library.py`, `src/data/graph_indexing.py`, `src/data/datasets.py`. A future phase should relocate the artefacts to `data/library/` and turn `src/library` into pure code (or delete it).
+- `src/data/datasets.py` still constructs its library root as `PROJECT_ROOT / "src" / "library"`. Once the artefacts move, switch to `get_settings().paths.<…>`.
+- `src/model/engine/{predictor,tuner}.py` weren't restructured during the trainer split; they still own a lot of device/dataloader/encoder bootstrap and could share a base with `TrainingLoop`.
+- `main.py` (~300 LOC) mixes CLI parsing, logging setup, and dispatch; a future `src/cli/app.py` would keep `main.py` as a one-liner entry point.
+- No CI workflow under `.github/workflows/` yet — Phase 8 deliverable.
+- `tests/integration/` is empty after the refactor; needs new smoke tests (pipeline import, predict round-trip).

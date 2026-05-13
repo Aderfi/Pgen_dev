@@ -1,10 +1,4 @@
-"""Tests for the legacy ``PGenTrainer`` factory and its subclass dispatch.
-
-Full end-to-end training tests would need a real DataLoader + model — those
-live in tests/integration/ once we have stable fixtures. Here we just
-verify the wiring: factory dispatch, signature compatibility, and the
-TrainingLoop input validation.
-"""
+"""Tests for trainer subclass dispatch and TrainingLoop input validation."""
 
 from __future__ import annotations
 
@@ -14,9 +8,8 @@ import pytest
 import torch
 from torch import nn
 
-import src.utils.module_builder as module_builder_mod
-from src.modeling.engine.trainer import PGenTrainer
-from src.modeling.training import (
+import src.model.factories as module_builder_mod
+from src.model.training import (
     OptunaTrialTrainer,
     StandardTrainer,
     TrainingLoop,
@@ -59,29 +52,6 @@ def trainer_kwargs() -> dict[str, Any]:
         "multi_label_cols": set(),
         "params": {"learning_rate": 1e-3, "weight_decay": 1e-4},
     }
-
-
-# ----------------------------------------------------------------- dispatch
-
-
-class TestPGenTrainerFactory:
-    def test_dispatches_to_standard(self, trainer_kwargs: dict[str, Any]) -> None:
-        trainer = PGenTrainer(**trainer_kwargs, from_optuna=False)
-        assert isinstance(trainer, StandardTrainer)
-
-    def test_dispatches_to_optuna(self, trainer_kwargs: dict[str, Any]) -> None:
-        trainer = PGenTrainer(**trainer_kwargs, from_optuna=True)
-        assert isinstance(trainer, OptunaTrialTrainer)
-
-    def test_default_is_standard(self, trainer_kwargs: dict[str, Any]) -> None:
-        trainer = PGenTrainer(**trainer_kwargs)
-        assert isinstance(trainer, StandardTrainer)
-
-    def test_both_subclass_training_loop(self, trainer_kwargs: dict[str, Any]) -> None:
-        a = PGenTrainer(**trainer_kwargs, from_optuna=False)
-        b = PGenTrainer(**trainer_kwargs, from_optuna=True)
-        assert isinstance(a, TrainingLoop)
-        assert isinstance(b, TrainingLoop)
 
 
 # -------------------------------------------------------------- input validation
@@ -144,7 +114,7 @@ class TestSharedInterface:
 
 class TestNanCheck:
     def test_nan_raises_training_error_in_base(self) -> None:
-        from src.utils.exceptions import TrainingError
+        from src.core import TrainingError
 
         with pytest.raises(TrainingError, match="NaN"):
             TrainingLoop._check_nan(float("nan"), epoch=5)

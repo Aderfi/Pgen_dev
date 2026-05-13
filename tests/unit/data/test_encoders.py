@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from src.data.encoders import UNKNOWN_CATEGORY_LABEL, TargetEncoder
-from src.utils.exceptions import EncoderError
+from src.core import EncoderError
 
 
 class TestSingleLabel:

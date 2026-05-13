@@ -1,7 +1,6 @@
 """Tests for src.data.normalize."""
 
 import polars as pl
-import pytest
 
 from src.data.normalize import MultiLabelNormalizer, Stratifier
 

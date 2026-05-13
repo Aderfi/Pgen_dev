@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.gene import AlleleFunction, StarAllele
+from src.domain.gene import StarAllele
 from src.domain.prediction import (
     PredictionRequest,
     PredictionResult,

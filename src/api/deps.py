@@ -48,7 +48,7 @@ class PredictorRegistry:
 
             try:
                 # Local import: avoids pulling torch into /health response time.
-                from src.modeling.engine.predictor import PGenPredictor
+                from src.model.engine.predictor import PGenPredictor
 
                 predictor = PGenPredictor(model_name)
             except FileNotFoundError as e:

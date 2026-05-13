@@ -21,7 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.config.manager import DATA_DIR, PROJECT_ROOT, REF_GENOME_FASTA
+from src.config import PROJECT_ROOT, get_settings as _get_settings
+
+_paths = _get_settings().paths
+DATA_DIR = _paths.data
+REF_GENOME_FASTA = _paths.ref_genome_fasta
 
 logger = logging.getLogger(__name__)
 

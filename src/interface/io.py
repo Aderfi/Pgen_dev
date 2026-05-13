@@ -1,16 +1,4 @@
-"""Console-facing IO helpers and a back-compat facade over the data pipeline.
-
-This module is the historical home of ``DataLoaderUtils``. The actual
-implementations now live under ``src.data.*``:
-
-- ``src.data.loaders.TabularLoader``     reads CSV/TSV with the project schema.
-- ``src.data.cleaning.PharmacogenomicCleaner``  builds ``geno_key`` + cleans.
-- ``src.data.normalize.MultiLabelNormalizer`` / ``Stratifier``.
-- ``src.data.graph_indexing.GraphIndexBuilder``  walks the on-disk library.
-
-``DataLoaderUtils`` here remains as a thin compatibility shim used by
-``src.pipeline``; new code should import from the focused modules above.
-"""
+"""Console-facing IO helpers — JSON utilities and GPL notices."""
 
 from __future__ import annotations
 
@@ -20,23 +8,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import polars as pl
-
-from src.config.manager import DIRS, METADATA, MULTI_LABEL_COLS, VERSION
-from src.data.cleaning import PharmacogenomicCleaner
-from src.data.graph_indexing import GraphIndexBuilder
-from src.data.loaders import TRAIN_DATA_SCHEMA, TabularLoader
-from src.data.normalize import MultiLabelNormalizer, Stratifier
-from src.genomics.star_alleles import get_default_map as _get_star_map
-
-LOGS_DIR = DIRS["logs"]
-UNKNOWN_TOKEN = "__UNKNOWN__"
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+UNKNOWN_TOKEN = "__UNKNOWN__"
+
 
 # --------------------------------------------------------------------------- #
-# JSON helpers — small enough to stay here.
+# JSON helpers
 # --------------------------------------------------------------------------- #
 
 
@@ -58,13 +38,14 @@ def load_json(path: str | Path) -> dict[str, Any]:
 
 
 def welcome_message() -> None:
+    settings = get_settings()
     msg = f"""
     ============================================
-            PHARMAGEN v{VERSION}
+            PHARMAGEN v{settings.version}
     ============================================
     Pharmacogenetic prediction with deep learning.
 
-    Logs: {LOGS_DIR}
+    Logs: {settings.paths.logs}
     ============================================
     """
     print(msg)
@@ -72,11 +53,12 @@ def welcome_message() -> None:
 
 def print_gnu_notice() -> None:
     """Print the short GPL boot notice."""
+    settings = get_settings()
     start_year = 2025
     current_year = datetime.now().year
     year_str = f"{start_year}-{current_year}" if current_year > start_year else str(start_year)
     author = "Adrim Hamed Outmani (@Aderfi)"
-    program = METADATA.get("project_name", "Pharmagen")
+    program = settings.project_name
 
     notice = f"""
     {program} Copyright (C) {year_str} {author}
@@ -123,77 +105,7 @@ def print_conditions_details() -> None:
     input("\nPress [Enter] to return...")
 
 
-# --------------------------------------------------------------------------- #
-# Star-allele compat shims (consumed by legacy pipeline code).
-# --------------------------------------------------------------------------- #
-
-
-_STAR_MAP = _get_star_map()
-STAR_ALLELE_MAP: dict[str, str] = {
-    label: "|".join(_STAR_MAP[label].rsids) for label in _STAR_MAP.labels
-}
-RSID_TO_STAR_ALLELES: dict[str, list[str]] = _STAR_MAP.rsid_to_labels
-
-
-# --------------------------------------------------------------------------- #
-# DataLoaderUtils — back-compat facade. New code should import from
-# src.data.loaders / src.data.cleaning / src.data.normalize directly.
-# --------------------------------------------------------------------------- #
-
-
-class DataLoaderUtils:
-    """Deprecated facade — use the focused classes under ``src.data.*`` instead.
-
-    Kept so that ``src.pipeline.train_pipeline`` and any older notebooks keep
-    working. Each method now delegates to the new module.
-    """
-
-    @staticmethod
-    def load_dataframe(
-        csv_path: str | Path,
-        cols: list[str],
-        stratify_col: list[str] | str | None = None,
-    ) -> pl.DataFrame:
-        try:
-            df = TabularLoader.load(csv_path, columns=cols)
-        except Exception as e:
-            logger.error("Error reading CSV %s: %s", csv_path, e)
-            raise
-        return DataLoaderUtils.clean_and_prepare_data(df, stratify_col=stratify_col)
-
-    @staticmethod
-    def normalize_multilabel_col(col_name: str, delimiter: str = "|") -> pl.Expr:
-        return MultiLabelNormalizer.normalize_expr(col_name, delimiter)
-
-    @staticmethod
-    def add_stratify_column(
-        df: pl.DataFrame, stratify_cols: list[str]
-    ) -> pl.DataFrame:
-        return Stratifier.add_stratify_column(df, stratify_cols)
-
-    @staticmethod
-    def clean_and_prepare_data(
-        df: pl.DataFrame, stratify_col: list[str] | str | None = None
-    ) -> pl.DataFrame:
-        cleaner = PharmacogenomicCleaner(multi_label_cols=MULTI_LABEL_COLS)
-        return cleaner.clean(df, stratify_col=stratify_col)
-
-    # --- legacy index builders — superseded by GraphIndexBuilder ---
-
-    @staticmethod
-    def _build_drug_index(drug_lib: Path) -> dict[str, Path]:
-        return GraphIndexBuilder.build_drug_index(drug_lib)
-
-    @staticmethod
-    def _build_genes_index(variant_lib: Path) -> dict[str, dict[str, Path]]:
-        return GraphIndexBuilder.build_gene_variant_index(variant_lib)
-
-
 __all__ = [
-    "DataLoaderUtils",
-    "RSID_TO_STAR_ALLELES",
-    "STAR_ALLELE_MAP",
-    "TRAIN_DATA_SCHEMA",
     "UNKNOWN_TOKEN",
     "load_json",
     "print_conditions_details",

@@ -18,7 +18,7 @@ import polars as pl
 import torch
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 
-from src.utils.exceptions import EncoderError
+from src.core import EncoderError
 
 logger = logging.getLogger(__name__)
 

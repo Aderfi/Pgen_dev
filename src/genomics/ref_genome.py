@@ -14,7 +14,11 @@ from pathlib import Path
 import requests
 from tqdm.auto import tqdm
 
-from src.config.manager import REF_GENOME_DIR, REF_GENOME_FASTA
+from src.config import get_settings as _get_settings
+
+_paths = _get_settings().paths
+REF_GENOME_DIR = _paths.ref_genome_dir
+REF_GENOME_FASTA = _paths.ref_genome_fasta
 
 logger = logging.getLogger(__name__)
 

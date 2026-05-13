@@ -1,6 +1,5 @@
 """Tests for src.data.library.pgx."""
 
-import pytest
 
 from src.data.library.pgx import parse_haplotype_label
 

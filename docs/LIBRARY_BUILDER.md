@@ -3,12 +3,14 @@
 > **Module:** `src.data.library`
 > **CLI:** `python -m src.data.library`
 >
-> The library builder pre-computes the drug + variant graphs that the
+> The library builder pre-computes the drug and variant graphs that the
 > training pipeline lazy-loads from disk. Building offline is the project's
-> answer to limited training-time compute — the build runs once, the trained
-> model reads from disk thereafter.
+> answer to limited training-time compute — the build runs once and the
+> trained model reads from disk thereafter.
 
-This document covers the runtime behaviour, input contracts, output schemas, and CLI surface. For internal architecture, see `docs/ARCHITECTURE.md`.
+This document covers runtime behaviour, input contracts, output schemas, and
+the CLI surface. For internal architecture, see
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
@@ -188,15 +190,19 @@ To start fresh: `--force`, or delete the manifest manually.
 
 ---
 
-## What changed vs the old `library_creator_polars.py`
+## What changed vs the pre-refactor builder
 
-The previous single-file 883-line script lives in `BACKUPS/cajon_de_sastre_pre_refactor/`. The rewrite (Phase 4.5):
+The previous single-file 883-line script (`library_creator_polars.py`) lives in
+`BACKUPS/dev_Pharmagen_snapshot/` (also reachable via the
+`pre-refactor-2026-05` git tag). The Phase-4.5 rewrite:
 
-* Removed module-level globals (`GLOBAL_GENOME`, `GLOBAL_CHROM_MAPPING`, …).
-* Replaced hardcoded `BASE_DIR = Path("data")` with `Settings.paths`.
-* Replaced bash/PowerShell organize scripts with pure Python (`pathlib.Path.rename`).
-* Single source of truth for rsID→star-allele lookups: `data/dicts/star_alleles.tsv`.
-* Added the `build_manifest.json` resume layer.
-* Translated all Spanish comments + docstrings.
-* Pydantic-validated build config; CLI built on `argparse` (no custom `--help` menu).
-* 47 unit tests covering schema dimensions, filename safety, manifest atomicity, UGT1A merging, and rsID resolution.
+- Removed module-level globals (`GLOBAL_GENOME`, `GLOBAL_CHROM_MAPPING`, …).
+- Replaced hardcoded `BASE_DIR = Path("data")` with `Settings.paths`.
+- Replaced bash / PowerShell organize scripts with pure Python
+  (`pathlib.Path.rename`).
+- Centralised rsID → star-allele lookups in `data/dicts/star_alleles.tsv`.
+- Added the `build_manifest.json` resume layer.
+- Translated all Spanish comments and docstrings.
+- Adopted Pydantic-validated build config; CLI built on `argparse`.
+- Added 47 unit tests covering schema dimensions, filename safety, manifest
+  atomicity, UGT1A merging, and rsID resolution.

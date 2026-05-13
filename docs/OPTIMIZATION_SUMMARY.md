@@ -1,359 +1,156 @@
-# Pharmagen Optimization Summary
+# Optimization Summary
 
-## Overview
+A cross-cutting summary of the engineering decisions baked into the
+post-refactor codebase: how memory is managed, how the code is structured
+along SOLID lines, and how errors surface. For the phased rewrite that got us
+here, see [`Ref.md`](../Ref.md); for runtime layout, see
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
 
-This document summarizes the optimizations and improvements made to the Pharmagen codebase to follow good programming principles (Zen of Python, SOLID) and prevent Out-Of-Memory (OOM) errors, particularly during Optuna hyperparameter optimization.
+## 1. Memory management
 
-## Changes Made
+Pharmagen is designed to run on commodity hardware. The pipeline picks safe
+defaults automatically; the operator overrides only when they need to.
 
-### 1. Memory Management System
+| Concern                       | Where it lives                              |
+| ----------------------------- | ------------------------------------------- |
+| Custom OOM exception          | `src/core/exceptions.py::PharmagenMemoryError` |
+| Memory-aware preloading       | `src/pipeline.py` (`PRELOAD_THRESHOLD` rows) |
+| Per-trial cleanup             | `src/model/training/optuna_trainer.py`       |
+| Periodic GC during training   | `src/model/training/standard.py`             |
 
-**New Files:**
-- `src/utils/memory.py` - Comprehensive memory monitoring and management utilities
+Operational guidance: [`docs/MEMORY_OPTIMIZATION.md`](MEMORY_OPTIMIZATION.md).
 
-**Key Features:**
-- `MemoryMonitor` class for tracking CPU and GPU memory usage
-- Memory estimation functions for models and batches
-- Automatic cleanup utilities
-- Memory availability checks with configurable thresholds
+## 2. SOLID applied to the codebase
 
-**Benefits:**
-- Proactive OOM prevention
-- Better visibility into memory usage
-- Automated memory cleanup during training
+### Single Responsibility
 
-### 2. SOLID Architecture Refactoring
+The original `DoubleTowerDataset`, `PGenTrainer`, and `DataLoaderUtils` god-
+objects were split into focused units:
 
-**New Files:**
-- `src/data/graph_indexing.py` - Separated graph indexing logic (SRP)
-- `src/utils/validation.py` - Configuration and data validation (SRP)
-- `src/utils/exceptions.py` - Custom exception hierarchy (Explicit errors)
+- `src/data/datasets.py` — slim dataset that composes the cache + encoder.
+- `src/data/cache.py` — `GraphCache` + `GraphDims`; the only owner of on-disk
+  `.pt` files.
+- `src/data/encoders.py` — `TargetEncoder` (single + multi-label).
+- `src/data/loaders.py` — `TabularLoader` (CSV / TSV with project schema).
+- `src/data/cleaning.py` — `GenoKeyBuilder` + `PharmacogenomicCleaner`.
+- `src/data/normalize.py` — `MultiLabelNormalizer` + `Stratifier`.
+- `src/model/training/loop.py` — `TrainingLoop` ABC.
+- `src/model/training/standard.py` — `StandardTrainer`.
+- `src/model/training/optuna_trainer.py` — `OptunaTrialTrainer` with trial
+  reporting and pruning.
 
-**Modified Files:**
-- `src/data/datasets.py` - Uses GraphIndexBuilder (DIP)
-- `src/config/manager.py` - Integrated validation (OCP)
+### Open/Closed
 
-**Benefits:**
-- Single Responsibility: Each class has one clear purpose
-- Open/Closed: Easy to extend without modifying core code
-- Dependency Inversion: Depend on abstractions, not implementations
-- Better testability and maintainability
+Factories let new components register without touching the consumer:
 
-### 3. Optuna OOM Prevention
-
-**Modified Files:**
-- `src/modeling/engine/tuner.py` - Enhanced with memory management
-- `src/modeling/engine/trainer.py` - Added periodic cleanup
-
-**Improvements:**
-- Aggressive memory cleanup after each trial
-- Automatic `preload_ram=False` during optimization
-- `num_workers=0` to prevent multiprocessing memory conflicts
-- Memory logging at trial start/end
-- Proper exception handling for OOM errors
-- `max_batch_size` parameter to cap batch sizes
-- Try-finally blocks ensure cleanup even on failures
-
-**Benefits:**
-- Reduced OOM errors by ~80% in testing
-- Better trial completion rates
-- More reliable hyperparameter search
-
-### 4. Dataset Memory Optimization
-
-**Modified Files:**
-- `src/data/datasets.py` - Improved preloading logic
-
-**Improvements:**
-- Warning when `preload_ram=True` with >10k samples
-- Periodic garbage collection during preloading
-- Memory usage estimation in logs
-- Better documentation of memory implications
-- Automatic decision in pipeline based on dataset size
-
-**Benefits:**
-- Clearer memory expectations
-- Reduced unexpected OOM errors
-- Better user guidance
-
-### 5. Training Pipeline Enhancements
-
-**Modified Files:**
-- `src/pipeline.py` - Enhanced validation and error handling
-
-**Improvements:**
-- Data validation before training starts
-- Dataset size checks (minimum 100 samples)
-- Memory estimation before model creation
-- Automatic worker count adjustment
-- Better error messages with actionable suggestions
-- Graceful error handling with cleanup
-
-**Benefits:**
-- Fail fast with clear errors
-- Better resource utilization
-- Reduced wasted training time
-
-### 6. Error Handling & Validation
-
-**New Exception Classes:**
-- `PharmagenException` - Base exception
-- `ConfigurationError` - Invalid configuration
-- `DataError` - Invalid data
-- `ModelError` - Model creation/loading failures
-- `MemoryError` - Memory constraint violations
-- `GraphError` - Graph data issues
-- `EncoderError` - Encoding/decoding failures
-- `OptimizationError` - Training/optimization failures
-
-**Validation Features:**
-- `ConfigValidator` - Validates model and path configurations
-- `DataValidator` - Checks missing values, class balance, data types
-- `GraphValidator` - Validates graph dimensions and consistency
-
-**Benefits:**
-- Explicit, actionable error messages
-- Early detection of configuration issues
-- Better debugging experience
-
-### 7. Code Quality Improvements
-
-**Improvements:**
-- Comprehensive docstrings following Google style
-- Type hints for all public APIs
-- Better variable naming (explicit over implicit)
-- Reduced code duplication
-- Separated concerns into focused modules
-- Early returns to reduce nesting (flat is better than nested)
-
-**Benefits:**
-- More maintainable code
-- Easier onboarding for contributors
-- Better IDE support
-- Self-documenting code
-
-### 8. Documentation
-
-**New Documents:**
-- `docs/MEMORY_OPTIMIZATION.md` - Comprehensive memory guide
-- `docs/CODE_QUALITY.md` - Coding standards and best practices
-
-**Updated:**
-- `README.md` - Added hardware requirements and doc links
-
-**Benefits:**
-- Lower barrier to entry
-- Reduced support burden
-- Knowledge preservation
-
-## Zen of Python Compliance
-
-### Beautiful is better than ugly
-- Improved code formatting and structure
-- Consistent naming conventions
-- Clear function signatures
-
-### Explicit is better than implicit
-- Type hints everywhere
-- Clear error messages
-- Documented side effects
-
-### Simple is better than complex
-- Removed over-engineering
-- Focused classes with single responsibilities
-- Straightforward logic flow
-
-### Flat is better than nested
-- Early returns to reduce indentation
-- Guard clauses instead of deep nesting
-- Simplified conditional logic
-
-### Sparse is better than dense
-- Separated long functions
-- One concept per function
-- Clear line spacing
-
-### Readability counts
-- Descriptive variable names
-- Comprehensive docstrings
-- Inline comments for complex logic
-
-### Errors should never pass silently
-- Custom exception hierarchy
-- No bare except clauses
-- Explicit error handling everywhere
-
-## SOLID Principles Compliance
-
-### Single Responsibility Principle (SRP)
-- `GraphIndexBuilder` - Only builds indices
-- `GraphValidator` - Only validates graphs
-- `MemoryMonitor` - Only monitors memory
-- `ConfigValidator` - Only validates config
-- Each module has one clear purpose
-
-### Open/Closed Principle (OCP)
-- Factory patterns for extensibility
-- Registry pattern for losses and optimizers
-- Configuration-driven architecture
-- Easy to add new models/losses without changing core code
-
-### Liskov Substitution Principle (LSP)
-- Consistent interfaces across datasets
-- Compatible return types
-- No surprising behaviors in subclasses
-
-### Interface Segregation Principle (ISP)
-- Focused protocols (Trainable, Validatable, Checkpointable)
-- Clients don't depend on unused methods
-- Small, cohesive interfaces
-
-### Dependency Inversion Principle (DIP)
-- Depend on abstractions (nn.Module, Optimizer)
-- Injection of dependencies
-- Configuration over hard-coding
-
-## Performance Impact
-
-### Memory Usage
-- **Before**: Frequent OOM errors during Optuna (>50% trial failure rate)
-- **After**: <10% trial failure rate, predictable memory usage
-- **Improvement**: ~80% reduction in OOM errors
-
-### Training Speed
-- Minimal impact on training speed (<5% overhead)
-- Memory monitoring overhead is negligible
-- Cleanup operations are asynchronous where possible
-
-### Code Maintainability
-- **Before**: Monolithic classes, unclear responsibilities
-- **After**: Modular, focused components
-- **Improvement**: Estimated 40% reduction in time to understand and modify code
-
-## Migration Guide
-
-### For Existing Code
-
-1. **Update imports:**
-   ```python
-   # Add new utilities
-   from src.utils.memory import MemoryMonitor
-   from src.utils.exceptions import ConfigurationError, DataError
-   from src.utils.validation import ConfigValidator
-   ```
-
-2. **Use memory monitoring:**
-   ```python
-   # Add at key points
-   MemoryMonitor.log_memory_stats("Before training")
-   ```
-
-3. **Update exception handling:**
-   ```python
-   # Replace generic exceptions
-   # OLD: raise ValueError("Invalid config")
-   # NEW: raise ConfigurationError("Model 'X' missing required param 'Y'")
-   ```
-
-4. **Validate configurations:**
-   ```python
-   # Add validation
-   ConfigValidator.validate_model_config(config, model_name)
-   ```
-
-### For New Features
-
-1. Follow single responsibility principle
-2. Add comprehensive docstrings
-3. Use type hints
-4. Add validation where appropriate
-5. Handle errors explicitly
-6. Add memory monitoring for intensive operations
-7. Write tests for new functionality
-
-## Testing Recommendations
-
-### Memory Tests
 ```python
-def test_memory_estimation():
-    mem = estimate_model_memory_mb(num_parameters=1000000)
-    assert mem > 0
-    assert mem < 1000  # Reasonable bounds
+from src.model.factories import LossFactory
 
-def test_memory_cleanup():
-    MemoryMonitor.clear_memory(aggressive=True)
-    # Check memory decreased
+LossFactory.register("my_loss", MyLossClass)
 ```
 
-### Validation Tests
-```python
-def test_config_validation():
-    with pytest.raises(ConfigurationError):
-        ConfigValidator.validate_model_config({}, "test_model")
+Both `LossFactory` and `OptimizerFactory` live in `src/model/factories.py`.
+
+### Liskov Substitution
+
+`StandardTrainer` and `OptunaTrialTrainer` both inherit from `TrainingLoop`
+(`src/model/training/loop.py`) and return the same metric dict shape, so any
+consumer can substitute one for the other.
+
+### Interface Segregation
+
+Domain models live in `src/domain/` and are imported piecewise. A caller that
+only needs `StarAllele` imports only that — there is no monolithic
+`pharmagen_types` module.
+
+### Dependency Inversion
+
+`StandardTrainer` accepts a `nn.Module`, a `torch.optim.Optimizer`, and any
+`nn.Module` for loss. The concrete classes are wired in `src/pipeline.py`,
+not inside the trainer.
+
+## 3. Error model
+
+A single exception hierarchy under `src/core/exceptions.py`:
+
+```
+PharmagenException
+├── ConfigurationError       # invalid TOML / settings
+├── DataError                # bad inputs to the pipeline
+├── ModelError               # model creation / loading failures
+├── EncoderError             # target encoder issues
+├── GraphError               # PyG graph integrity
+├── PharmagenMemoryError     # OOM with actionable context
+├── HardwareError            # missing GPU, CUDA mismatch, …
+├── BioinformaticsError      # genome-build mismatch, FASTA issues
+├── ValidationError          # Pydantic-bridge violations
+├── OptimizationError        # Optuna trial failures
+├── TrainingError            # training-loop failures
+├── ConvergenceError         # training failed to converge
+└── ResourceError            # generic resource-availability problem
 ```
 
-### Integration Tests
-```python
-def test_optuna_memory_cleanup():
-    # Run mini optuna study
-    # Verify memory returns to baseline after completion
-```
+Import via `from src.core import ConfigurationError, DataError` — flat
+imports from `src.utils` have been removed.
 
-## Future Improvements
+## 4. Validation framework
 
-### Short Term
-- [ ] Add gradient accumulation helper
-- [ ] Create memory profiler decorator
-- [ ] Add automatic batch size finder
-- [ ] Implement model pruning utilities
+`src/core/validation.py` exposes:
 
-### Medium Term
-- [ ] Add distributed training support
-- [ ] Create model quantization pipeline
-- [ ] Implement dynamic batch sizing
-- [ ] Add training resume from checkpoint
+- `ConfigValidator` — sanity-checks `ModelConfig` against the available
+  feature / target columns and the `OptunaSpec` union.
+- `DataValidator` — flags missing columns, NaNs, class imbalance, and dataset
+  size before training begins (`MIN_DATASET_SIZE = 100`).
 
-### Long Term
-- [ ] Model compression toolkit
-- [ ] Automatic mixed precision tuning
-- [ ] Multi-GPU memory management
-- [ ] Cloud training integration
+Both are invoked at the top of `src/pipeline.train_pipeline`, so failures land
+early with actionable error messages instead of mysterious shape errors mid-
+epoch.
 
-## Metrics & Success Criteria
+## 5. Pydantic at every boundary
 
-### Achieved
-- ✅ 80% reduction in OOM errors
-- ✅ 100% of public APIs have type hints
-- ✅ All new code follows SOLID principles
-- ✅ Comprehensive documentation added
-- ✅ Custom exception hierarchy implemented
-- ✅ Validation framework in place
+External input is parsed into Pydantic v2 models:
 
-### In Progress
-- ⏳ Full test coverage for new utilities
-- ⏳ Performance benchmarking
-- ⏳ Migration of legacy code
+- **HTTP** — `src/api/schemas.py` envelopes wrap `PredictionRequest` /
+  `PredictionResult` from `src/domain/`.
+- **CLI / TOML** — `src/config/` resolves `Settings`, `Paths`, and
+  `ModelConfig`.
+- **Tabular** — `src/data/loaders.TabularLoader` rejects rows that do not
+  match the project schema.
+- **Bioinformatics** — `src/domain/variant.py` (Position, Variant, Genotype)
+  rejects build mismatches up front; `src/genomics/variant_val.iter_variants`
+  enforces FASTA agreement.
 
-### Planned
-- 📋 Automated code quality checks in CI
-- 📋 Memory regression tests
-- 📋 Documentation versioning
+`dict[str, Any]` is banned in those layers. Adding a feature means adding a
+field to a Pydantic model.
 
-## Conclusion
+## 6. Subprocess safety
 
-These optimizations significantly improve the robustness, maintainability, and usability of the Pharmagen codebase. The focus on memory management directly addresses the critical OOM issues during Optuna optimization, while the architectural improvements ensure the codebase remains maintainable as it grows.
+The NGS pipeline (`src/genomics/ngs_pipeline.py`) uses argv lists with no
+`shell=True`. Pipes are stitched together with `subprocess.Popen`
+(`map_reads`), which keeps shell-injection vectors closed even when the
+caller controls a path or filename.
 
-The adherence to Zen of Python and SOLID principles creates a foundation for sustainable development and makes the codebase more accessible to contributors.
+## 7. Documentation surface
 
-## Contact & Support
+| Document                             | Audience                                  |
+| ------------------------------------ | ----------------------------------------- |
+| [`README.md`](../README.md) / [`README_ESP.md`](../README_ESP.md) | First-time visitors |
+| [`docs/QUICK_START.md`](QUICK_START.md) | Anyone running the tool                |
+| [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) | New contributors                       |
+| [`docs/LIBRARY_BUILDER.md`](LIBRARY_BUILDER.md) | Operators building the graph cache |
+| [`docs/MEMORY_OPTIMIZATION.md`](MEMORY_OPTIMIZATION.md) | Training under tight budgets |
+| [`docs/CODE_QUALITY.md`](CODE_QUALITY.md) | Patch authors                          |
+| [`Ref.md`](../Ref.md)                | Maintainers, refactor history             |
+| [`CLAUDE.md`](../CLAUDE.md)          | AI assistants                             |
 
-For questions or issues related to these optimizations:
-- Open an issue on GitHub
-- Check the documentation in `docs/`
-- Review code examples in the guides
+## 8. What still needs doing
 
----
+Tracked in [`Ref.md`](../Ref.md) and [`CLAUDE.md`](../CLAUDE.md):
 
-**Last Updated**: January 2026  
-**Authors**: Adrim Hamed Outmani, GitHub Copilot
-**Version**: 1.5b
+- Phase 8 — CI workflow under `.github/workflows/` and a final docs sweep.
+- Package rename `src/` → `pharmagen/`.
+- Library artefact relocation (`src/library/` → `data/library/`).
+- A shared base between `src/model/engine/{predictor,tuner}.py` and
+  `src/model/training/loop.py`.
+- Smoke-tests under `tests/integration/`.
+- Schema migration for `.pt` artefacts predating the 25-feature drug schema.

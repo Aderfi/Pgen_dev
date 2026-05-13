@@ -1,6 +1,8 @@
 # Quick Start
 
-A guided tour through the four user-facing surfaces. For the full module map see `docs/ARCHITECTURE.md`; for the refactor history see `Ref.md`.
+A guided tour through the four user-facing surfaces. For the full module map
+see [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for the refactor history see
+[`Ref.md`](../Ref.md).
 
 ## 1. Install
 
@@ -11,21 +13,27 @@ uv sync --extra dev               # creates .venv and installs everything
 source .venv/bin/activate
 ```
 
-Pharmagen is pinned to **Python 3.14** (see `.python-version`). It is managed with **uv** — `uv.lock` is the source of truth.
+Pharmagen is pinned to **Python 3.14** (see `.python-version`). It is managed
+with **uv** — `uv.lock` is the source of truth.
 
 ## 2. Build the offline graph library
 
-The training pipeline lazy-loads pre-built drug + variant graphs from `src/library/`. Build them once:
+The training pipeline lazy-loads pre-built drug + variant graphs from
+`src/library/`. Build them once:
 
 ```bash
-python -m src.data.library                # full build (drugs + genes)
+python -m src.data.library                                  # full build
 python -m src.data.library --only-gene CYP2D6 --skip-drugs  # quick verify
-python -m src.data.library --force        # force-rebuild after schema changes
+python -m src.data.library --force                          # rebuild after schema changes
 ```
 
-Inputs live under `data/`: `snp_data_output.tsv`, `drugs_cid.tsv`, `ref_genome/HSapiens_GChr38.fa`, and `haplotype_variants/<gene>/*.vcf`. See `docs/LIBRARY_BUILDER.md` for the input schemas and CLI options.
+Inputs live under `data/`: `snp_data_output.tsv`, `drugs_cid.tsv`,
+`ref_genome/HSapiens_GChr38.fa`, and `haplotype_variants/<gene>/*.vcf`. See
+[`docs/LIBRARY_BUILDER.md`](LIBRARY_BUILDER.md) for input schemas and the CLI
+surface.
 
-The build is **resumable** — interrupted runs pick up where they left off via `src/library/build_manifest.json`.
+The build is **resumable** — interrupted runs pick up where they left off via
+`src/library/build_manifest.json`.
 
 ## 3. Train a model
 
@@ -56,7 +64,7 @@ python main.py --mode train --optuna --optuna-trials 50 --optuna-epochs 30
 ```
 
 ```python
-from src.modeling.engine.tuner import run_optuna_study
+from src.model.engine.tuner import run_optuna_study
 
 run_optuna_study(
     model_name="TwoTowerGAT",
@@ -97,18 +105,21 @@ resp = client.post("/v1/predict", json={
 print(resp.json())
 ```
 
-The API loads the model lazily on the first `/v1/predict` request — `/health` returns 200 even before any model is loaded. If trained artifacts are missing you'll get a clean `503` with the missing-file path in the `detail`.
+The API loads the model lazily on the first `/v1/predict` request — `/health`
+returns 200 even before any model is loaded. If trained artifacts are missing
+you get a clean `503` with the missing-file path in the `detail`.
 
-Available endpoints (full list in `docs/ARCHITECTURE.md`):
+Available endpoints (full list in
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md#api-surface)):
 
 | Method | Path                              | Purpose                                  |
 | ------ | --------------------------------- | ---------------------------------------- |
 | `GET`  | `/health`                         | Liveness probe.                          |
 | `GET`  | `/ready`                          | Has a model been loaded?                 |
 | `GET`  | `/v1/models`                      | List trained models.                     |
-| `GET`  | `/v1/models/{name}`               | Full ModelConfig for one model.          |
+| `GET`  | `/v1/models/{name}`               | Full `ModelConfig` for one model.        |
 | `POST` | `/v1/predict`                     | Single (drug, allele) prediction.        |
-| `POST` | `/v1/predict/batch`               | ≤100 pairs in one call.                  |
+| `POST` | `/v1/predict/batch`               | Up to 100 pairs per call.                |
 | `GET`  | `/v1/library/drugs`               | Paginated drug-graph catalog.            |
 | `GET`  | `/v1/library/genes`               | Paginated gene-graph catalog.            |
 | `GET`  | `/v1/library/genes/{symbol}`      | Variants stored for one gene.            |
@@ -121,11 +132,11 @@ python main.py            # interactive menu
 
 Menu options:
 
-1. Genomic Processing (ETL — VCF in, predictions out; not yet wired up)
-2. Train Models
-3. Predict (interactive single + file batch)
-4. Advanced Analysis (placeholder)
-5. Exit
+1. Genomic Processing (ETL — VCF in, predictions out; not yet wired up).
+2. Train Models.
+3. Predict (interactive single + file batch).
+4. Advanced Analysis (placeholder).
+5. Exit.
 
 ## 6. Configuration
 
@@ -189,24 +200,32 @@ req = PredictionRequest(drugs=[2244], genotype=[sa])
 ## 8. Testing
 
 ```bash
-pytest tests/unit/ -q --override-ini="addopts="     # 237 tests, ~3 seconds
-pytest tests/unit/api/                              # FastAPI tests
-pytest tests/unit/data/test_library_*.py            # library-builder schema tests
+pytest tests/unit/ -q                  # 231 unit tests
+pytest tests/unit/api/                 # FastAPI tests
+pytest tests/unit/data/test_library_*.py  # library-builder schema tests
 ```
 
-The `--override-ini="addopts="` flag bypasses the stale `--cov=pharmagen` flag in `pyproject.toml` (Phase 8 cleanup pending).
+Coverage is enabled via `pyproject.toml`
+(`addopts = ["--cov=src", "--cov-report=term-missing", ...]`); no flag override
+is needed.
 
 ## 9. Common gotchas
 
-* **`pysam` not installed** — only needed for `src.genomics.variant_val`; safe to skip on Windows or in lightweight envs.
-* **Aspirin graph has 24 features instead of 25** — the existing `src/library/drugs/*.pt` artifacts were built before the 25-feature schema was finalized. Rebuild with `python -m src.data.library --force` to get the canonical 25/7 schema.
-* **`OutOfMemory` during Optuna** — drop `--optuna-trials` and `batch_size`; the tuner uses `preload_ram=False` automatically but VRAM still budgets per trial.
-* **CLI menu uses Spanish strings somewhere** — that's tech debt slated for Phase 9. PR welcome.
+- **`pysam` not installed** — only needed for `src.genomics.variant_val`; safe
+  to skip on Windows or in lightweight environments.
+- **Aspirin graph has 24 features instead of 25** — some `src/library/drugs/*.pt`
+  artefacts were built before the 25-feature schema was finalized. Rebuild with
+  `python -m src.data.library --force` to get the canonical 25/7 schema.
+- **`OutOfMemory` during Optuna** — drop `--optuna-trials` and `batch_size`;
+  the tuner uses `preload_ram=False` automatically but VRAM still budgets per
+  trial.
 
 ## See also
 
-- `docs/ARCHITECTURE.md` — the full module map.
-- `docs/LIBRARY_BUILDER.md` — deep dive on the offline graph builder.
-- `docs/CODE_QUALITY.md` — Zen of Python + SOLID examples.
-- `docs/MEMORY_OPTIMIZATION.md` — OOM avoidance during training.
-- `Ref.md` — the phased refactor plan with progress.
+- [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — the full module map.
+- [`docs/LIBRARY_BUILDER.md`](LIBRARY_BUILDER.md) — deep dive on the offline
+  graph builder.
+- [`docs/CODE_QUALITY.md`](CODE_QUALITY.md) — Zen of Python + SOLID examples.
+- [`docs/MEMORY_OPTIMIZATION.md`](MEMORY_OPTIMIZATION.md) — OOM avoidance
+  during training.
+- [`Ref.md`](../Ref.md) — the phased refactor plan with progress.

@@ -1,6 +1,8 @@
-# Pharmagen Code Quality Guidelines
+# Code Quality Guidelines
 
-This document outlines coding standards and best practices for the Pharmagen project, based on the Zen of Python and SOLID principles.
+Coding standards for the Pharmagen project, grounded in the Zen of Python and
+SOLID principles. The examples below use the post-refactor module layout — see
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md) for the full map.
 
 ## Zen of Python in Practice
 
@@ -107,7 +109,7 @@ def load_graph(path):
         return None
 
 # ✅ GOOD: Explicit error handling
-from src.utils.exceptions import GraphError
+from src.core import GraphError
 
 def load_graph(path: Path) -> Data:
     """Load graph from file.
@@ -251,8 +253,8 @@ import pandas as pd
 import torch
 
 # Local
-from src.config.manager import DIRS
-from src.utils.memory import MemoryMonitor
+from src.config import get_settings
+from src.core import setup_logging
 ```
 
 ### Docstrings
@@ -314,10 +316,12 @@ Make them actionable:
 # ❌ BAD: Vague
 raise ValueError("Invalid configuration")
 
+from src.core import ConfigurationError
+
 # ✅ GOOD: Specific and actionable
 raise ConfigurationError(
     f"Model '{model_name}' requires 'learning_rate' in params. "
-    f"Add 'learning_rate = 0.001' to models.toml"
+    f"Add 'learning_rate = 0.001' to src/config/data/models.toml."
 )
 ```
 

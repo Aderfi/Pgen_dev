@@ -1,9 +1,10 @@
-# tuner.py
 # Pharmagen - Optuna Hyperparameter Optimization
 #
 # Implements a comprehensive hyperparameter optimization pipeline using Optuna.
 # Supports multi-objective optimization and clean architecture.
 # Copyright (C) 2025 Adrim Hamed Outmani
+
+from __future__ import annotations
 
 import datetime
 import gc
@@ -18,29 +19,32 @@ import torch
 import torch.multiprocessing as mp
 from optuna.pruners import HyperbandPruner, MedianPruner, PatientPruner
 from optuna.samplers import RandomSampler, TPESampler
-from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-# Project Imports
 from src.config import get_model_config, get_settings
-from src.data.cleaning import PharmacogenomicCleaner
+from src.core import ConfigurationError, ConfigValidator
 from src.data.collator import DoubleTowerCollater
-from src.data.datasets import DoubleTowerDataset
-from src.data.loaders import TabularLoader
 from src.interface.ui import ConsoleIO
-from src.model.architectures.layers import create_gnn_model
-from src.model.training.optuna_trainer import OptunaTrialTrainer
-from src.core import ConfigurationError, ConfigValidator, DataError, DataValidator
+from src.model.engine.base import (
+    build_gnn_model,
+    build_two_tower_datasets,
+    extract_tower_dims,
+    infer_dataset_dimensions,
+    load_and_clean_data,
+    resolve_device,
+    stratified_split,
+)
 from src.model.factories import LossFactory, OptimizerFactory
+from src.model.training.optuna_trainer import OptunaTrialTrainer
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-# Constants
 MIN_DATASET_SIZE = 1000
 DEFAULT_MAX_BATCH_SIZE = 128
 N_JOBS = 1
+
 
 class PGenTuner:
     """Orchestrator for Optuna-based Hyperparameter Optimization."""
@@ -63,120 +67,84 @@ class PGenTuner:
         self.pruner_type = pruner_type
         self.epochs_override = epochs_override
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = resolve_device()
         self.timestamp = datetime.datetime.now().strftime("%d_%m__%H_%M")
         self.study_name = f"OPT_{self.model_name}_{self.timestamp}"
 
-        # Artifact Paths
         paths = get_settings().paths
         self.reports_dir = paths.reports / "optuna"
         self.figures_dir = paths.reports / "figures"
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.figures_dir.mkdir(parents=True, exist_ok=True)
 
-        # Config Loading & Validation
         self._load_and_validate_config()
 
-        # Components Reuse
-        self.collater = DoubleTowerCollater()  # Stateless, reuse across trials
+        # Stateless components reused across trials.
+        self.collater = DoubleTowerCollater()
+        self.dims = extract_tower_dims(self.cfg)
 
-        # Data Loading
         self._initialize_static_data()
 
-    def _load_and_validate_config(self):
+    def _load_and_validate_config(self) -> None:
         try:
             self.cfg = get_model_config(self.model_name)
         except Exception as e:
             raise ConfigurationError(f"Failed to load config: {e}") from e
 
         if not self.cfg.optuna:
-            raise ConfigurationError(f"Model '{self.model_name}' missing 'optuna' search space")
+            raise ConfigurationError(
+                f"Model '{self.model_name}' missing 'optuna' search space"
+            )
 
         if not ConfigValidator.validate_optuna_params(self.cfg.optuna):
             raise ConfigurationError("Invalid Optuna parameter definitions")
 
         patience_val = self.cfg.optuna.get("patience", 5)
-        self.patience = int(patience_val) if isinstance(patience_val, (int, float)) else 5
+        self.patience = (
+            int(patience_val) if isinstance(patience_val, (int, float)) else 5
+        )
 
-    def _initialize_static_data(self):
+    def _initialize_static_data(self) -> None:
         logger.info("Loading static data from %s", self.csv_path)
+        full_df = load_and_clean_data(
+            self.csv_path, self.cfg, enforce_min_size=MIN_DATASET_SIZE
+        )
+        train_df, val_df = stratified_split(full_df, 0.2, seed=self.seed)
 
-        raw_df = TabularLoader.load(self.csv_path, columns=self.cfg.cols or None)
-        full_df = PharmacogenomicCleaner(
-            multi_label_cols=get_settings().multi_label_set,
-        ).clean(raw_df, stratify_col=self.cfg.stratify_col)
-
-        if len(full_df) < MIN_DATASET_SIZE:
-            raise DataError(f"Dataset too small: {len(full_df)}")
-
-        DataValidator.check_missing_values(
-            df=full_df,
-            columns=[c for c in (self.cfg.features + self.cfg.targets) if c in full_df.columns],
-            threshold=0.5,
+        self.train_dataset, self.val_dataset = build_two_tower_datasets(
+            train_df, val_df, self.cfg, self.dims, preload_ram=False
+        )
+        self.drug_dim, self.geno_dim, self.target_dims = infer_dataset_dimensions(
+            self.train_dataset, self.cfg
+        )
+        logger.info(
+            "Inferred dimensions: drug=%d, geno=%d", self.drug_dim, self.geno_dim
         )
 
-        stratify_labels = full_df["_stratify"] if "_stratify" in full_df.columns else None
-
-        train_df, val_df = train_test_split(
-            full_df,
-            test_size=0.2,
-            stratify=stratify_labels,
-            random_state=self.seed,
-        )
-
-        logger.info("Instantiating datasets (preload_ram=False).")
-        multi_label_cols = list(get_settings().multi_label_set)
-        self.train_dataset = DoubleTowerDataset(
-            df=train_df,
-            drug_col=self.cfg.features[0],
-            geno_col="geno_key",
-            target_cols=self.cfg.targets,
-            multilabel_cols=multi_label_cols,
-            preload_ram=False,
-        )
-
-        self.val_dataset = DoubleTowerDataset(
-            df=val_df,
-            drug_col=self.cfg.features[0],
-            geno_col="geno_key",
-            target_cols=self.cfg.targets,
-            multilabel_cols=multi_label_cols,
-            encoders=self.train_dataset.target_encoder.encoders,
-            preload_ram=False,
-        )
-
-        self._infer_dimensions()
-
-        del full_df, train_df, val_df, stratify_labels
+        del full_df, train_df, val_df
         gc.collect()
 
-    def _infer_dimensions(self):
-        try:
-            sample = self.train_dataset[0]
-            self.drug_dim = sample["drug_data"].x.shape[1]
-            self.geno_dim = sample["geno_data"].x.shape[1]
-            encoders = self.train_dataset.target_encoder.encoders
-            self.target_dims = {
-                col: len(encoders[col].classes_) if col in encoders else 1
-                for col in self.cfg.targets
-            }
-            logger.info("Inferred dimensions: drug=%d, geno=%d", self.drug_dim, self.geno_dim)
-        except Exception as e:
-            raise DataError(f"Failed to infer dimensions: {e}") from e
-
     def _suggest_params(self, trial: optuna.Trial) -> dict[str, Any]:
-        suggestions = {}
+        suggestions: dict[str, Any] = {}
         for param_name, spec in self.cfg.optuna.items():
             if not hasattr(spec, "kind"):
                 continue
             if spec.kind == "categorical":
-                suggestions[param_name] = trial.suggest_categorical(param_name, spec.choices)
+                suggestions[param_name] = trial.suggest_categorical(
+                    param_name, spec.choices
+                )
             elif spec.kind == "int":
-                suggestions[param_name] = trial.suggest_int(param_name, spec.low, spec.high)
+                suggestions[param_name] = trial.suggest_int(
+                    param_name, spec.low, spec.high
+                )
             elif spec.kind == "float":
-                suggestions[param_name] = trial.suggest_float(param_name, spec.low, spec.high)
+                suggestions[param_name] = trial.suggest_float(
+                    param_name, spec.low, spec.high
+                )
             elif spec.kind == "log":
-                suggestions[param_name] = trial.suggest_float(param_name, spec.low, spec.high, log=True)
+                suggestions[param_name] = trial.suggest_float(
+                    param_name, spec.low, spec.high, log=True
+                )
         return suggestions
 
     def _get_epochs(self) -> int:
@@ -185,28 +153,26 @@ class PGenTuner:
         epochs_val = self.cfg.optuna.get("epochs", 50)
         return int(epochs_val) if isinstance(epochs_val, (int, float)) else 50
 
-    def _build_pipeline(self, params: dict) -> OptunaTrialTrainer:
-        extras = self.cfg.extras
-        model = create_gnn_model(
+    def _build_pipeline(self, params: dict[str, Any]) -> OptunaTrialTrainer:
+        model = build_gnn_model(
             model_name=self.model_name,
-            drug_config={"num_features": self.drug_dim, "edge_dim": extras.get("drug_edge_dim", 0)},
-            geno_config={"num_features": self.geno_dim, "edge_dim": extras.get("geno_edge_dim", 0)},
+            dims=self.dims,
+            drug_dim=self.drug_dim,
+            geno_dim=self.geno_dim,
             target_dims=self.target_dims,
             params=params,
-        ).to(self.device)
+            device=self.device,
+        )
 
         uncertainty_net = LossFactory.create_uncertainty_wrapper(
             tasks=self.cfg.targets, device=self.device
         )
-
         optimizer = OptimizerFactory.create(
             model=model, params=params, uncertainty_module=uncertainty_net
         )
-
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=5
         )
-
         return OptunaTrialTrainer(
             model=model,
             optimizer=optimizer,
@@ -224,29 +190,49 @@ class PGenTuner:
         epochs = self._get_epochs()
 
         train_loader = DataLoader(
-            self.train_dataset, batch_size=batch_size, shuffle=True,
-            collate_fn=self.collater, num_workers=0, pin_memory=True
+            self.train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=self.collater,
+            num_workers=0,
+            pin_memory=True,
         )
         val_loader = DataLoader(
-            self.val_dataset, batch_size=batch_size, shuffle=False,
-            collate_fn=self.collater, num_workers=0, pin_memory=True
+            self.val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=self.collater,
+            num_workers=0,
+            pin_memory=True,
         )
 
         trainer = self._build_pipeline(params)
-
         return trainer.fit(
-            train_loader, val_loader, epochs=epochs, patience=self.patience, trial=trial
+            train_loader,
+            val_loader,
+            epochs=epochs,
+            patience=self.patience,
+            trial=trial,
         )
 
     def tune(self, n_trials: int, n_jobs: int | None = 1) -> optuna.Study:
-        sampler = (TPESampler(seed=self.seed, multivariate=True)
-                   if self.sampler_type == "TPE" else RandomSampler(seed=self.seed))
+        sampler = (
+            TPESampler(seed=self.seed, multivariate=True)
+            if self.sampler_type == "TPE"
+            else RandomSampler(seed=self.seed)
+        )
+        pruner = (
+            PatientPruner(HyperbandPruner(), patience=5)
+            if self.pruner_type == "Hyperband"
+            else MedianPruner()
+        )
 
-        pruner = (PatientPruner(HyperbandPruner(), patience=5)
-                  if self.pruner_type == "Hyperband" else MedianPruner())
-
-        storage_url = f"sqlite:///{self.reports_dir.parent}/database/{self.study_name}.db"
-        Path(storage_url.replace("sqlite:///", "")).parent.mkdir(parents=True, exist_ok=True)
+        storage_url = (
+            f"sqlite:///{self.reports_dir.parent}/database/{self.study_name}.db"
+        )
+        Path(storage_url.replace("sqlite:///", "")).parent.mkdir(
+            parents=True, exist_ok=True
+        )
 
         study = optuna.create_study(
             study_name=self.study_name,
@@ -265,15 +251,18 @@ class PGenTuner:
                 self.objective,
                 n_trials=n_trials,
                 n_jobs=n_jobs,
-                gc_after_trial=True
+                gc_after_trial=True,
             )
         else:
             with tqdm(total=n_trials, desc="Trials", colour="blue") as pbar:
+
                 def callback(study, trial):
                     pbar.update(1)
                     try:
                         best = study.best_trial
-                        pbar.set_postfix({"Best": f"{best.value:.4f}", "Trial": trial.number})
+                        pbar.set_postfix(
+                            {"Best": f"{best.value:.4f}", "Trial": trial.number}
+                        )
                     except ValueError:
                         pbar.set_postfix({"Status": trial.state.name})
 
@@ -282,20 +271,21 @@ class PGenTuner:
                     n_trials=n_trials,
                     n_jobs=1,
                     callbacks=[callback],
-                    gc_after_trial=True
+                    gc_after_trial=True,
                 )
 
         self._save_results(study)
         return study
 
-    def _save_results(self, study: optuna.Study):
-        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    def _save_results(self, study: optuna.Study) -> None:
+        completed_trials = [
+            t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
+        ]
         if not completed_trials:
             logger.warning("No trials completed successfully. Skipping report.")
             return
 
         is_minimize = study.direction == optuna.study.StudyDirection.MINIMIZE
-
         best_trial = study.best_trial
         completed_trials.sort(key=lambda t: t.value, reverse=not is_minimize)  # type: ignore
         top_5 = completed_trials[:5]
@@ -317,14 +307,16 @@ class PGenTuner:
             "statistics": {
                 "n_trials": len(study.trials),
                 "n_completed": len(completed_trials),
-                "n_pruned": len([
-                    t for t in study.trials
-                    if t.state == optuna.trial.TrialState.PRUNED
-                ]),
+                "n_pruned": len(
+                    [
+                        t
+                        for t in study.trials
+                        if t.state == optuna.trial.TrialState.PRUNED
+                    ]
+                ),
             },
             "top_5_trials": [
-                {"trial": t.number, "value": t.value, "params": t.params}
-                for t in top_5
+                {"trial": t.number, "value": t.value, "params": t.params} for t in top_5
             ],
             "configuration": {
                 "sampler": self.sampler_type,
@@ -335,16 +327,20 @@ class PGenTuner:
             "datetime": self.timestamp,
         }
 
-        json_path = self.reports_dir / "reports" / f"optuna_{self.study_name.replace('OPT_', '')}.json"
+        json_path = (
+            self.reports_dir
+            / "reports"
+            / f"optuna_{self.study_name.replace('OPT_', '')}.json"
+        )
         json_path.parent.mkdir(parents=True, exist_ok=True)
         with open(json_path, "w") as f:
             json.dump(report, f, indent=2)
-
         ConsoleIO.print_success(f"Report saved: {json_path}")
 
         try:
             import matplotlib
-            matplotlib.use('Agg')
+
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             from optuna.visualization.matplotlib import (
                 plot_optimization_history,
@@ -374,13 +370,17 @@ class PGenTuner:
             ConsoleIO.print_info(f"Plots saved in: {self.figures_dir}")
 
         except ImportError:
-            logger.warning("Matplotlib not available; skipping Optuna visualisation plots.")
+            logger.warning(
+                "Matplotlib not available; skipping Optuna visualisation plots."
+            )
         except Exception as e:
             ConsoleIO.print_error(f"Plot generation failed: {e}")
+
 
 # ==============================================================================
 # ENTRY POINT
 # ==============================================================================
+
 
 def run_optuna_study(
     model_name: str,
@@ -390,9 +390,9 @@ def run_optuna_study(
     sampler: str = "TPE",
     pruner: str = "Hyperband",
 ) -> optuna.Study:
-    if mp.get_start_method(allow_none=True) != 'spawn':
+    if mp.get_start_method(allow_none=True) != "spawn":
         try:
-            mp.set_start_method('spawn', force=True)
+            mp.set_start_method("spawn", force=True)
         except RuntimeError:
             pass
 
@@ -403,11 +403,12 @@ def run_optuna_study(
         pruner_type=pruner,
         epochs_override=epochs,
     )
-
     return tuner.tune(n_trials=n_trials, n_jobs=N_JOBS)
+
 
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) < 2:  # noqa
         print("Usage: python tuner.py <model_name> [csv_path] [n_trials]")
         sys.exit(1)
@@ -415,5 +416,5 @@ if __name__ == "__main__":
     run_optuna_study(
         model_name=sys.argv[1],
         csv_path=sys.argv[2] if len(sys.argv) > 2 else "train_data/train_data.tsv",  # noqa
-        n_trials=int(sys.argv[3]) if len(sys.argv) > 3 else 50  # noqa
+        n_trials=int(sys.argv[3]) if len(sys.argv) > 3 else 50,  # noqa
     )

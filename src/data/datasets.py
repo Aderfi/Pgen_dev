@@ -15,15 +15,15 @@ from typing import Any
 import polars as pl
 from torch.utils.data import Dataset
 
-from src.config import PROJECT_ROOT
+from src.config import get_settings
+from src.core import DataError
 from src.data.cache import GraphCache, GraphDims
 from src.data.encoders import TargetEncoder
 from src.data.graph_indexing import GraphIndexBuilder
-from src.core import DataError
 
 logger = logging.getLogger(__name__)
 
-_LIBRARY = PROJECT_ROOT / "src" / "library"
+_LIBRARY = get_settings().paths.library
 
 # Threshold above which RAM preloading is suspicious (warn, don't refuse).
 PRELOAD_THRESHOLD = 5000
@@ -31,7 +31,7 @@ PRELOAD_THRESHOLD = 5000
 # Default tower dimensions when callers don't override.
 DEFAULT_DIMENSIONS: dict[str, dict[str, int]] = {
     "drugs": {"features": 25, "edges": 7, "attrs": 0},
-    "geno":  {"features": 9,  "edges": 3, "attrs": 0},
+    "geno": {"features": 9, "edges": 3, "attrs": 0},
 }
 
 
@@ -68,7 +68,9 @@ def _validate_input_dims(dims: dict[str, dict[str, int]]) -> None:
                 continue
             v = dims[kind][subkey]
             if not isinstance(v, int) or v < 0:
-                msg = f"invalid dimension {kind}.{subkey}: {v} (must be non-negative int)"
+                msg = (
+                    f"invalid dimension {kind}.{subkey}: {v} (must be non-negative int)"
+                )
                 raise DataError(msg)
 
 
@@ -130,8 +132,9 @@ class DoubleTowerDataset(Dataset):
 
         if preload_ram and len(self.df) > PRELOAD_THRESHOLD:
             logger.warning(
-                "preload_ram=True with %d samples may cause OOM "
-                "(threshold: %d).", len(self.df), PRELOAD_THRESHOLD,
+                "preload_ram=True with %d samples may cause OOM (threshold: %d).",
+                len(self.df),
+                PRELOAD_THRESHOLD,
             )
 
         self.drug_col = drug_col
@@ -145,7 +148,8 @@ class DoubleTowerDataset(Dataset):
         variant_index = GraphIndexBuilder.build_gene_variant_index(variant_lib)
         logger.info(
             "Indexed %d drugs, %d variants",
-            len(drug_index), sum(len(v) for v in variant_index.values()),
+            len(drug_index),
+            sum(len(v) for v in variant_index.values()),
         )
         self.cache = GraphCache(
             drug_index=drug_index,
@@ -171,21 +175,27 @@ class DoubleTowerDataset(Dataset):
 
         # 5. Optional preload
         if preload_ram:
-            unique_drugs = self.df.select(
-                pl.col(self.drug_col).unique().cast(pl.String)
-            ).to_series().to_list()
-            unique_genos = self.df.select(
-                pl.col(join_col).unique().cast(pl.String)
-            ).to_series().to_list()
+            unique_drugs = (
+                self.df.select(pl.col(self.drug_col).unique().cast(pl.String))
+                .to_series()
+                .to_list()
+            )
+            unique_genos = (
+                self.df.select(pl.col(join_col).unique().cast(pl.String))
+                .to_series()
+                .to_list()
+            )
             logger.info(
                 "Preloading %d drugs and %d variants into RAM ...",
-                len(unique_drugs), len(unique_genos),
+                len(unique_drugs),
+                len(unique_genos),
             )
             self.cache.preload_drugs(unique_drugs)
             self.cache.preload_variants(unique_genos)
             logger.info(
                 "Cached %d drugs, %d variants",
-                self.cache.cached_drug_count, self.cache.cached_variant_count,
+                self.cache.cached_drug_count,
+                self.cache.cached_variant_count,
             )
 
     # ----- Dataset API ----------------------------------------------------- #

@@ -5,12 +5,13 @@
 # src/config/data/paths.toml
 
 [base]
-# Carpetas raíz
+# Root folders
 data = "data"
 logs = "logs"
 results = "results"
 reports = "reports"
 cache = "cache"
+library = "data/library"
 src = "src"
 
 [data]

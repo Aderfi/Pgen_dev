@@ -29,6 +29,7 @@ class Paths(BaseModel):
     models: Path
     encoders: Path
     cache: Path
+    library: Path
     ref_genome_dir: Path
     ref_genome_fasta: Path
 
@@ -48,6 +49,7 @@ class Paths(BaseModel):
             self.models,
             self.encoders,
             self.cache,
+            self.library,
             self.ref_genome_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)

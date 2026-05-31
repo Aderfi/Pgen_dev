@@ -1,4 +1,4 @@
-# src/data/graph_indexing.py - VERSIÓN LIMPIA
+# src/data/graph_indexing.py
 # Pharmagen - Pharmacogenetic Prediction and Therapeutic Efficacy
 # Copyright (C) 2025 Adrim Hamed Outmani
 #
@@ -34,32 +34,31 @@ class GraphIndexBuilder:
     """
 
     @staticmethod
-    def build_drug_index(drug_lib:  Path) -> dict[str, Path]:
+    def build_drug_index(drug_lib: Path) -> dict[str, Path]:
         """Build index mapping drug IDs to file paths.
 
         Args:
-            drug_lib: Directory containing drug graph files (. pt).
+            drug_lib: Directory containing drug graph files (.pt).
 
         Returns:
             Dictionary mapping drug IDs to their file paths.
 
         Example:
-            >>> index = GraphIndexBuilder.build_drug_index(Path("src/library/drugs"))
+            >>> index = GraphIndexBuilder.build_drug_index(Path("data/library/drugs"))
             >>> index["10007"]  # Returns Path to 10007_chlorphentermine.pt
         """
         if not drug_lib.exists():
-            logger.warning(f"Drug library not found:  {drug_lib}")
+            logger.warning(f"Drug library not found: {drug_lib}")
             return {}
 
         index_drugs = {}
         for file_path in drug_lib.glob("*.pt"):
-            # Extract ID from filename (e.g., '10007' from '10007_chlorphentermine.pt')
             match = re.match(r"^(\d+)_", file_path.name)
             if match:
                 drug_id = match.group(1)
                 index_drugs[drug_id] = file_path
             else:
-                logger.debug(f"Skipping file with unexpected name: {file_path. name}")
+                logger.debug(f"Skipping file with unexpected name: {file_path.name}")
 
         logger.debug(f"Indexed {len(index_drugs)} drug graphs from {drug_lib}")
         return index_drugs
@@ -72,33 +71,30 @@ class GraphIndexBuilder:
             variant_lib: Directory containing gene variant subdirectories.
 
         Returns:
-            Nested dictionary:  {gene_id: {variant_name: Path}}
+            Nested dictionary: {gene_id: {variant_name: Path}}
 
         Example:
-            >>> index = GraphIndexBuilder.build_gene_variant_index(Path("src/library/gene_graphs"))
+            >>> index = GraphIndexBuilder.build_gene_variant_index(Path("data/library/gene_graphs"))
             >>> index["CYP2D6"]["*4"]  # Returns Path to CYP2D6_star4.pt
         """
         if not variant_lib.exists():
             logger.warning(f"Variant library not found: {variant_lib}")
             return {}
 
-        index_genes:  dict[str, dict[str, Path]] = {}
+        index_genes: dict[str, dict[str, Path]] = {}
 
-        # Initialize gene directories
         for dir_path in variant_lib.rglob("**/"):
             if dir_path.is_dir() and dir_path.name:
                 index_genes[dir_path.name] = {}
 
-        # Index all variant files
         for file_path in variant_lib.glob("**/*.pt"):
-            filename_clean = file_path.stem  # Name without extension
+            filename_clean = file_path.stem
 
             try:
                 gene_id, variant = filename_clean.split("_", 1)
 
-                # Convert "star" notation to "*"
                 if variant.startswith("star"):
-                    variant = variant. replace("star", "*")
+                    variant = variant.replace("star", "*")
 
                 if gene_id not in index_genes:
                     index_genes[gene_id] = {}

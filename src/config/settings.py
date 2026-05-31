@@ -91,6 +91,7 @@ def _build_paths(paths_cfg: dict[str, Any]) -> Paths:
         results=_abs(base.get("results", "results")),
         reports=_abs(base.get("reports", "reports")),
         cache=_abs(base.get("cache", "cache")),
+        library=_abs(base.get("library", "data/library")),
         models=_abs(models.get("models_saved", "src/pgen_model/models")),
         encoders=_abs(models.get("encoders", "src/pgen_model/encoders")),
         ref_genome_dir=_abs(genome.get("ref_genome_dir", "data/ref_genome")),

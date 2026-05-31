@@ -1,9 +1,10 @@
 """Library catalog — drugs and gene-graph artifacts on disk.
 
-These endpoints scan ``src/library/`` for ``.pt`` files (the pre-built PyG
-graphs) and return paginated metadata. The endpoint never returns the
-tensor payload itself — too large for HTTP; downstream callers fetch
-artifacts directly from the filesystem or a future object store.
+These endpoints scan ``settings.paths.library`` (``data/library/`` by default)
+for ``.pt`` files (the pre-built PyG graphs) and return paginated metadata.
+The endpoint never returns the tensor payload itself — too large for HTTP;
+downstream callers fetch artifacts directly from the filesystem or a future
+object store.
 """
 
 from __future__ import annotations
@@ -19,20 +20,19 @@ router = APIRouter(prefix="/v1/library", tags=["library"])
 
 
 def _library_root(settings) -> Path:
-    return settings.paths.project_root / "src" / "library"
+    return settings.paths.library
 
 
-def _list_pt_files(directory: Path, kind: str, offset: int, limit: int) -> tuple[int, list[LibraryEntry]]:
+def _list_pt_files(
+    directory: Path, kind: str, offset: int, limit: int
+) -> tuple[int, list[LibraryEntry]]:
     if not directory.exists():
         return 0, []
 
     files = sorted(directory.rglob("*.pt"))
     total = len(files)
     sliced = files[offset : offset + limit]
-    items = [
-        LibraryEntry(kind=kind, identifier=f.stem, path=str(f))
-        for f in sliced
-    ]
+    items = [LibraryEntry(kind=kind, identifier=f.stem, path=str(f)) for f in sliced]
     return total, items
 
 

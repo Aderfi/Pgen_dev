@@ -37,7 +37,13 @@ class GATv2Tower(nn.Module):
         for i in range(num_layers):
             out_dim = hidden_channels * heads
             self.convs.append(
-                GATv2Conv(curr_in, hidden_channels, heads=heads, edge_dim=edge_dim, concat=True)
+                GATv2Conv(
+                    curr_in,
+                    hidden_channels,
+                    heads=heads,
+                    edge_dim=edge_dim,
+                    concat=True,
+                )
             )
             self.norms.append(GraphNorm(out_dim))
             # Identity skip when dims already match — saves a Linear layer of params.

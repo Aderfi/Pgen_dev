@@ -12,7 +12,10 @@ class TestSafeVariantFilename:
             ("*4", "star4"),
             ("rs1234", "rs1234"),
             ("*1xN", "star1xN"),
-            ("c.2846A>T", "c.2846A>T"),  # > and < survive — no filesystem reserves them on Linux
+            (
+                "c.2846A>T",
+                "c.2846A>T",
+            ),  # > and < survive — no filesystem reserves them on Linux
             ("foo:bar/baz|qux", "foo_bar_baz_qux"),
         ],
     )

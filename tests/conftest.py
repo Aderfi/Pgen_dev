@@ -1,9 +1,10 @@
 """Shared pytest fixtures for Pharmagen test suite."""
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 import torch
-from unittest.mock import MagicMock
 
 
 @pytest.fixture

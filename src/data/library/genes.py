@@ -118,7 +118,7 @@ def _validate_row(
 
     pos_0 = int(pos) - 1
     try:
-        fasta_seq = str(fasta[fasta_key][pos_0 : pos_0 + len(ref)].seq).upper() # type: ignore[union-attr]
+        fasta_seq = str(fasta[fasta_key][pos_0 : pos_0 + len(ref)].seq).upper()  # type: ignore[union-attr]
     except (KeyError, IndexError, ValueError) as e:
         return False, fasta_key, f"FASTA fetch failed: {e}"
 
@@ -198,9 +198,12 @@ class GenomicGraphBuilder:
         if not pgx_df.is_empty():
             pgx_df = pgx_df.rename(
                 {
-                    "POS": "start_pos", "CHROM": "chr",
-                    "REF": "Ref_Allele", "ALT": "Alt_Allele",
-                    "gene_provided": "gene", "haplotype_label": "snp",
+                    "POS": "start_pos",
+                    "CHROM": "chr",
+                    "REF": "Ref_Allele",
+                    "ALT": "Alt_Allele",
+                    "gene_provided": "gene",
+                    "haplotype_label": "snp",
                 }
             ).with_columns(
                 [
@@ -220,7 +223,9 @@ class GenomicGraphBuilder:
         if self.only_gene:
             master = master.filter(pl.col("gene_context") == self.only_gene)
             logger.info(
-                "only_gene filter: %d rows retained for %s.", len(master), self.only_gene
+                "only_gene filter: %d rows retained for %s.",
+                len(master),
+                self.only_gene,
             )
 
         master = master.filter(pl.col("POS").is_not_null())
@@ -230,14 +235,24 @@ class GenomicGraphBuilder:
         )
         logger.info(
             "Validation: %d/%d variants kept after FASTA check.",
-            len(clean), len(master),
+            len(clean),
+            len(master),
         )
 
         return clean.select(
             [
-                "CHROM", "POS", "REF", "ALT", "gene_context", "variant_name",
-                "variant_type_calc", "activity_score",
-                "is_coding", "is_regulatory", "is_splicing", "is_intergenic",
+                "CHROM",
+                "POS",
+                "REF",
+                "ALT",
+                "gene_context",
+                "variant_name",
+                "variant_type_calc",
+                "activity_score",
+                "is_coding",
+                "is_regulatory",
+                "is_splicing",
+                "is_intergenic",
             ]
         ).rename({"variant_type_calc": "variant_type"})
 
@@ -265,8 +280,16 @@ class GenomicGraphBuilder:
             [
                 pl.col("chr").str.strip_chars().alias("chr_clean"),
                 pl.col("start_pos").cast(pl.Int64, strict=False).alias("POS"),
-                pl.col("Ref_Allele").str.strip_chars().str.to_uppercase().fill_null("").alias("REF"),
-                pl.col("Alt_Allele").str.strip_chars().str.to_uppercase().fill_null("").alias("ALT"),
+                pl.col("Ref_Allele")
+                .str.strip_chars()
+                .str.to_uppercase()
+                .fill_null("")
+                .alias("REF"),
+                pl.col("Alt_Allele")
+                .str.strip_chars()
+                .str.to_uppercase()
+                .fill_null("")
+                .alias("ALT"),
                 pl.col("gene").fill_null("Intergenic").alias("gene_context"),
                 pl.col("snp").fill_null(pl.lit("")).alias("snp_tmp"),
             ]
@@ -287,12 +310,16 @@ class GenomicGraphBuilder:
         len_ref = pl.col("REF").str.len_bytes()
         len_alt = pl.col("ALT").str.len_bytes()
 
-        existing_type = pl.col("variant_type") if "variant_type" in df.columns else pl.lit(None)
+        existing_type = (
+            pl.col("variant_type") if "variant_type" in df.columns else pl.lit(None)
+        )
         df = df.with_columns(
             pl.when(existing_type.is_not_null())
             .then(existing_type)
-            .when(len_ref == len_alt).then(pl.lit("snv"))
-            .when(len_ref > len_alt).then(pl.lit("del"))
+            .when(len_ref == len_alt)
+            .then(pl.lit("snv"))
+            .when(len_ref > len_alt)
+            .then(pl.lit("del"))
             .otherwise(pl.lit("ins"))
             .alias("variant_type_calc")
         )
@@ -307,18 +334,25 @@ class GenomicGraphBuilder:
                 .cast(pl.Float64)
                 .alias(f"is_{cat}")
             )
-        return df.with_columns(fxn_exprs).with_columns(pl.lit(0.5).alias("activity_score"))
+        return df.with_columns(fxn_exprs).with_columns(
+            pl.lit(0.5).alias("activity_score")
+        )
 
     @staticmethod
     def _validate_against_fasta(
         df: pl.DataFrame, fasta: Fasta, fasta_keys: set[str]
     ) -> pl.DataFrame:
-        validation_schema = pl.Struct({"validated": pl.Boolean, "validation_error": pl.Utf8})
+        validation_schema = pl.Struct(
+            {"validated": pl.Boolean, "validation_error": pl.Utf8}
+        )
 
         def _worker(row: Mapping[str, Any]) -> dict[str, Any]:
             ok, _, err = _validate_row(
-                row["CHROM"], row["POS"], row["REF"],
-                fasta=fasta, fasta_keys=fasta_keys,
+                row["CHROM"],
+                row["POS"],
+                row["REF"],
+                fasta=fasta,
+                fasta_keys=fasta_keys,
             )
             return {"validated": ok, "validation_error": err}
 
@@ -356,7 +390,9 @@ class GenomicGraphBuilder:
                     pyg = self._to_pyg(graph_nx, str(var_name))
                 except Exception as e:  # noqa: BLE001
                     failed += 1
-                    manifest.mark_gene_failed(gene, str(var_name), f"{type(e).__name__}: {e}")
+                    manifest.mark_gene_failed(
+                        gene, str(var_name), f"{type(e).__name__}: {e}"
+                    )
                     logger.warning("Gene %s variant %s failed: %s", gene, var_name, e)
                     continue
 
@@ -404,10 +440,15 @@ class GenomicGraphBuilder:
                 continue
             alt_n = f"alt_{pos_val}_{idx}"
             g.add_node(
-                alt_n, type="allele_alt", seq=row["ALT"],
-                score=row["activity_score"], variant_name=var_name,
-                is_coding=row["is_coding"], is_regulatory=row["is_regulatory"],
-                is_splicing=row["is_splicing"], is_intergenic=row["is_intergenic"],
+                alt_n,
+                type="allele_alt",
+                seq=row["ALT"],
+                score=row["activity_score"],
+                variant_name=var_name,
+                is_coding=row["is_coding"],
+                is_regulatory=row["is_regulatory"],
+                is_splicing=row["is_splicing"],
+                is_intergenic=row["is_intergenic"],
             )
             g.add_edge(split, alt_n, attr="alt")
             g.add_edge(alt_n, merge, attr="join")

@@ -222,7 +222,9 @@ class DrugGraphBuilder:
 
         logger.info(
             "Drug builder done: %d built, %d skipped, %d failed.",
-            built, skipped, failed,
+            built,
+            skipped,
+            failed,
         )
         return built, skipped, failed
 
@@ -233,4 +235,6 @@ class DrugGraphBuilder:
             f.write("CID\tName\tReason\n")
             for cid, name, reason in failures:
                 f.write(f"{cid}\t{name}\t{reason}\n")
-        logger.warning("Logged %d drug failures to %s", len(failures), self.failures_log)
+        logger.warning(
+            "Logged %d drug failures to %s", len(failures), self.failures_log
+        )

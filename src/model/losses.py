@@ -21,7 +21,9 @@ class FocalLoss(nn.Module):
         self.smoothing = label_smoothing
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        ce = F.cross_entropy(logits, targets, reduction="none", label_smoothing=self.smoothing)
+        ce = F.cross_entropy(
+            logits, targets, reduction="none", label_smoothing=self.smoothing
+        )
         pt = torch.exp(-ce)
         return (((1 - pt) ** self.gamma) * ce).mean()
 
@@ -61,8 +63,16 @@ class AsymmetricLoss(nn.Module):
         probs = torch.sigmoid(logits)
         xs_neg = (1 - probs + self.clip).clamp(max=1) if self.clip > 0 else 1 - probs
 
-        loss_pos = -targets * torch.log(probs.clamp(min=self.eps)) * ((1 - probs) ** self.gamma_pos)
-        loss_neg = -(1 - targets) * torch.log(xs_neg.clamp(min=self.eps)) * ((1 - xs_neg) ** self.gamma_neg)
+        loss_pos = (
+            -targets
+            * torch.log(probs.clamp(min=self.eps))
+            * ((1 - probs) ** self.gamma_pos)
+        )
+        loss_neg = (
+            -(1 - targets)
+            * torch.log(xs_neg.clamp(min=self.eps))
+            * ((1 - xs_neg) ** self.gamma_neg)
+        )
         return (loss_pos + loss_neg).mean()
 
 
@@ -84,7 +94,9 @@ class PolyLoss(nn.Module):
         self.smoothing = label_smoothing
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        ce = F.cross_entropy(logits, targets, reduction="none", label_smoothing=self.smoothing)
+        ce = F.cross_entropy(
+            logits, targets, reduction="none", label_smoothing=self.smoothing
+        )
         poly = ce + self.epsilon * (1 - torch.exp(-ce))
         if self.reduction == "mean":
             return poly.mean()

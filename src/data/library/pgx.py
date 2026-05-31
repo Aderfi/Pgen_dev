@@ -109,7 +109,10 @@ def load_pgx_folder(pgx_dir: Path) -> pl.DataFrame:
             frames.append(
                 vcf_df.select(
                     [
-                        "CHROM", "POS", "REF", "ALT",
+                        "CHROM",
+                        "POS",
+                        "REF",
+                        "ALT",
                         pl.lit(gene).alias("gene_provided"),
                         pl.lit(haplo_label).alias("haplotype_label"),
                     ]

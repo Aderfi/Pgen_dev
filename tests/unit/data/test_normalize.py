@@ -8,30 +8,30 @@ from src.data.normalize import MultiLabelNormalizer, Stratifier
 class TestMultiLabelNormalizer:
     def test_dedup_and_sort(self) -> None:
         df = pl.DataFrame({"tags": ["c|a|b|a", "b|a"]})
-        out = df.with_columns(
-            MultiLabelNormalizer.normalize_expr("tags").alias("out")
-        )["out"].to_list()
+        out = df.with_columns(MultiLabelNormalizer.normalize_expr("tags").alias("out"))[
+            "out"
+        ].to_list()
         assert out == ["a|b|c", "a|b"]
 
     def test_strips_whitespace(self) -> None:
         df = pl.DataFrame({"tags": ["  a  | b "]})
-        out = df.with_columns(
-            MultiLabelNormalizer.normalize_expr("tags").alias("out")
-        )["out"].to_list()
+        out = df.with_columns(MultiLabelNormalizer.normalize_expr("tags").alias("out"))[
+            "out"
+        ].to_list()
         assert out == ["a|b"]
 
     def test_drops_empty_segments(self) -> None:
         df = pl.DataFrame({"tags": ["a||b||"]})
-        out = df.with_columns(
-            MultiLabelNormalizer.normalize_expr("tags").alias("out")
-        )["out"].to_list()
+        out = df.with_columns(MultiLabelNormalizer.normalize_expr("tags").alias("out"))[
+            "out"
+        ].to_list()
         assert out == ["a|b"]
 
     def test_handles_nulls(self) -> None:
         df = pl.DataFrame({"tags": ["a|b", None, ""]})
-        out = df.with_columns(
-            MultiLabelNormalizer.normalize_expr("tags").alias("out")
-        )["out"].to_list()
+        out = df.with_columns(MultiLabelNormalizer.normalize_expr("tags").alias("out"))[
+            "out"
+        ].to_list()
         assert out == ["a|b", "", ""]
 
     def test_custom_delimiter(self) -> None:

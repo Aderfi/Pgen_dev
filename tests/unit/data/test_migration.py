@@ -12,24 +12,41 @@ UNKNOWN_CATEGORY_LABEL = "__UNKNOWN__"
 # from src.data_loader import DoubleTowerDataset, PGenProcessor (o la clase que tenga fit/transform)
 # Para este ejemplo, asumo que las clases están disponibles o las simulamos abajo.
 
+
 # --- MOCKS PARA DEPENDENCIAS EXTERNAS ---
 @pytest.fixture
 def mock_graph_data():
     """Crea un objeto PyG Data falso."""
     from torch_geometric.data import Data
+
     return Data(x=torch.randn(5, 10), edge_index=torch.tensor([[0, 1], [1, 0]]))
+
 
 @pytest.fixture
 def sample_df():
     """Crea un DataFrame de Polars representativo."""
-    return pl.DataFrame({
-        "drug_id": ["1001", "1002", "1003", "1001"],
-        "geno_key": ["CYP2D6_*4", "CYP2C19_*17", "DPYD_*2A", "CYP2D6_*1"],
-        "outcome": ["Toxicity", "Efficacy", "Toxicity", "No_Effect"],  # Single-label
-        "side_effects": ["Headache|Nausea", "Nausea", None, "Vomiting|Headache"] # Multi-label
-    })
+    return pl.DataFrame(
+        {
+            "drug_id": ["1001", "1002", "1003", "1001"],
+            "geno_key": ["CYP2D6_*4", "CYP2C19_*17", "DPYD_*2A", "CYP2D6_*1"],
+            "outcome": [
+                "Toxicity",
+                "Efficacy",
+                "Toxicity",
+                "No_Effect",
+            ],  # Single-label
+            "side_effects": [
+                "Headache|Nausea",
+                "Nausea",
+                None,
+                "Vomiting|Headache",
+            ],  # Multi-label
+        }
+    )
+
 
 # --- TESTS DE PREPROCESAMIENTO (ENCODERS) ---
+
 
 class TestEncoders:
     """Valida la lógica de fit y transform migrada a Polars."""
@@ -43,13 +60,17 @@ class TestEncoders:
         """
         # Simulamos la clase que contiene tus métodos fit/transform
         # Aquí inyectamos la lógica que migramos anteriormente
-        from sklearn.preprocessing import MultiLabelBinarizer, LabelEncoder # noqa
+        from sklearn.preprocessing import MultiLabelBinarizer, LabelEncoder  # noqa
 
         # 1. Test Single Label (Outcome)
         # -----------------------------
         # Lógica fit
         target_col = "outcome"
-        uniques = sample_df.select(pl.col(target_col).drop_nulls().unique()).to_series().to_list()
+        uniques = (
+            sample_df.select(pl.col(target_col).drop_nulls().unique())
+            .to_series()
+            .to_list()
+        )
         le = LabelEncoder().fit(sorted(uniques + [UNKNOWN_CATEGORY_LABEL]))
 
         # Lógica transform (Polars replace)
@@ -57,15 +78,13 @@ class TestEncoders:
         unknown_idx = mapping[UNKNOWN_CATEGORY_LABEL]
 
         encoded_series = sample_df.select(
-            pl.col(target_col)
-            .replace(mapping, default=unknown_idx)
-            .cast(pl.Int64)
+            pl.col(target_col).replace(mapping, default=unknown_idx).cast(pl.Int64)
         ).to_series()
 
         # Assertions
         assert encoded_series.dtype == pl.Int64
         assert encoded_series.null_count() == 0
-        assert len(encoded_series) == 4 # noqa
+        assert len(encoded_series) == 4  # noqa
         # Verificar que "Toxicity" tiene el mismo código
         assert encoded_series[0] == encoded_series[2]
 
@@ -96,21 +115,25 @@ class TestEncoders:
         # La fila 3 es "None" (originalmente nulo) -> debe ser todo ceros
         assert torch.sum(tensor[2]) == 0
 
+
 # --- TESTS DEL DATASET (DOUBLE TOWER) ---
+
 
 class TestDoubleTowerDataset:
     """Valida la carga de datos, cache y __getitem__."""
 
-    @patch("torch.load") # Mockear carga de disco
-    @patch("pathlib.Path.exists", return_value=True) # Mockear existencia de archivos
-    def test_initialization_and_getitem(self, mock_exists, mock_torch_load, sample_df, mock_graph_data):
+    @patch("torch.load")  # Mockear carga de disco
+    @patch("pathlib.Path.exists", return_value=True)  # Mockear existencia de archivos
+    def test_initialization_and_getitem(
+        self, mock_exists, mock_torch_load, sample_df, mock_graph_data
+    ):
 
         # IMPORTANTE: Importa tu clase real aquí
         # from your_module import DoubleTowerDataset
         # Para que el test corra standalone, definiré un mock de la clase si no existe,
         # pero tú debes usar la real.
         try:
-            from src.data.datasets import DoubleTowerDataset # noqa <--- AJUSTA ESTO
+            from src.data.datasets import DoubleTowerDataset  # noqa <--- AJUSTA ESTO
         except ImportError:
             pytest.skip("Clase DoubleTowerDataset no encontrada. Ajusta el import.")
 
@@ -118,9 +141,16 @@ class TestDoubleTowerDataset:
         mock_torch_load.return_value = mock_graph_data
 
         # Mock de builders de índices (para no escanear disco real)
-        with patch("src.data.graph_indexing.GraphIndexBuilder.build_drug_index", return_value={"1001": Path("d1.pt")}), \
-             patch("src.data.graph_indexing.GraphIndexBuilder.build_gene_variant_index", return_value={"CYP2D6": {"*4": Path("g1.pt")}}):
-
+        with (
+            patch(
+                "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
+                return_value={"1001": Path("d1.pt")},
+            ),
+            patch(
+                "src.data.graph_indexing.GraphIndexBuilder.build_gene_variant_index",
+                return_value={"CYP2D6": {"*4": Path("g1.pt")}},
+            ),
+        ):
             # Instanciar Dataset
             dataset = DoubleTowerDataset(
                 df=sample_df,
@@ -128,11 +158,11 @@ class TestDoubleTowerDataset:
                 geno_col="geno_key",
                 target_cols=["outcome", "side_effects"],
                 multilabel_cols=["side_effects"],
-                preload_ram=True # Probamos el preload optimizado
+                preload_ram=True,  # Probamos el preload optimizado
             )
 
             # 1. Test __len__
-            assert len(dataset) == 4 # noqa
+            assert len(dataset) == 4  # noqa
 
             # 2. Test __getitem__ (Acceso optimizado)
             sample = dataset[0]

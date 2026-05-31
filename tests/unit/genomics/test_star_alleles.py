@@ -34,7 +34,9 @@ class TestLoad:
 
     def test_skips_blank_rows(self, tmp_tsv: Path) -> None:
         m = load_star_alleles(tmp_tsv)
-        assert "*" not in [label.split("*")[0] for label in m.labels]  # no '*4' from blank row
+        assert "*" not in [
+            label.split("*")[0] for label in m.labels
+        ]  # no '*4' from blank row
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):

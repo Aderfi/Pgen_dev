@@ -48,7 +48,9 @@ class LibraryBuilder:
         manifest = BuildManifest.load_or_empty(cfg.manifest_path)
         logger.info(
             "Library build starting → %s (force=%s, only_gene=%s)",
-            cfg.library_root, cfg.force, cfg.only_gene,
+            cfg.library_root,
+            cfg.force,
+            cfg.only_gene,
         )
 
         drugs_built = drugs_skipped = drugs_failed = 0
@@ -75,7 +77,9 @@ class LibraryBuilder:
                 force=cfg.force,
             )
             genes_built, genes_failed = gene_builder.build(
-                cfg.variants_tsv, cfg.genes_out, manifest=manifest,
+                cfg.variants_tsv,
+                cfg.genes_out,
+                manifest=manifest,
             )
             manifest.save(cfg.manifest_path)
         else:
@@ -85,8 +89,12 @@ class LibraryBuilder:
         logger.info(
             "Library build done → %d drugs (+%d skipped, -%d failed), "
             "%d gene variants (-%d failed). Manifest at %s",
-            drugs_built, drugs_skipped, drugs_failed,
-            genes_built, genes_failed, cfg.manifest_path,
+            drugs_built,
+            drugs_skipped,
+            drugs_failed,
+            genes_built,
+            genes_failed,
+            cfg.manifest_path,
         )
         return BuildSummary(
             drugs_built=drugs_built,

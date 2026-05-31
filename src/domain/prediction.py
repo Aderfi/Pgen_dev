@@ -25,7 +25,9 @@ class PredictionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    drugs: list[int] = Field(..., min_length=1, description="PubChem CIDs of prescribed drugs.")
+    drugs: list[int] = Field(
+        ..., min_length=1, description="PubChem CIDs of prescribed drugs."
+    )
     genotype: list[StarAllele] = Field(..., description="Patient star-allele profile.")
     sample_id: str | None = None
 
@@ -35,7 +37,9 @@ class TargetPrediction(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    target: str = Field(..., description="Target column name (e.g. 'phenotype_category').")
+    target: str = Field(
+        ..., description="Target column name (e.g. 'phenotype_category')."
+    )
     label: str = Field(..., description="Predicted class label.")
     probability: float = Field(..., ge=0.0, le=1.0)
     probabilities: dict[str, float] = Field(

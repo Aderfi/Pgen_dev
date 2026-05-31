@@ -22,9 +22,9 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.config import get_settings
-from src.model.training.loop import TrainingLoop
 from src.model.checkpoint import CheckpointManager
 from src.model.losses import MultiTaskUncertaintyLoss
+from src.model.training.loop import TrainingLoop
 
 logger = logging.getLogger(__name__)
 
@@ -47,22 +47,34 @@ class StandardTrainer(TrainingLoop):
         keep_last_n: int = 3,
     ) -> None:
         super().__init__(
-            model, optimizer, scheduler, device, target_cols,
-            multi_label_cols, params, uncertainty_module,
+            model,
+            optimizer,
+            scheduler,
+            device,
+            target_cols,
+            multi_label_cols,
+            params,
+            uncertainty_module,
         )
         get_settings().paths.models.mkdir(parents=True, exist_ok=True)
         self.checkpoint_manager = CheckpointManager(
-            model_name=checkpoint_name, keep_last_n=keep_last_n,
+            model_name=checkpoint_name,
+            keep_last_n=keep_last_n,
         )
-        logger.debug("CheckpointManager ready (name=%s, keep_last=%d).",
-                     checkpoint_name, keep_last_n)
+        logger.debug(
+            "CheckpointManager ready (name=%s, keep_last=%d).",
+            checkpoint_name,
+            keep_last_n,
+        )
 
     # ----------------------------------------------------------- hooks
 
     def _maybe_compile(self, model: nn.Module) -> nn.Module:
         """Compile the model with ``torch.compile`` for inference speed."""
         try:
-            compiled = torch.compile(model, mode="default", dynamic=True, backend="inductor")
+            compiled = torch.compile(
+                model, mode="default", dynamic=True, backend="inductor"
+            )
             logger.debug("Model compiled with torch.compile (inductor).")
             return cast(nn.Module, compiled)
         except Exception as e:  # noqa: BLE001
@@ -109,14 +121,17 @@ class StandardTrainer(TrainingLoop):
                     uncertainty_module=self.uncertainty_module,
                     is_best=True,
                 )
-                logger.debug("Checkpoint saved at epoch %d (val_loss=%.4f).",
-                             epoch, v_loss)
+                logger.debug(
+                    "Checkpoint saved at epoch %d (val_loss=%.4f).", epoch, v_loss
+                )
             else:
                 self.patience_counter += 1
                 if self.patience_counter >= patience:
                     logger.info(
                         "Early stopping at epoch %d/%d. Best val loss: %.4f",
-                        epoch, epochs, self.best_loss,
+                        epoch,
+                        epochs,
+                        self.best_loss,
                     )
                     break
 
@@ -127,5 +142,7 @@ class StandardTrainer(TrainingLoop):
             scheduler=self.scheduler,
             uncertainty_module=self.uncertainty_module,
         )
-        logger.info("Loaded best checkpoint from epoch %d.", resume_info["start_epoch"] - 1)
+        logger.info(
+            "Loaded best checkpoint from epoch %d.", resume_info["start_epoch"] - 1
+        )
         return self.best_loss

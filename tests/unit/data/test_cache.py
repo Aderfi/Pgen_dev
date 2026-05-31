@@ -65,7 +65,8 @@ class TestMakeEmptyGraph:
 class TestGraphCacheLookup:
     def test_drug_cache_hit(self, saved_drug: Path) -> None:
         cache = GraphCache(
-            drug_index={"2244": saved_drug}, variant_index={},
+            drug_index={"2244": saved_drug},
+            variant_index={},
         )
         first = cache.get_drug("2244")
         assert first.x.shape == (3, 25)
@@ -126,7 +127,8 @@ class TestPreload:
 class TestInferenceMode:
     def test_metadata_preserved(self, saved_drug: Path) -> None:
         cache = GraphCache(
-            drug_index={"2244": saved_drug}, variant_index={},
+            drug_index={"2244": saved_drug},
+            variant_index={},
             inference_mode=True,
         )
         g = cache.get_drug("2244")
@@ -136,7 +138,8 @@ class TestInferenceMode:
 
     def test_metadata_stripped_in_training_mode(self, saved_drug: Path) -> None:
         cache = GraphCache(
-            drug_index={"2244": saved_drug}, variant_index={},
+            drug_index={"2244": saved_drug},
+            variant_index={},
             inference_mode=False,
         )
         g = cache.get_drug("2244")

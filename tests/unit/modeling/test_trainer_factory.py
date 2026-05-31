@@ -27,8 +27,8 @@ class _StubLossFactory:
     def create_task_criterions(
         target_cols: list[str],
         multi_label_cols: set[str],  # noqa: ARG004
-        params: dict,                # noqa: ARG004
-        device: torch.device,        # noqa: ARG004
+        params: dict,  # noqa: ARG004
+        device: torch.device,  # noqa: ARG004
     ) -> dict[str, nn.Module]:
         return {col: nn.CrossEntropyLoss() for col in target_cols}
 
@@ -63,7 +63,9 @@ class TestInputValidation:
         with pytest.raises(ValueError, match="target_cols"):
             StandardTrainer(**trainer_kwargs)
 
-    def test_non_set_multi_label_cols_rejected(self, trainer_kwargs: dict[str, Any]) -> None:
+    def test_non_set_multi_label_cols_rejected(
+        self, trainer_kwargs: dict[str, Any]
+    ) -> None:
         trainer_kwargs["multi_label_cols"] = ["cls"]  # list, not set
         with pytest.raises(TypeError, match="multi_label_cols"):
             StandardTrainer(**trainer_kwargs)

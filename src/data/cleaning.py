@@ -89,7 +89,9 @@ class GenoKeyBuilder:
 
     def keys_for(self, gene: str, genotype: str, alleles: str = "") -> list[str]:
         return _generate_keys_for_row(
-            gene=gene, genotype=genotype, alleles=alleles,
+            gene=gene,
+            genotype=genotype,
+            alleles=alleles,
             rsid_to_labels=self.rsid_to_labels,
         )
 
@@ -137,7 +139,9 @@ class PharmacogenomicCleaner:
 
         clean_gene = pl.col("gene").cast(pl.String).str.strip_chars()
         clean_genotype = (
-            pl.col("genotype").cast(pl.String).str.strip_chars()
+            pl.col("genotype")
+            .cast(pl.String)
+            .str.strip_chars()
             .str.replace(_GENOTYPE_PREFIX_REGEX, "")
         )
 
@@ -169,7 +173,9 @@ class PharmacogenomicCleaner:
             work = work.with_columns(ml_exprs)
 
         if stratify_col:
-            cols = [stratify_col] if isinstance(stratify_col, str) else list(stratify_col)
+            cols = (
+                [stratify_col] if isinstance(stratify_col, str) else list(stratify_col)
+            )
             work = Stratifier.add_stratify_column(work, cols)
 
         logger.info("Cleaner: produced %d rows with geno_key.", len(work))

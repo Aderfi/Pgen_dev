@@ -32,7 +32,9 @@ class TestPredictionRequest:
 
 class TestTargetPrediction:
     def test_probability_in_range(self) -> None:
-        tp = TargetPrediction(target="phenotype_category", label="poor", probability=0.87)
+        tp = TargetPrediction(
+            target="phenotype_category", label="poor", probability=0.87
+        )
         assert tp.probability == 0.87
         assert tp.probabilities == {}
 

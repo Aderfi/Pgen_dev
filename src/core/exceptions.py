@@ -29,6 +29,7 @@ class PharmagenException(Exception):
 # Primary exceptions
 # ---------------------------------------------------------------------------
 
+
 class ConfigurationError(PharmagenException):
     """Invalid or missing configuration (hyperparameters, model settings)."""
 
@@ -64,6 +65,7 @@ class ValidationError(PharmagenException):
 # ---------------------------------------------------------------------------
 # Derived exceptions
 # ---------------------------------------------------------------------------
+
 
 class ConvergenceError(TrainingError):
     """Training became numerically unstable (NaN / Inf loss or gradients)."""

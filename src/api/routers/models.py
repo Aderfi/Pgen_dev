@@ -27,9 +27,7 @@ def get_model(name: str) -> ModelDetail:
     try:
         cfg = get_model_config(name)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return ModelDetail(
         name=cfg.name,

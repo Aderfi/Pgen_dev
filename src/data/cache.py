@@ -123,8 +123,10 @@ class GraphCache:
         self._drug_cache: dict[str, Data] = {}
         self._geno_cache: dict[str, Data] = {}
         self._stats = {
-            "drug_hits": 0, "drug_misses": 0,
-            "geno_hits": 0, "geno_misses": 0,
+            "drug_hits": 0,
+            "drug_misses": 0,
+            "geno_hits": 0,
+            "geno_misses": 0,
         }
 
     # ----- lookup ---------------------------------------------------------- #
@@ -145,11 +147,17 @@ class GraphCache:
             gene, variant = variant_key.split("_", 1)
             path = self.variant_index.get(gene, {}).get(variant)
         return self._get(
-            cache=self._geno_cache, key=variant_key, path=path, kind="geno",
+            cache=self._geno_cache,
+            key=variant_key,
+            path=path,
+            kind="geno",
         )
 
     def _get(
-        self, cache: dict[str, Data], key: str, path: Path | None,
+        self,
+        cache: dict[str, Data],
+        key: str,
+        path: Path | None,
         kind: Literal["drug", "geno"],
     ) -> Data:
         # Cache hit
@@ -230,6 +238,10 @@ class GraphCache:
         total_geno = self._stats["geno_hits"] + self._stats["geno_misses"]
         return {
             **self._stats,
-            "drug_hit_rate": self._stats["drug_hits"] / total_drug if total_drug else 0.0,
-            "geno_hit_rate": self._stats["geno_hits"] / total_geno if total_geno else 0.0,
+            "drug_hit_rate": self._stats["drug_hits"] / total_drug
+            if total_drug
+            else 0.0,
+            "geno_hit_rate": self._stats["geno_hits"] / total_geno
+            if total_geno
+            else 0.0,
         }

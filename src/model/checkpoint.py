@@ -38,7 +38,9 @@ class CheckpointManager:
         self.save_dir = save_dir or (checkpoint_base / model_name)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.keep_last_n = keep_last_n
-        logger.debug("CheckpointManager ready (name=%s, dir=%s)", model_name, self.save_dir)
+        logger.debug(
+            "CheckpointManager ready (name=%s, dir=%s)", model_name, self.save_dir
+        )
 
     def save_checkpoint(
         self,
@@ -65,7 +67,9 @@ class CheckpointManager:
             "random_state": {
                 "torch_rng_state": torch.get_rng_state(),
                 "cuda_rng_state": (
-                    torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+                    torch.cuda.get_rng_state_all()
+                    if torch.cuda.is_available()
+                    else None
                 ),
             },
             "extra_state": extra_state or {},
@@ -108,7 +112,11 @@ class CheckpointManager:
 
         try:
             checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-            logger.info("Loaded checkpoint from %s (epoch %s)", path, checkpoint.get("epoch", "?"))
+            logger.info(
+                "Loaded checkpoint from %s (epoch %s)",
+                path,
+                checkpoint.get("epoch", "?"),
+            )
             return checkpoint
         except Exception as e:
             raise ModelError(f"Failed to load checkpoint from {path}: {e}") from e
@@ -184,7 +192,7 @@ class CheckpointManager:
 
     def _cleanup_old_checkpoints(self) -> None:
         checkpoints = self.list_checkpoints()
-        for ckpt in checkpoints[:-self.keep_last_n]:
+        for ckpt in checkpoints[: -self.keep_last_n]:
             ckpt.unlink()
             logger.debug("Deleted old checkpoint: %s", ckpt.name)
 

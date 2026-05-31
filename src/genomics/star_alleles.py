@@ -71,7 +71,9 @@ class StarAlleleMap:
                 msg = f"duplicate star allele in catalog: {label}"
                 raise ValueError(msg)
             self._records[label] = record
-            self._by_gene.setdefault(record.star_allele.gene.symbol, []).append(record.star_allele)
+            self._by_gene.setdefault(record.star_allele.gene.symbol, []).append(
+                record.star_allele
+            )
             for rsid in record.rsids:
                 self._by_rsid.setdefault(rsid, []).append(record.star_allele)
 
@@ -84,7 +86,9 @@ class StarAlleleMap:
     def __len__(self) -> int:
         return len(self._records)
 
-    def get(self, label: str, default: StarAlleleRecord | None = None) -> StarAlleleRecord | None:
+    def get(
+        self, label: str, default: StarAlleleRecord | None = None
+    ) -> StarAlleleRecord | None:
         return self._records.get(label, default)
 
     def alleles_for_rsid(self, rsid: str) -> list[StarAllele]:
@@ -101,7 +105,9 @@ class StarAlleleMap:
     def rsid_to_labels(self) -> dict[str, list[str]]:
         """Inverse map (legacy compat for code that consumes the old
         ``RSID_TO_STAR_ALLELES`` dict)."""
-        return {rsid: [a.label for a in alleles] for rsid, alleles in self._by_rsid.items()}
+        return {
+            rsid: [a.label for a in alleles] for rsid, alleles in self._by_rsid.items()
+        }
 
 
 def _row_to_record(row: dict[str, str | None]) -> StarAlleleRecord:

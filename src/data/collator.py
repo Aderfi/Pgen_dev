@@ -12,6 +12,7 @@ from torch_geometric.data.data import Data
 
 logger = logging.getLogger(__name__)
 
+
 class DoubleTowerCollater:
     """Collator for two-tower graph datasets.
 
@@ -124,8 +125,8 @@ class DoubleTowerCollater:
 
         # 5. Re-attach metadata if in inference mode
         if self.inference_mode:
-            batch_drug.meta_ids = drug_ids # type: ignore[attr-defined]
-            batch_geno.meta_ids = geno_ids # type: ignore[attr-defined]
+            batch_drug.meta_ids = drug_ids  # type: ignore[attr-defined]
+            batch_geno.meta_ids = geno_ids  # type: ignore[attr-defined]
 
         # 6. Stack targets
         first_target_keys = batch_list[0]["targets"].keys()

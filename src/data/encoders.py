@@ -88,8 +88,9 @@ class TargetEncoder:
             mlb = MultiLabelBinarizer()
             matrix = mlb.fit_transform(parsed)
             self.encoders[col] = mlb
-            logger.debug("Fitted MultiLabelBinarizer for %s: %d classes",
-                         col, len(mlb.classes_))
+            logger.debug(
+                "Fitted MultiLabelBinarizer for %s: %d classes", col, len(mlb.classes_)
+            )
         return torch.tensor(matrix, dtype=torch.float32)
 
     def _encode_singlelabel(self, col: str, series: pl.Series) -> torch.Tensor:
@@ -100,8 +101,9 @@ class TargetEncoder:
             le = LabelEncoder()
             le.fit(unique_values)
             self.encoders[col] = le
-            logger.debug("Fitted LabelEncoder for %s: %d classes",
-                         col, len(le.classes_))
+            logger.debug(
+                "Fitted LabelEncoder for %s: %d classes", col, len(le.classes_)
+            )
 
         le = self.encoders[col]
         mapping = {label: idx for idx, label in enumerate(le.classes_)}

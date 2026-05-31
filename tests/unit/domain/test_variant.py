@@ -61,7 +61,9 @@ class TestPosition:
 
     def test_frozen(self) -> None:
         p = Position(chrom="1", pos=100)
-        with pytest.raises(Exception):  # ValidationError or AttributeError depending on Pydantic mode
+        with pytest.raises(
+            Exception
+        ):  # ValidationError or AttributeError depending on Pydantic mode
             p.pos = 200  # type: ignore[misc]
 
 

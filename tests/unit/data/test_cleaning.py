@@ -30,9 +30,7 @@ class TestGenoKeyBuilder:
 
     def test_multiple_rsids_pipe_separated(self) -> None:
         gkb = GenoKeyBuilder(TOY_RSID_TO_LABELS)
-        keys = gkb.keys_for(
-            gene="CYP2C19", genotype="rs4244285|rs3892097", alleles=""
-        )
+        keys = gkb.keys_for(gene="CYP2C19", genotype="rs4244285|rs3892097", alleles="")
         assert "CYP2C19_*4" in keys
         # rs4244285 → CYP2C19*2 (matches gene)
         assert "CYP2C19_*2" in keys
@@ -56,17 +54,13 @@ class TestPharmacogenomicCleaner:
         )
 
     def test_drops_invalid_rows(self) -> None:
-        cleaner = PharmacogenomicCleaner(
-            key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS)
-        )
+        cleaner = PharmacogenomicCleaner(key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS))
         out = cleaner.clean(self._df())
         # Rows with null/empty gene or empty genotype are dropped.
         assert len(out) <= 2
 
     def test_geno_key_present(self) -> None:
-        cleaner = PharmacogenomicCleaner(
-            key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS)
-        )
+        cleaner = PharmacogenomicCleaner(key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS))
         out = cleaner.clean(self._df())
         assert "geno_key" in out.columns
         keys = set(out["geno_key"].to_list())
@@ -75,18 +69,12 @@ class TestPharmacogenomicCleaner:
         assert "CYP2C19_*2" in keys
 
     def test_stratify_column_added(self) -> None:
-        cleaner = PharmacogenomicCleaner(
-            key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS)
-        )
+        cleaner = PharmacogenomicCleaner(key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS))
         out = cleaner.clean(self._df(), stratify_col="gene")
         assert "_stratify" in out.columns
 
     def test_alleles_column_optional(self) -> None:
-        df = pl.DataFrame(
-            {"gene": ["CYP2D6"], "genotype": ["rs3892097"]}
-        )
-        cleaner = PharmacogenomicCleaner(
-            key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS)
-        )
+        df = pl.DataFrame({"gene": ["CYP2D6"], "genotype": ["rs3892097"]})
+        cleaner = PharmacogenomicCleaner(key_builder=GenoKeyBuilder(TOY_RSID_TO_LABELS))
         out = cleaner.clean(df)
         assert "geno_key" in out.columns

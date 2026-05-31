@@ -1,9 +1,9 @@
 """Trainers for the Pharmagen training pipeline.
 
-    from src.model.training import StandardTrainer, OptunaTrialTrainer
+from src.model.training import StandardTrainer, OptunaTrialTrainer
 
-    trainer = StandardTrainer(model, optimizer, scheduler, ...)
-    best_loss = trainer.fit(train_loader, val_loader, epochs=100, patience=10)
+trainer = StandardTrainer(model, optimizer, scheduler, ...)
+best_loss = trainer.fit(train_loader, val_loader, epochs=100, patience=10)
 """
 
 from src.model.training.loop import TrainingLoop

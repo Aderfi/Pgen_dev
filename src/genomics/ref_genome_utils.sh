@@ -26,33 +26,33 @@ LOCAL_FA="$OUTPUT_DIR/HSapiens_GChr38.fa"
 INDEX_FAI="$OUTPUT_DIR/HSapiens_GChr38.fa.fai"
 
 
-echo "Comprobando actualizaciones del genoma de referencia..."
+echo "Checking reference genome for updates..."
 
 wget --timestamping --directory-prefix="$OUTPUT_DIR" "$URL_passembly"
 
 if [ -f "$LOCAL_GZ" ]; then
-    # Si no existe el .fa O el .gz es más nuevo que el .fa
+    # Re-extract if the .fa is missing or the .gz is newer than the .fa
     if [ ! -f "$LOCAL_FA" ] || [ "$LOCAL_GZ" -nt "$LOCAL_FA" ]; then
-        echo "Se ha detectado una nueva versión o falta el archivo descomprimido."
-        echo "Descomprimiendo..."
-        # -k mantiene el archivo .gz original para futuras comparaciones de timestamp
-        gunzip -k -f "$LOCAL_GZ" 
-        
-        echo "Indexando..."
+        echo "New version detected or extracted FASTA missing."
+        echo "Decompressing..."
+        # -k keeps the .gz around for future timestamp comparisons
+        gunzip -k -f "$LOCAL_GZ"
+
+        echo "Indexing..."
 
         samtools faidx "$LOCAL_FA"
 
-        echo -e "\n Genoma actualizado e indexado correctamente. \n"
+        echo -e "\n Genome updated and indexed successfully. \n"
         echo -e "\n"
     else
-        echo "El genoma local ya está actualizado."
+        echo "Local genome is already up to date."
     fi
 fi
 
 if [ ! -f "$INDEX_FAI" ]; then
-    echo "El archivo de índice no existe. Indexando..."
+    echo "Index file missing. Indexing..."
     samtools faidx "$LOCAL_FA"
-    echo -e "\n Índice creado correctamente. \n"
+    echo -e "\n Index created successfully. \n"
 fi
 
 

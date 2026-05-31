@@ -59,11 +59,13 @@ class OptimizerFactory(_ComponentFactory):
             {"params": model.parameters(), "weight_decay": wd, "lr": lr}
         ]
         if uncertainty_module is not None:
-            param_groups.append({
-                "params": uncertainty_module.parameters(),
-                "weight_decay": 0.0,
-                "lr": params.get("loss_learning_rate", lr),
-            })
+            param_groups.append(
+                {
+                    "params": uncertainty_module.parameters(),
+                    "weight_decay": 0.0,
+                    "lr": params.get("loss_learning_rate", lr),
+                }
+            )
 
         optimizer_cls = OptimizerFactory.get(opt_name) or torch.optim.AdamW
         kwargs: dict[str, Any] = {}

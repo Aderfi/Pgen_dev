@@ -20,8 +20,8 @@ from optuna import Trial, TrialPruned
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.model.training.loop import TrainingLoop
 from src.model.losses import MultiTaskUncertaintyLoss
+from src.model.training.loop import TrainingLoop
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,14 @@ class OptunaTrialTrainer(TrainingLoop):
         uncertainty_module: MultiTaskUncertaintyLoss | None = None,
     ) -> None:
         super().__init__(
-            model, optimizer, scheduler, device, target_cols,
-            multi_label_cols, params, uncertainty_module,
+            model,
+            optimizer,
+            scheduler,
+            device,
+            target_cols,
+            multi_label_cols,
+            params,
+            uncertainty_module,
         )
         # No checkpoint manager — the tuner persists best trials separately.
 

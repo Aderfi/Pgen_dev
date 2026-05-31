@@ -28,7 +28,7 @@ early_stopping_patience = 15
 scheduler_type = "plateau"
 
 [extended_params]
-#==== Paramétros de arquitectura extendida =========
+#==== Extended architecture parameters =========
 attention_dropout = 0.1
 num_attention_layers = 1
 fm_dropout = 0.1

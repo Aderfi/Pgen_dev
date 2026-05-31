@@ -39,7 +39,9 @@ class Gene(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     symbol: str = Field(..., description="HGNC symbol (uppercase, e.g. 'CYP2D6').")
-    ensembl_id: str | None = Field(default=None, description="ENSG ID with optional version.")
+    ensembl_id: str | None = Field(
+        default=None, description="ENSG ID with optional version."
+    )
 
     @field_validator("symbol", mode="before")
     @classmethod
@@ -76,7 +78,9 @@ class StarAllele(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     gene: Gene
-    allele: str = Field(..., description="Allele identifier without the '*' (e.g. '4', '17', '4.1A').")
+    allele: str = Field(
+        ..., description="Allele identifier without the '*' (e.g. '4', '17', '4.1A')."
+    )
     function: AlleleFunction = AlleleFunction.UNKNOWN
 
     @field_validator("allele", mode="before")
@@ -97,7 +101,9 @@ class StarAllele(BaseModel):
         return f"{self.gene.symbol}*{self.allele}"
 
     @classmethod
-    def parse(cls, label: str, *, function: AlleleFunction = AlleleFunction.UNKNOWN) -> StarAllele:
+    def parse(
+        cls, label: str, *, function: AlleleFunction = AlleleFunction.UNKNOWN
+    ) -> StarAllele:
         """Construct from a ``GENE*allele`` string."""
         match = _STAR_ALLELE.match(label.strip())
         if not match:

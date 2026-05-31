@@ -80,8 +80,10 @@ class TabularLoader:
         expected to wrap with their domain-specific error type.
         """
         path_str = str(path)
-        sep = separator if separator is not None else (
-            "," if path_str.endswith(".csv") else "\t"
+        sep = (
+            separator
+            if separator is not None
+            else ("," if path_str.endswith(".csv") else "\t")
         )
         if schema is TabularLoader._DEFAULT_SCHEMA:
             schema_overrides = TRAIN_DATA_SCHEMA

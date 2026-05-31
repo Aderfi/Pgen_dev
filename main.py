@@ -17,27 +17,27 @@
 #!/usr/bin/env python3
 # coding=utf-8
 """
-Pharmagen - Punto de Entrada Principal (CLI & Orquestador).
+Pharmagen - Main entry point (CLI & orchestrator).
 
-Este script actúa como la interfaz principal de ejecución para el software Pharmagen.
-Su responsabilidad es inicializar el entorno, configurar el sistema de logging global
-y enrutar la solicitud del usuario hacia el módulo correspondiente (Entrenamiento,
-Predicción o Interfaz Interactiva).
+This script is the primary execution interface for the Pharmagen software.
+It initializes the environment, configures global logging, and routes the
+user's request to the matching module (training, prediction, or the
+interactive menu).
 
-Uso:
-    El script puede ejecutarse en dos modalidades:
-    1. Interactivo (Por defecto): Lanza un menú visual.
-    2. Headless (CLI): Ejecuta tareas específicas mediante argumentos.
+Usage:
+    The script supports two modes:
+    1. Interactive (default): launches the visual menu.
+    2. Headless (CLI): runs specific tasks via arguments.
 
-Ejemplos:
-    # 1. Iniciar menú interactivo
+Examples:
+    # 1. Start the interactive menu
     $ python main.py
 
-    # 2. Entrenar un modelo específico automáticamente
-    $ python main.py --mode train --model Phenotype_Effect_Outcome --input data/train.tsv
+    # 2. Train a specific model automatically
+    $ python main.py --mode train --model TwoTowerGAT --input data/train.tsv
 
-    # 3. Realizar predicciones sobre un archivo nuevo
-    $ python main.py --mode predict --model Phenotype_Effect_Outcome --input data/pacientes.csv
+    # 3. Run predictions on a new file
+    $ python main.py --mode predict --model TwoTowerGAT --input data/patients.csv
 
 Author:
     Adrim Hamed Outmani (@Aderfi)
@@ -53,17 +53,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
-# --- Imports del Proyecto ---
+# --- Project imports ---
 from src.config import get_settings
+from src.core import setup_logging
 from src.interface.cli import main_menu_loop
 from src.interface.ui import ConsoleIO, Spinner
-from src.core import setup_logging
 
-# --- Setup de Rutas ---
+# --- Path setup ---
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(PROJECT_ROOT))
 
-# Constantes
+# Constants
 DATE_STAMP = datetime.now().strftime("%Y-%m-%d")
 LOGS_DIR = get_settings().paths.logs
 
@@ -74,12 +74,12 @@ logger = logging.getLogger("Pharmagen")
 # MAIN ENTRY POINT
 # ==============================================================================
 
+
 def arguments_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Pharmagen CLI Manager",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=
-        """
+        epilog="""
             Examples:
             # Interactive menu
             python main.py
@@ -93,10 +93,11 @@ def arguments_parser() -> argparse.ArgumentParser:
             # Prediction
             python main.py --mode predict --model TwoTowerGAT --input data/test.csv
             """,
-        )
+    )
 
     parser.add_argument(
-        '--mode', '-m',
+        "--mode",
+        "-m",
         type=str,
         choices=["train", "predict", "menu"],
         default="menu",
@@ -104,21 +105,21 @@ def arguments_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '--model',
+        "--model",
         type=str,
         default="TwoTowerGAT",
         help="Model name for training/prediction (default: TwoTowerGAT)",
     )
 
     parser.add_argument(
-        '--input',
+        "--input",
         type=Path,
         default=Path("train_data/train_data.tsv"),
         help="Input data file path (CSV/TSV) (default: train_data/train_data.tsv)",
     )
 
     parser.add_argument(
-        '--epochs',
+        "--epochs",
         type=int,
         default=100,
         metavar="N",
@@ -126,19 +127,21 @@ def arguments_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '--verbose', '-v',
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose output (INFO level logging)",
     )
 
     parser.add_argument(
-        '--debug',
-        action='store_true',
+        "--debug",
+        action="store_true",
         help="Enable debug output (DEBUG level logging)",
     )
 
     parser.add_argument(
-        "--optuna", "-opt",
+        "--optuna",
+        "-opt",
         action="store_true",
         help="Use Optuna for hyperparameter optimization (only in train mode)",
     )
@@ -173,17 +176,15 @@ def _run_headless_training(args: argparse.Namespace):
     if not args.optuna:
         from src.pipeline import train_pipeline
 
-        logger.info(f"Starting standard training:  {args.model}")
+        logger.info(f"Starting standard training: {args.model}")
         ConsoleIO.print_header("Standard Training")
         ConsoleIO.print_info(f"Model: {args.model}")
-        ConsoleIO.print_info(f"Data:  {args.input}")
+        ConsoleIO.print_info(f"Data: {args.input}")
         ConsoleIO.print_info(f"Epochs: {args.epochs}")
 
-        with Spinner(f"Training {args.model}.. .", style="braille"):
+        with Spinner(f"Training {args.model}...", style="braille"):
             train_pipeline(
-                model_name=args.model,
-                csv_path=str(args.input),
-                epochs=args.epochs
+                model_name=args.model, csv_path=str(args.input), epochs=args.epochs
             )
 
         ConsoleIO.print_success("Training completed successfully!")
@@ -203,7 +204,7 @@ def _run_headless_training(args: argparse.Namespace):
             model_name=args.model,
             csv_path=str(args.input),
             n_trials=args.optuna_trials,
-            epochs=args.optuna_epochs
+            epochs=args.optuna_epochs,
         )
 
         ConsoleIO.print_success("Optuna optimization completed!")
@@ -217,7 +218,7 @@ def _run_headless_prediction(args: argparse.Namespace):
 
     # Validate input file exists
     if not args.input.exists():
-        ConsoleIO.print_error(f"Input file not found:  {args.input}")
+        ConsoleIO.print_error(f"Input file not found: {args.input}")
         sys.exit(1)
 
     logger.info(f"Starting headless prediction: {args.model}")
@@ -241,7 +242,7 @@ def _run_headless_prediction(args: argparse.Namespace):
             return
 
         # Save results
-        out_name = f"{args.input.stem}_predictions_{DATE_STAMP}. csv"
+        out_name = f"{args.input.stem}_predictions_{DATE_STAMP}.csv"
         out_path = args.input.parent / out_name
 
         results_df: pl.DataFrame = pl.DataFrame(data=results)
@@ -284,13 +285,13 @@ def main(args: argparse.Namespace | None = None):
         # =====================================================================
         # MODE:  Interactive Menu (Default)
         # =====================================================================
-        if args. mode == "menu": # Interactive Menu (Default)
+        if args.mode == "menu":  # Interactive Menu (Default)
             main_menu_loop()
 
-        elif args.mode == "train": # Training (Headless/Automated)
+        elif args.mode == "train":  # Training (Headless/Automated)
             _run_headless_training(args)
 
-        elif args.mode == "predict": # Prediction (Headless/Automated)
+        elif args.mode == "predict":  # Prediction (Headless/Automated)
             _run_headless_prediction(args)
 
     except KeyboardInterrupt:
@@ -298,10 +299,11 @@ def main(args: argparse.Namespace | None = None):
         logger.info("User interrupted execution")
         sys.exit(0)
     except Exception as e:
-        logger.critical(f"Unhandled error in main:  {e}", exc_info=True)
+        logger.critical(f"Unhandled error in main: {e}", exc_info=True)
         ConsoleIO.print_error(f"Critical system error: {e}")
         ConsoleIO.print_info(f"Check logs for details: {LOGS_DIR}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

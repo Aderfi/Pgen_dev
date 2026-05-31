@@ -57,13 +57,20 @@ class ReferenceGenomeManager:
             if last_modified is None:
                 return False
             remote_time = parsedate_to_datetime(last_modified)
-            local_time = datetime.fromtimestamp(self.local_gz.stat().st_mtime).astimezone()
+            local_time = datetime.fromtimestamp(
+                self.local_gz.stat().st_mtime
+            ).astimezone()
             if remote_time > local_time:
-                logger.info("New reference genome version detected on Ensembl (%s).", remote_time)
+                logger.info(
+                    "New reference genome version detected on Ensembl (%s).",
+                    remote_time,
+                )
                 return True
             return False
         except Exception as e:  # noqa: BLE001 — network failures are non-fatal here
-            logger.warning("Could not check remote timestamp: %s. Skipping download.", e)
+            logger.warning(
+                "Could not check remote timestamp: %s. Skipping download.", e
+            )
             return False
 
     def download_genome(self) -> None:
@@ -94,7 +101,10 @@ class ReferenceGenomeManager:
     def _decompress_genome(self) -> None:
         """Decompress the .gz directly into the target FASTA path."""
         logger.info("Decompressing reference genome ...")
-        with gzip.open(self.local_gz, "rb") as f_in, open(self.target_fasta, "wb") as f_out:
+        with (
+            gzip.open(self.local_gz, "rb") as f_in,
+            open(self.target_fasta, "wb") as f_out,
+        ):
             shutil.copyfileobj(f_in, f_out)
         logger.info("Reference genome ready at: %s", self.target_fasta)
 
@@ -130,9 +140,7 @@ class ReferenceGenomeManager:
         if not bwt_path.exists():
             logger.info("Generating BWA index (this can take ~1 hour) ...")
             try:
-                subprocess.run(
-                    ["bwa", "index", str(self.target_fasta)], check=True
-                )
+                subprocess.run(["bwa", "index", str(self.target_fasta)], check=True)
                 logger.info("BWA index created.")
             except subprocess.CalledProcessError:
                 logger.error("bwa index failed. Ensure bwa is installed and on PATH.")

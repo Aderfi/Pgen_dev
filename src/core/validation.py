@@ -31,9 +31,13 @@ class ConfigValidator:
         missing_targets = [t for t in required_targets if t not in df_columns]
 
         if missing_features:
-            raise ValueError(f"DataFrame missing required feature columns: {missing_features}")
+            raise ValueError(
+                f"DataFrame missing required feature columns: {missing_features}"
+            )
         if missing_targets:
-            raise ValueError(f"DataFrame missing required target columns: {missing_targets}")
+            raise ValueError(
+                f"DataFrame missing required target columns: {missing_targets}"
+            )
 
         return True
 
@@ -52,18 +56,24 @@ class ConfigValidator:
                 continue
             # Legacy list format — do a minimal sanity check.
             if not isinstance(spec, list) or not spec:
-                logger.warning("Optuna param %r is not a list spec; skipping.", param_name)
+                logger.warning(
+                    "Optuna param %r is not a list spec; skipping.", param_name
+                )
                 continue
             ptype = spec[0]
             if ptype in {"int", "float", "log"} and len(spec) >= 3:
                 if spec[1] >= spec[2]:
                     logger.error(
                         "Optuna param %r has min (%s) >= max (%s).",
-                        param_name, spec[1], spec[2],
+                        param_name,
+                        spec[1],
+                        spec[2],
                     )
                     return False
             elif ptype == "categorical" and len(spec) < 2:
-                logger.error("Optuna categorical param %r needs at least one choice.", param_name)
+                logger.error(
+                    "Optuna categorical param %r needs at least one choice.", param_name
+                )
                 return False
 
         return True
@@ -81,20 +91,24 @@ class DataValidator:
         """Return per-column missing-value fractions; warn if any exceed *threshold*."""
         valid_cols = [c for c in columns if c in df.columns]
         for c in set(columns) - set(valid_cols):
-            logger.warning("Column %r not found in DataFrame — skipping missing-value check.", c)
+            logger.warning(
+                "Column %r not found in DataFrame — skipping missing-value check.", c
+            )
 
         if not valid_cols:
             return {}
 
-        stats = df.select(
-            pl.col(c).is_null().mean().alias(c) for c in valid_cols
-        ).row(0, named=True)
+        stats = df.select(pl.col(c).is_null().mean().alias(c) for c in valid_cols).row(
+            0, named=True
+        )
 
         for col, frac in stats.items():
             if frac > threshold:
                 logger.warning(
                     "Column %r has %.1f%% missing values (threshold: %.1f%%).",
-                    col, frac * 100, threshold * 100,
+                    col,
+                    frac * 100,
+                    threshold * 100,
                 )
 
         return dict(stats)
@@ -110,12 +124,16 @@ class DataValidator:
             logger.error("Target column %r not found.", target_column)
             return {}
 
-        counts = {row[0]: row[1] for row in df[target_column].value_counts().iter_rows()}
+        counts = {
+            row[0]: row[1] for row in df[target_column].value_counts().iter_rows()
+        }
         rare = {cls: n for cls, n in counts.items() if n < min_samples_per_class}
         if rare:
             logger.warning(
                 "Target %r has rare classes (< %d samples): %s",
-                target_column, min_samples_per_class, rare,
+                target_column,
+                min_samples_per_class,
+                rare,
             )
 
         return counts

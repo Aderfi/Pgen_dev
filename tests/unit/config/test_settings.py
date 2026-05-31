@@ -34,5 +34,3 @@ class TestGetSettings:
     def test_project_name(self) -> None:
         s = get_settings()
         assert s.project_name == "Pharmagen"
-
-

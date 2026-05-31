@@ -86,7 +86,9 @@ class Position(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    chrom: str = Field(..., description="Chromosome label, normalized (no 'chr' prefix).")
+    chrom: str = Field(
+        ..., description="Chromosome label, normalized (no 'chr' prefix)."
+    )
     pos: int = Field(..., ge=1, description="1-based genomic position.")
     build: GenomeBuild = Field(default=GenomeBuild.GRCH38)
 
@@ -113,8 +115,12 @@ class Variant(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     position: Position
-    ref: str = Field(..., min_length=1, description="Reference allele (uppercase ACGTN).")
-    alt: str = Field(..., min_length=1, description="Alternate allele (uppercase ACGTN).")
+    ref: str = Field(
+        ..., min_length=1, description="Reference allele (uppercase ACGTN)."
+    )
+    alt: str = Field(
+        ..., min_length=1, description="Alternate allele (uppercase ACGTN)."
+    )
     variant_type: VariantType = VariantType.OTHER
     rsid: str | None = Field(default=None, description="dbSNP rsID if known.")
 

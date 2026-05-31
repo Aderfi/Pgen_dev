@@ -25,10 +25,14 @@ class Drug(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    name: str = Field(..., description="Cleaned drug name; used for filenames and display.")
+    name: str = Field(
+        ..., description="Cleaned drug name; used for filenames and display."
+    )
     cid: PositiveInt = Field(..., description="PubChem Compound ID.")
     smiles: str = Field(..., description="Canonical SMILES string.")
-    ph_group: str | None = Field(default=None, description="ATC/pharmacological group code.")
+    ph_group: str | None = Field(
+        default=None, description="ATC/pharmacological group code."
+    )
     molecule: Mol | None = None
     graph: PyGData | None = None
 
@@ -61,7 +65,9 @@ class Drug(BaseModel):
         """
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            msg = f"RDKit could not parse SMILES {smiles!r} for drug {name!r} (CID {cid})"
+            msg = (
+                f"RDKit could not parse SMILES {smiles!r} for drug {name!r} (CID {cid})"
+            )
             raise ValueError(msg)
         canonical = Chem.MolToSmiles(mol)
         return cls(

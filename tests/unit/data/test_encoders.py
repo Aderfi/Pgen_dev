@@ -4,8 +4,8 @@ import polars as pl
 import pytest
 import torch
 
-from src.data.encoders import UNKNOWN_CATEGORY_LABEL, TargetEncoder
 from src.core import EncoderError
+from src.data.encoders import UNKNOWN_CATEGORY_LABEL, TargetEncoder
 
 
 class TestSingleLabel:
@@ -32,7 +32,8 @@ class TestSingleLabel:
         # Reuse on a val DataFrame containing an unseen class — must not crash.
         val = pl.DataFrame({"phenotype": ["a", "b", "novel_label"]})
         val_enc = TargetEncoder(
-            target_cols=["phenotype"], multilabel_cols=[],
+            target_cols=["phenotype"],
+            multilabel_cols=[],
             encoders=train_enc.encoders,
         )
         out = val_enc.fit_transform(val)
@@ -67,7 +68,8 @@ class TestErrors:
         le = LabelEncoder()
         le.fit(["a", "b"])  # no __UNKNOWN__
         enc = TargetEncoder(
-            target_cols=["x"], multilabel_cols=[],
+            target_cols=["x"],
+            multilabel_cols=[],
             encoders={"x": le},
         )
         with pytest.raises(EncoderError, match="UNKNOWN"):

@@ -20,16 +20,28 @@ class LibraryBuildConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     # Inputs
-    variants_tsv: Path = Field(..., description="Pan-gene variant TSV (snp_data_output.tsv style).")
-    drugs_tsv: Path = Field(..., description="Drug catalog TSV (cid, smiles, cmpd_name_cleaned).")
-    fasta_path: Path = Field(..., description="Reference FASTA (must be indexed; .fai required).")
-    pgx_dir: Path = Field(..., description="Per-gene PharmVar VCF folder (one subdir per gene).")
+    variants_tsv: Path = Field(
+        ..., description="Pan-gene variant TSV (snp_data_output.tsv style)."
+    )
+    drugs_tsv: Path = Field(
+        ..., description="Drug catalog TSV (cid, smiles, cmpd_name_cleaned)."
+    )
+    fasta_path: Path = Field(
+        ..., description="Reference FASTA (must be indexed; .fai required)."
+    )
+    pgx_dir: Path = Field(
+        ..., description="Per-gene PharmVar VCF folder (one subdir per gene)."
+    )
 
     # Outputs
-    library_root: Path = Field(..., description="Root of the produced library (drugs/ and gene_graphs/).")
+    library_root: Path = Field(
+        ..., description="Root of the produced library (drugs/ and gene_graphs/)."
+    )
 
     # Behaviour
-    force: bool = Field(default=False, description="Overwrite existing .pt files (default: skip).")
+    force: bool = Field(
+        default=False, description="Overwrite existing .pt files (default: skip)."
+    )
     only_gene: str | None = Field(
         default=None,
         description="If set, build only this gene's variants — useful for verification.",
@@ -42,7 +54,12 @@ class LibraryBuildConfig(BaseModel):
     )
 
     @field_validator(
-        "variants_tsv", "drugs_tsv", "fasta_path", "pgx_dir", "library_root", mode="before"
+        "variants_tsv",
+        "drugs_tsv",
+        "fasta_path",
+        "pgx_dir",
+        "library_root",
+        mode="before",
     )
     @classmethod
     def _coerce_path(cls, v: object) -> Path:

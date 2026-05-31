@@ -34,7 +34,9 @@ class GraphMetadata(BaseModel):
     num_edges: NonNegativeInt
     feature_dim: PositiveInt
     edge_dim: NonNegativeInt = 0
-    source: str | None = Field(default=None, description="Builder version or pipeline run id.")
+    source: str | None = Field(
+        default=None, description="Builder version or pipeline run id."
+    )
 
 
 class GraphPair(BaseModel):

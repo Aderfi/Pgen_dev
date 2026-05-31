@@ -27,18 +27,21 @@ DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")
 def _get_train_pipeline():
     """Lazy import with automatic cache of train_pipeline."""
     from src.pipeline import train_pipeline
+
     return train_pipeline
 
 
 def _get_optuna_study():
     """Lazy import with automatic cache of run_optuna_study."""
     from src.model.engine.tuner import run_optuna_study
+
     return run_optuna_study
 
 
 def _get_predictor_class():
     """Lazy import with automatic cache of PGenPredictor."""
     from src.model.engine.predictor import PGenPredictor
+
     return PGenPredictor
 
 
@@ -60,11 +63,7 @@ def _select_model() -> str:
         print(f"  {i}. {m}")
     ConsoleIO.print_divider()
 
-    model_idx = ConsoleIO.input_int(
-        "Select model",
-        min_val=1,
-        max_val=len(models)
-    )
+    model_idx = ConsoleIO.input_int("Select model", min_val=1, max_val=len(models))
     return models[model_idx - 1]
 
 
@@ -78,12 +77,12 @@ def run_genomic_processing():
     ConsoleIO.print_header("Genomic Processing Module")
     ConsoleIO.print_warning("NOT IMPLEMENTED YET")
     ConsoleIO.print_info("This module will process VCF files and genomic data")
-    return # noqa: PLR1711
+    return  # noqa: PLR1711
 
 
 def run_training_flow():
     """Interactive Training Workflow."""
-    ConsoleIO. print_header("Training Module")
+    ConsoleIO.print_header("Training Module")
 
     # 1. Select Model
     model_name = _select_model()
@@ -100,17 +99,13 @@ def run_training_flow():
             default_data = None
 
     csv_path = ConsoleIO.input_path(
-        "Training Data Path",
-        default=default_data,
-        file_extensions=['. csv', '.tsv']
+        "Training Data Path", default=default_data, file_extensions=[". csv", ".tsv"]
     )
 
     # 3. Select Training Mode
     ConsoleIO.print_divider()
     mode = ConsoleIO.input_choice(
-        "Select training mode",
-        choices=["Standard", "Optuna"],
-        default="Standard"
+        "Select training mode", choices=["Standard", "Optuna"], default="Standard"
     )
 
     if mode == "Standard":
@@ -124,11 +119,8 @@ def _run_standard_training(model_name: str, csv_path: Path):
     train_pipeline = _get_train_pipeline()
 
     # Get training parameters
-    epochs = ConsoleIO. input_int(
-        "Number of epochs",
-        default=100,
-        min_val=1,
-        max_val=10000
+    epochs = ConsoleIO.input_int(
+        "Number of epochs", default=100, min_val=1, max_val=10000
     )
 
     # Confirmation
@@ -159,17 +151,11 @@ def _run_optuna_training(model_name: str, csv_path: Path):
 
     # Get Optuna parameters
     n_trials = ConsoleIO.input_int(
-        "Number of trials",
-        default=50,
-        min_val=1,
-        max_val=1000
+        "Number of trials", default=50, min_val=1, max_val=1000
     )
 
-    epochs_per_trial = ConsoleIO. input_int(
-        "Epochs per trial",
-        default=50,
-        min_val=1,
-        max_val=500
+    epochs_per_trial = ConsoleIO.input_int(
+        "Epochs per trial", default=50, min_val=1, max_val=500
     )
 
     # Confirmation
@@ -179,7 +165,7 @@ def _run_optuna_training(model_name: str, csv_path: Path):
     ConsoleIO.print_info(f"Trials: {n_trials}")
     ConsoleIO.print_info(f"Epochs per trial: {epochs_per_trial}")
 
-    if not ConsoleIO. confirm("Start Optuna optimization?", default=True):
+    if not ConsoleIO.confirm("Start Optuna optimization?", default=True):
         ConsoleIO.print_warning("Optimization cancelled")
         return
 
@@ -192,7 +178,7 @@ def _run_optuna_training(model_name: str, csv_path: Path):
             model_name=model_name,
             csv_path=csv_path,
             n_trials=n_trials,
-            epochs=epochs_per_trial
+            epochs=epochs_per_trial,
         )
         ConsoleIO.print_success("Optuna optimization completed!")
     except Exception as e:
@@ -213,7 +199,7 @@ def run_prediction_flow():
         # Load model
         with Spinner("Loading model...", style="braille"):
             predictor = PGenPredictor(model_name)
-        ConsoleIO. print_success(f"Model '{model_name}' loaded successfully")
+        ConsoleIO.print_success(f"Model '{model_name}' loaded successfully")
 
         # Prediction submenu loop
         while True:
@@ -225,9 +211,7 @@ def run_prediction_flow():
             ConsoleIO.print_divider()
 
             sub_choice = ConsoleIO.input_choice(
-                "Select option",
-                choices=["1", "2", "3"],
-                default="1"
+                "Select option", choices=["1", "2", "3"], default="1"
             )
 
             if sub_choice == "1":
@@ -248,7 +232,7 @@ def run_prediction_flow():
 
 def _interactive_predict_loop(predictor):
     """Single prediction interactive loop."""
-    ConsoleIO. print_header("Interactive Prediction")
+    ConsoleIO.print_header("Interactive Prediction")
     ConsoleIO.print_info("Enter feature values (type 'q' to cancel)")
 
     inputs = {}
@@ -267,7 +251,7 @@ def _interactive_predict_loop(predictor):
 
     # Display results
     if result:
-        ConsoleIO. print_divider()
+        ConsoleIO.print_divider()
         ConsoleIO.print_success("Prediction Results:")
         for k, v in result.items():
             print(f"  🔹 {k}: {v}")
@@ -284,8 +268,7 @@ def _batch_predict_flow(predictor):
 
     # Get input file
     input_path = ConsoleIO.input_path(
-        "Input file path",
-        file_extensions=['.csv', '.tsv']
+        "Input file path", file_extensions=[".csv", ".tsv"]
     )
 
     # Run predictions
@@ -360,11 +343,12 @@ def main_menu_loop():
             run_advanced_analysis()
         elif choice == "5":
             if ConsoleIO.confirm("Are you sure you want to exit?", default=False):
-                logger. info("User exit")
+                logger.info("User exit")
                 ConsoleIO.print_info("Goodbye!  👋")
                 sys.exit(0)
         else:
             ConsoleIO.print_error("Invalid option - please select 1-5")
+
 
 if __name__ == "__main__":
     main_menu_loop()

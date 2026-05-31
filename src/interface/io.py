@@ -56,7 +56,9 @@ def print_gnu_notice() -> None:
     settings = get_settings()
     start_year = 2025
     current_year = datetime.now().year
-    year_str = f"{start_year}-{current_year}" if current_year > start_year else str(start_year)
+    year_str = (
+        f"{start_year}-{current_year}" if current_year > start_year else str(start_year)
+    )
     author = "Adrim Hamed Outmani (@Aderfi)"
     program = settings.project_name
 

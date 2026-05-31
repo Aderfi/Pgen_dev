@@ -143,7 +143,10 @@ class ModelConfig(BaseModel):
     stratify_col: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     optuna: dict[str, OptunaSpec | Any] = Field(default_factory=dict)
-    extras: dict[str, Any] = Field(default_factory=dict, description="Architecture-specific extras (e.g. drug_node_features).")
+    extras: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Architecture-specific extras (e.g. drug_node_features).",
+    )
 
     def fixed_params(self) -> dict[str, Any]:
         """Hyperparameters that are not part of the search space — for Optuna,

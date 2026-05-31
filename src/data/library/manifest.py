@@ -55,7 +55,9 @@ class BuildManifest(BaseModel):
             with path.open(encoding="utf-8") as f:
                 return cls.model_validate(json.load(f))
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Manifest at %s is unreadable (%s); starting fresh.", path, e)
+            logger.warning(
+                "Manifest at %s is unreadable (%s); starting fresh.", path, e
+            )
             return cls()
 
     def save(self, path: Path) -> None:

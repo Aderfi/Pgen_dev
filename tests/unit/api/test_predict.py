@@ -11,13 +11,19 @@ from fastapi.testclient import TestClient
 
 class TestSinglePredict:
     def test_503_when_model_artifacts_missing(self, client: TestClient) -> None:
-        body = {"drug_cid": 2244, "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}}
+        body = {
+            "drug_cid": 2244,
+            "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
+        }
         r = client.post("/v1/predict", json=body)
         # Either 503 (model artifacts missing — expected in dev) OR 200 (artifacts
         # actually present and prediction succeeded).
         assert r.status_code in {200, 503}
         if r.status_code == 503:
-            assert "not available" in r.json()["detail"].lower() or "failed" in r.json()["detail"].lower()
+            assert (
+                "not available" in r.json()["detail"].lower()
+                or "failed" in r.json()["detail"].lower()
+            )
 
     def test_rejects_missing_drug_cid(self, client: TestClient) -> None:
         body = {"allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}}
@@ -56,6 +62,9 @@ class TestBatchPredict:
         assert r.status_code == 422
 
     def test_503_or_200_with_valid_pairs(self, client: TestClient) -> None:
-        pair = {"drug_cid": 2244, "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}}
+        pair = {
+            "drug_cid": 2244,
+            "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
+        }
         r = client.post("/v1/predict/batch", json={"pairs": [pair]})
         assert r.status_code in {200, 503}

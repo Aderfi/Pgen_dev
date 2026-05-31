@@ -48,9 +48,7 @@ class Stratifier:
     OUTPUT_COLUMN: str = "_stratify"
 
     @staticmethod
-    def add_stratify_column(
-        df: pl.DataFrame, stratify_cols: list[str]
-    ) -> pl.DataFrame:
+    def add_stratify_column(df: pl.DataFrame, stratify_cols: list[str]) -> pl.DataFrame:
         """Append ``_stratify = col1_col2_...`` for stratified train/test splits.
 
         - Returns the DataFrame unchanged if no columns are requested.

@@ -46,5 +46,7 @@ class TestDrug:
     def test_ph_group_optional(self) -> None:
         d = Drug.from_smiles(name="x", cid=1, smiles="C")
         assert d.ph_group is None
-        d2 = Drug.from_smiles(name="aspirin", cid=2244, smiles=ASPIRIN_SMILES, ph_group="N02BA01")
+        d2 = Drug.from_smiles(
+            name="aspirin", cid=2244, smiles=ASPIRIN_SMILES, ph_group="N02BA01"
+        )
         assert d2.ph_group == "N02BA01"

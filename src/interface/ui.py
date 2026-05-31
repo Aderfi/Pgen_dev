@@ -28,16 +28,29 @@ from typing import Any, Literal
 
 class MessageType(Enum):
     """Console messages with associated symbols."""
-    SUCCESS = "\u2705"          # ✅
-    ERROR = "\u274c"            # ❌
-    WARNING = "\u26a0\ufe0f"    # ⚠️
-    INFO = "\u2139\ufe0f"       # ℹ️
-    QUESTION = "\u2753"         # ❓
-    ROCKET = "\U0001f680"       # 🚀
-    FIRE = "\U0001f525"         # 🔥
-    DNA = "\U0001f9ec"          # 🧬
 
-SPINNER_DOTS = ["\u25cb", "\u25d1", "\u25d0", "\u25e5", "\u25e4", "\u25e3", "\u25e2", "\u25e1", "\u25e0", "\u25ef"]
+    SUCCESS = "\u2705"  # ✅
+    ERROR = "\u274c"  # ❌
+    WARNING = "\u26a0\ufe0f"  # ⚠️
+    INFO = "\u2139\ufe0f"  # ℹ️
+    QUESTION = "\u2753"  # ❓
+    ROCKET = "\U0001f680"  # 🚀
+    FIRE = "\U0001f525"  # 🔥
+    DNA = "\U0001f9ec"  # 🧬
+
+
+SPINNER_DOTS = [
+    "\u25cb",
+    "\u25d1",
+    "\u25d0",
+    "\u25e5",
+    "\u25e4",
+    "\u25e3",
+    "\u25e2",
+    "\u25e1",
+    "\u25e0",
+    "\u25ef",
+]
 SPINNER_BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 SPINNER_SIMPLE = ["|", "/", "-", "\\"]
 SPINNER_ARROWS = ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"]
@@ -45,6 +58,7 @@ SPINNER_ARROWS = ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"]
 # ==============================================================================
 # SPINNER - Loading Animation
 # ==============================================================================
+
 
 class Spinner:
     """Context Manager for console loading animations.
@@ -60,19 +74,19 @@ class Spinner:
 
     def __init__(
         self,
-        message:  str = "Processing...",
+        message: str = "Processing...",
         style: Literal["dots", "braille", "simple", "arrows"] = "braille",
-        color: bool = True
+        color: bool = True,
     ):
         self.message = message
-        self. stop_running = False
-        self. color = color and self._supports_color()
+        self.stop_running = False
+        self.color = color and self._supports_color()
 
         # Select spinner style
         spinner_map = {
-            "dots":  SPINNER_DOTS,
+            "dots": SPINNER_DOTS,
             "braille": SPINNER_BRAILLE,
-            "simple":  SPINNER_SIMPLE,
+            "simple": SPINNER_SIMPLE,
             "arrows": SPINNER_ARROWS,
         }
         self.spinner_chars = itertools.cycle(spinner_map.get(style, SPINNER_BRAILLE))
@@ -81,7 +95,7 @@ class Spinner:
     @staticmethod
     def _supports_color() -> bool:
         """Check if terminal supports ANSI colors."""
-        return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+        return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
     def _spin(self):
         """Animation loop running in separate thread."""
@@ -110,12 +124,14 @@ class Spinner:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop_running = True
         if self.thread:
-            self. thread.join(timeout=1.0)
+            self.thread.join(timeout=1.0)
         return False
+
 
 # ==============================================================================
 # PROGRESS BAR - For Iterables
 # ==============================================================================
+
 
 class ProgressBar:
     """
@@ -129,20 +145,21 @@ class ProgressBar:
     >>>            pbar.update(1)
     """
 
-    def __init__(self, total: int, desc: str = "", width: int = 40, xtra_info: Any | None = None):
+    def __init__(
+        self, total: int, desc: str = "", width: int = 40, xtra_info: Any | None = None
+    ):
         self.total = total
         self.current = 0
         self.desc = desc
         self.width = width
         self.start_time = time.time()
         self.xtra_info = xtra_info
-        self.color = self._color_progressbar(default=True, choice='blue')
+        self.color = self._color_progressbar(default=True, choice="blue")
 
     def update(self, n: int = 1):
         """Update progress by n steps."""
         self.current = min(self.current + n, self.total)
         self._render()
-
 
     def _render(self):
         """Render the progress bar."""
@@ -150,17 +167,22 @@ class ProgressBar:
             return
         percent = self.current / self.total
         filled = int(self.width * percent)
-        bar = f"{self.color}█\033[0m" * filled + f"{self.color}░\033[0m" * (self.width - filled)
+        bar = f"{self.color}█\033[0m" * filled + f"{self.color}░\033[0m" * (
+            self.width - filled
+        )
 
         elapsed = time.time() - self.start_time
         rate = self.current / elapsed if elapsed > 0 else 0
-        eta = (self.total - self. current) / rate if rate > 0 else 0
+        eta = (self.total - self.current) / rate if rate > 0 else 0
 
         sys.stdout.write(
             f"\r{self.desc} |{bar}| {self.current}/{self.total} "
-            f"[{elapsed:.1f}s < {eta:.1f}s, {rate:.2f}it/s]")
+            f"[{elapsed:.1f}s < {eta:.1f}s, {rate:.2f}it/s]"
+        )
         if isinstance(self.xtra_info, Mapping):
-            sys.stdout.write(f"{' | '.join(f'{k}={v}' for k, v in (self.xtra_info or {}).items())}")
+            sys.stdout.write(
+                f"{' | '.join(f'{k}={v}' for k, v in (self.xtra_info or {}).items())}"
+            )
         elif isinstance(self.xtra_info, str):
             sys.stdout.write(f" | {self.xtra_info}")
         else:
@@ -168,19 +190,23 @@ class ProgressBar:
 
         sys.stdout.flush()
 
-    def _color_progressbar(self, default: bool = True, choice: str = 'blue'):
+    def _color_progressbar(self, default: bool = True, choice: str = "blue"):
         """Add color to the progress bar"""
         if not default:
-            user_choice = input("Progress bar color ([blue]/red/yellow/green/n): ").strip().lower()
+            user_choice = (
+                input("Progress bar color ([blue]/red/yellow/green/n): ")
+                .strip()
+                .lower()
+            )
             choice = user_choice if user_choice else choice
 
         color_map = {
-            'blue': "\033[94m",
-            'red': "\033[91m",
-            'yellow': "\033[93m",
-            'green':  "\033[92m",
-            'n': "\033[0m",
-            'no': "\033[0m",
+            "blue": "\033[94m",
+            "red": "\033[91m",
+            "yellow": "\033[93m",
+            "green": "\033[92m",
+            "n": "\033[0m",
+            "no": "\033[0m",
         }
 
         return color_map.get(choice, "\033[0m")
@@ -192,14 +218,17 @@ class ProgressBar:
         sys.stdout.write("\n")
         sys.stdout.flush()
 
+
 # ==============================================================================
 # CONSOLE IO - Input/Output Utilities
 # ==============================================================================
+
 
 class ConsoleIO:
     """
     Static helper for Console Input/Output operations with validation.
     """
+
     # -------------------------------------------------------------------------
     # OUTPUT METHODS
     # -------------------------------------------------------------------------
@@ -242,10 +271,10 @@ class ConsoleIO:
 
     @staticmethod
     def input_path(
-        prompt:  str,
+        prompt: str,
         default: Path | None = None,
         must_exist: bool = True,
-        file_extensions: list[str] | None = None
+        file_extensions: list[str] | None = None,
     ) -> Path:
         """
         Prompt for a file/directory path with validation.
@@ -292,7 +321,7 @@ class ConsoleIO:
         prompt: str,
         default: int | None = None,
         min_val: int | None = None,
-        max_val: int | None = None
+        max_val: int | None = None,
     ) -> int:
         """
         Prompt for an integer with validation.
@@ -335,8 +364,8 @@ class ConsoleIO:
     def input_float(
         prompt: str,
         default: float | None = None,
-        min_val:  float | None = None,
-        max_val: float | None = None
+        min_val: float | None = None,
+        max_val: float | None = None,
     ) -> float:
         """Prompt for a float with validation."""
         while True:
@@ -366,7 +395,7 @@ class ConsoleIO:
         prompt: str,
         choices: list[str],
         default: str | None = None,
-        case_sensitive: bool = False
+        case_sensitive: bool = False,
     ) -> str:
         """
         Prompt for a choice from a list. (Enumerated input)
@@ -385,7 +414,7 @@ class ConsoleIO:
             default_str = f" [{default}]" if default else ""
 
             for i, choice in enumerate(choices):
-                print(f"{i+1}.  {choice}")
+                print(f"{i + 1}.  {choice}")
 
             value = input(f"Input the number of your choice. {default_str}: ").strip()
             index = int(value) - 1
@@ -415,9 +444,9 @@ class ConsoleIO:
             if not answer:
                 return default
 
-            if answer in ('y', 'yes', 'si', 'sí', 's', '+'):
+            if answer in ("y", "yes", "si", "sí", "s", "+"):
                 return True
-            elif answer in ('n', 'no', '-'):
+            elif answer in ("n", "no", "-"):
                 return False
             else:
                 ConsoleIO.print_error("Please answer 'y' or 'n'.")
@@ -426,7 +455,9 @@ class ConsoleIO:
     def clear_screen():
         """Clear the console screen (cross-platform)."""
         import os
-        os.system('cls' if os.name == 'nt' else 'clear')
+
+        os.system("cls" if os.name == "nt" else "clear")
+
 
 if __name__ == "__main__":
     """
@@ -452,7 +483,9 @@ if __name__ == "__main__":
     print(f"You entered: {age}")
 
     # Choice input
-    color = ConsoleIO.input_choice("Pick a color", ["red", "green", "blue"], default="blue")
+    color = ConsoleIO.input_choice(
+        "Pick a color", ["red", "green", "blue"], default="blue"
+    )
     print(f"You chose: {color}")
 
     # Confirmation

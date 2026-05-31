@@ -28,14 +28,30 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m src.data.library",
         description="Build the offline drug + variant graph library.",
     )
-    p.add_argument("--variants-tsv", type=Path, default=None,
-                   help="Path to the variants TSV (default: data/snp_data_output.tsv).")
-    p.add_argument("--drugs-tsv", type=Path, default=None,
-                   help="Path to the drugs TSV (default: data/drugs_cid.tsv).")
-    p.add_argument("--force", action="store_true",
-                   help="Overwrite existing .pt files instead of skipping them.")
-    p.add_argument("--only-gene", type=str, default=None, metavar="SYMBOL",
-                   help="Build only the variants for this gene — useful for verification.")
+    p.add_argument(
+        "--variants-tsv",
+        type=Path,
+        default=None,
+        help="Path to the variants TSV (default: data/snp_data_output.tsv).",
+    )
+    p.add_argument(
+        "--drugs-tsv",
+        type=Path,
+        default=None,
+        help="Path to the drugs TSV (default: data/drugs_cid.tsv).",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing .pt files instead of skipping them.",
+    )
+    p.add_argument(
+        "--only-gene",
+        type=str,
+        default=None,
+        metavar="SYMBOL",
+        help="Build only the variants for this gene — useful for verification.",
+    )
     p.add_argument("--skip-drugs", action="store_true", help="Skip the drug pipeline.")
     p.add_argument("--skip-genes", action="store_true", help="Skip the gene pipeline.")
     p.add_argument("--verbose", "-v", action="store_true", help="DEBUG-level logging.")
@@ -50,9 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger().setLevel(logging.DEBUG)
     else:
         configure_logging_level(settings)
-    logging.basicConfig(
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
+    logging.basicConfig(format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
     cfg = LibraryBuildConfig.from_settings(
         variants_tsv=args.variants_tsv,

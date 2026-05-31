@@ -25,11 +25,11 @@ from typing import Any
 import pysam  # type: ignore[import-not-found]
 
 from src.config import get_settings as _get_settings
+from src.core import BioinformaticsError
 
 _paths = _get_settings().paths
 DATA_DIR = _paths.data
 REF_GENOME_FASTA = _paths.ref_genome_fasta
-from src.core import BioinformaticsError
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,10 @@ def iter_variants(
             if ref_from_fasta != record.ref:
                 logger.warning(
                     "REF mismatch at %s:%s — VCF=%s FASTA=%s — skipping.",
-                    record.chrom, record.pos, record.ref, ref_from_fasta,
+                    record.chrom,
+                    record.pos,
+                    record.ref,
+                    ref_from_fasta,
                 )
                 continue
 
@@ -165,5 +168,3 @@ def iter_variants(
     finally:
         vcf.close()
         genome.close()
-
-

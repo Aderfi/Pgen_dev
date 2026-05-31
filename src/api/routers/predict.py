@@ -83,7 +83,9 @@ def predict(
     request_id = uuid.uuid4().hex
     features = _request_to_features(req)
     raw = predictor.predict_single(features)
-    return _wrap_prediction(raw, model_name=name, settings=settings, request_id=request_id)
+    return _wrap_prediction(
+        raw, model_name=name, settings=settings, request_id=request_id
+    )
 
 
 @router.post("/batch", response_model=BatchPredictResponse)

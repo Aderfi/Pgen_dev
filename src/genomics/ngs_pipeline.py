@@ -21,7 +21,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.config import PROJECT_ROOT, get_settings as _get_settings
+from src.config import PROJECT_ROOT
+from src.config import get_settings as _get_settings
 
 _paths = _get_settings().paths
 DATA_DIR = _paths.data
@@ -110,11 +111,21 @@ class ProcessRawGenome(BioToolExecutor):
         report_json = clean_dir / f"{sample_name}_fastp.json"
         cmd = [
             "fastp",
-            "-i", str(r1), "-I", str(r2),
-            "-o", str(out_r1), "-O", str(out_r2),
+            "-i",
+            str(r1),
+            "-I",
+            str(r2),
+            "-o",
+            str(out_r1),
+            "-O",
+            str(out_r2),
             "--detect_adapter_for_pe",
-            "-w", self.threads,
-            "-h", str(report_html), "-j", str(report_json),
+            "-w",
+            self.threads,
+            "-h",
+            str(report_html),
+            "-j",
+            str(report_json),
         ]
         self._run(cmd, f"fastp cleaning ({sample_name})")
         return {"r1": out_r1, "r2": out_r2}
@@ -160,8 +171,15 @@ class MappingAlignmentAnalysis(BioToolExecutor):
 
         bwa = subprocess.Popen(
             [
-                "bwa", "mem", "-t", self.threads, "-R", rg_tag,
-                str(self.ref_genome), str(r1), str(r2),
+                "bwa",
+                "mem",
+                "-t",
+                self.threads,
+                "-R",
+                rg_tag,
+                str(self.ref_genome),
+                str(r1),
+                str(r2),
             ],
             stdout=subprocess.PIPE,
         )
@@ -186,9 +204,13 @@ class MappingAlignmentAnalysis(BioToolExecutor):
         dedup_bam = self.output_dir / "bams" / f"{sample_name}_dedup.bam"
         metrics = self.output_dir / "bams" / f"{sample_name}_dedup_metrics.txt"
         cmd = [
-            "picard", "MarkDuplicates",
-            f"I={input_bam}", f"O={dedup_bam}", f"M={metrics}",
-            "REMOVE_DUPLICATES=false", "VALIDATION_STRINGENCY=LENIENT",
+            "picard",
+            "MarkDuplicates",
+            f"I={input_bam}",
+            f"O={dedup_bam}",
+            f"M={metrics}",
+            "REMOVE_DUPLICATES=false",
+            "VALIDATION_STRINGENCY=LENIENT",
         ]
         self._run(cmd, "Picard MarkDuplicates")
         self._run(["samtools", "index", str(dedup_bam)], "samtools index dedup BAM")
@@ -200,15 +222,20 @@ class MappingAlignmentAnalysis(BioToolExecutor):
         try:
             self._run(
                 [
-                    "qualimap", "bamqc",
-                    "-bam", str(bam_file),
-                    "-outdir", str(qm_dir),
+                    "qualimap",
+                    "bamqc",
+                    "-bam",
+                    str(bam_file),
+                    "-outdir",
+                    str(qm_dir),
                     "--java-mem-size=4G",
                 ],
                 "Qualimap BamQC",
             )
         except RuntimeError:
-            logger.warning("Qualimap failed (likely a GUI/X11 issue); continuing pipeline.")
+            logger.warning(
+                "Qualimap failed (likely a GUI/X11 issue); continuing pipeline."
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -243,10 +270,17 @@ class VariantIdentificationAnalysis(BioToolExecutor):
         # Standard clinical filters: quality > 20, depth > 10.
         self._run(
             [
-                "vcftools", "--vcf", str(input_vcf),
-                "--minQ", "20", "--minDP", "10",
-                "--recode", "--recode-INFO-all",
-                "--out", str(out_prefix),
+                "vcftools",
+                "--vcf",
+                str(input_vcf),
+                "--minQ",
+                "20",
+                "--minDP",
+                "10",
+                "--recode",
+                "--recode-INFO-all",
+                "--out",
+                str(out_prefix),
             ],
             "vcftools filtering",
         )
@@ -268,7 +302,9 @@ class VariantAnnotator(BioToolExecutor):
     Requires VEP installed and a local cache configured (~/.vep).
     """
 
-    def __init__(self, output_dir: Path, threads: int = 4, assembly: str = "GRCh38") -> None:
+    def __init__(
+        self, output_dir: Path, threads: int = 4, assembly: str = "GRCh38"
+    ) -> None:
         super().__init__(threads)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -279,11 +315,21 @@ class VariantAnnotator(BioToolExecutor):
         stats_file = self.output_dir / f"{sample_name}_vep_summary.html"
         cmd = [
             "vep",
-            "-i", str(input_vcf), "-o", str(annotated_vcf),
-            "--assembly", self.assembly,
-            "--cache", "--offline", "--force_overwrite",
-            "--vcf", "--stats_file", str(stats_file),
-            "--pick", "--fork", self.threads,
+            "-i",
+            str(input_vcf),
+            "-o",
+            str(annotated_vcf),
+            "--assembly",
+            self.assembly,
+            "--cache",
+            "--offline",
+            "--force_overwrite",
+            "--vcf",
+            "--stats_file",
+            str(stats_file),
+            "--pick",
+            "--fork",
+            self.threads,
         ]
         self._run(cmd, "VEP annotation")
         return annotated_vcf
@@ -320,7 +366,8 @@ def run_full_ngs_pipeline(r1: Path, r2: Path, sample_name: str) -> None:
         logger.info("Pipeline completed successfully.")
         logger.info("Annotated VCF: %s", final_vcf)
         logger.info(
-            "VEP report: %s", base_results / "04_annotation" / f"{sample_name}_vep_summary.html"
+            "VEP report: %s",
+            base_results / "04_annotation" / f"{sample_name}_vep_summary.html",
         )
     except Exception:  # noqa: BLE001 — surface anything from external tools as a single failure
         logger.exception("NGS pipeline failed for sample %s", sample_name)

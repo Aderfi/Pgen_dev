@@ -109,7 +109,9 @@ class TrainingLoop(ABC):
             msg = "target_cols cannot be empty"
             raise ValueError(msg)
         if not isinstance(multi_label_cols, (set, frozenset)):
-            msg = f"multi_label_cols must be a set, got {type(multi_label_cols).__name__}"
+            msg = (
+                f"multi_label_cols must be a set, got {type(multi_label_cols).__name__}"
+            )
             raise TypeError(msg)
         if not isinstance(device, torch.device):
             msg = f"device must be torch.device, got {type(device).__name__}"

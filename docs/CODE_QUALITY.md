@@ -193,7 +193,7 @@ class DoubleTowerDataset(BaseDataset):
         """Returns dict with same structure as base."""
         return {
             "drug_data": ...,
-            "haplo_data": ...,
+            "geno_data": ...,
             "targets": ...
         }
 ```

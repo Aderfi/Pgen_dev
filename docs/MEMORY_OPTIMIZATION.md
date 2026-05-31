@@ -51,8 +51,9 @@ from src.data.datasets import DoubleTowerDataset
 ds = DoubleTowerDataset(df=large_df, preload_ram=False)
 ```
 
-Lazy loading reads each `.pt` graph from `src/library/` on demand and is the
-default for training runs above the threshold.
+Lazy loading reads each `.pt` graph from `data/library/`
+(via `Settings.paths.library`) on demand and is the default for training
+runs above the threshold.
 
 ### 3. Batch size too large for VRAM
 

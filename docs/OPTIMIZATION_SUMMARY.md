@@ -147,10 +147,26 @@ caller controls a path or filename.
 
 Tracked in [`Ref.md`](../Ref.md) and [`CLAUDE.md`](../CLAUDE.md):
 
-- Phase 8 — CI workflow under `.github/workflows/` and a final docs sweep.
 - Package rename `src/` → `pharmagen/`.
-- Library artefact relocation (`src/library/` → `data/library/`).
-- A shared base between `src/model/engine/{predictor,tuner}.py` and
-  `src/model/training/loop.py`.
-- Smoke-tests under `tests/integration/`.
-- Schema migration for `.pt` artefacts predating the 25-feature drug schema.
+- `main.py` (~300 LOC) decomposition into a thin entry point plus
+  `src/cli/app.py`.
+- `torch` declared as a direct (CUDA-pinned) dependency in
+  `pyproject.toml` instead of coming in transitively via
+  `torch_geometric`.
+- End-to-end predictor verification against a real trained checkpoint
+  (the smoke tests under `tests/integration/` only cover the import and
+  artifact-loading paths).
+- Schema migration for `.pt` artefacts predating the 25-feature drug
+  schema (`python -m src.data.library --force` regenerates them).
+
+Resolved during the 2026-05 cleanup:
+
+- Phase 8 CI — `.github/workflows/ci.yml` runs ruff + pytest on push and PR.
+- Library artefact relocation — artefacts now live under `data/library/`,
+  exposed via `Settings.paths.library`.
+- Shared engine base — `src/model/engine/base.py` is the bootstrap reused
+  by training, tuning, and inference; `PGenPredictor` was rewritten on
+  top of `DoubleTowerDataset` + `DoubleTowerCollater` + the GNN forward.
+- Smoke tests — `tests/integration/test_pipeline_smoke.py` covers
+  top-level imports, `engine.base` helpers, and predictor fail-loud
+  behaviour without trained artefacts.

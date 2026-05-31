@@ -19,7 +19,8 @@ with **uv** — `uv.lock` is the source of truth.
 ## 2. Build the offline graph library
 
 The training pipeline lazy-loads pre-built drug + variant graphs from
-`src/library/`. Build them once:
+`data/library/` (exposed programmatically as `Settings.paths.library`).
+Build them once:
 
 ```bash
 python -m src.data.library                                  # full build
@@ -33,7 +34,7 @@ Inputs live under `data/`: `snp_data_output.tsv`, `drugs_cid.tsv`,
 surface.
 
 The build is **resumable** — interrupted runs pick up where they left off via
-`src/library/build_manifest.json`.
+`data/library/build_manifest.json`.
 
 ## 3. Train a model
 
@@ -200,10 +201,15 @@ req = PredictionRequest(drugs=[2244], genotype=[sa])
 ## 8. Testing
 
 ```bash
-pytest tests/unit/ -q                  # 231 unit tests
-pytest tests/unit/api/                 # FastAPI tests
-pytest tests/unit/data/test_library_*.py  # library-builder schema tests
+uv run pytest tests/unit -q                  # full unit suite
+uv run pytest tests/integration -q           # pipeline smoke tests
+uv run pytest tests/unit/api -q              # FastAPI tests
+uv run pytest tests/unit/data/test_library_*.py  # library-builder schema tests
 ```
+
+CI mirrors this exactly (`.github/workflows/ci.yml`): `ruff check` +
+`ruff format --check` + `pytest tests/unit tests/integration` on every
+push and PR.
 
 Coverage is enabled via `pyproject.toml`
 (`addopts = ["--cov=src", "--cov-report=term-missing", ...]`); no flag override
@@ -211,14 +217,24 @@ is needed.
 
 ## 9. Common gotchas
 
-- **`pysam` not installed** — only needed for `src.genomics.variant_val`; safe
-  to skip on Windows or in lightweight environments.
-- **Aspirin graph has 24 features instead of 25** — some `src/library/drugs/*.pt`
+- **`pysam` no longer optional** — it is now declared as a direct
+  dependency in `pyproject.toml`. `uv sync` installs it; previous warnings
+  about it being missing on lightweight environments no longer apply.
+- **Aspirin graph has 24 features instead of 25** — some `data/library/drugs/*.pt`
   artefacts were built before the 25-feature schema was finalized. Rebuild with
   `python -m src.data.library --force` to get the canonical 25/7 schema.
 - **`OutOfMemory` during Optuna** — drop `--optuna-trials` and `batch_size`;
   the tuner uses `preload_ram=False` automatically but VRAM still budgets per
   trial.
+- **`FileNotFoundError: encoders file not found` from `PGenPredictor`** —
+  expected when no training has been run yet. `pipeline.train_pipeline`
+  writes the artifact bundle at
+  `paths.encoders / encoders_{model_name}.pkl` before training starts;
+  re-run training to produce one.
+- **Legacy encoder pickle warning** — older pipelines persisted only the
+  plain `{target_col: encoder}` dict. The predictor still loads them
+  with a warning and falls back to `cfg.extras` defaults for the per-tower
+  dims; rerun training to refresh the bundle to schema version 1.
 
 ## See also
 

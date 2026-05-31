@@ -30,7 +30,7 @@ of the same domain models, configuration, and trained model artifacts.
        │                │               │                        │
        │                ▼               ▼                        ▼
        │     ┌──────────────────────────────────────┐   ┌────────────────┐
-       │     │ src/data/                            │   │ src/library/   │
+       │     │ src/data/                            │   │ data/library/  │
        │     │   datasets.py (DoubleTowerDataset)   │   │ drugs/*.pt     │
        │     │   cache.py    (GraphCache)           │   │ gene_graphs/   │
        │     │   encoders.py (TargetEncoder)        │   │   <gene>/*.pt  │
@@ -39,7 +39,8 @@ of the same domain models, configuration, and trained model artifacts.
        │     │   normalize.py · collator.py · graph_indexing.py
        │     └──────────────────────────────────────┘           │
        │                                                        │
-       └─► src/pipeline.py orchestrates training; predictions read this on-disk library.
+       └─► src/pipeline.py orchestrates training; predictions read this on-disk library
+           via Settings.paths.library.
 ```
 
 ## Module map
@@ -74,7 +75,7 @@ src/
 │   ├── cleaning.py         GenoKeyBuilder + PharmacogenomicCleaner
 │   ├── normalize.py        MultiLabelNormalizer + Stratifier
 │   ├── collator.py         DoubleTowerCollater (PyG batching)
-│   ├── graph_indexing.py   GraphIndexBuilder (walks src/library/)
+│   ├── graph_indexing.py   GraphIndexBuilder (walks data/library/)
 │   └── library/            Offline graph builder
 │       ├── builder.py      LibraryBuilder orchestrator
 │       ├── config.py       LibraryBuildConfig (Pydantic)
@@ -104,12 +105,7 @@ src/
 │   ├── ui.py               ConsoleIO · Spinner · ProgressBar
 │   └── io.py               JSON helpers + DataLoaderUtils facade
 │
-├── library/                On-disk graph cache (built by src/data/library)
-│   ├── drugs/              <cid>_<name>.pt
-│   ├── gene_graphs/        <gene>/<gene>_<variant>.pt
-│   └── build_manifest.json Resume manifest (atomic JSON)
-│
-└── model/                  Model + training
+└── model/                  Model + training + inference
     ├── architectures/      Towers + factory
     │   ├── gnn.py          GATv2Tower · PharmagenTwoTower
     │   └── layers.py       create_gnn_model
@@ -118,11 +114,26 @@ src/
     │   ├── standard.py     StandardTrainer (compile + checkpoints + tqdm)
     │   └── optuna_trainer.py  OptunaTrialTrainer (trial reporting + pruning)
     ├── engine/             Inference + hyperparameter search
-    │   ├── predictor.py    PGenPredictor (loads weights + encoders)
-    │   └── tuner.py        run_optuna_study (study orchestration)
+    │   ├── base.py         Shared bootstrap: device, data, datasets, loaders, model build
+    │   ├── predictor.py    PGenPredictor (GNN inference engine, reads bundle)
+    │   └── tuner.py        PGenTuner + run_optuna_study (study orchestration)
     ├── checkpoint.py       CheckpointManager
     ├── factories.py        LossFactory + OptimizerFactory
     └── losses.py           MultiTaskUncertaintyLoss + focal / asymmetric
+
+data/
+├── library/                On-disk graph cache (built by src/data/library)
+│   ├── drugs/              <cid>_<name>.pt
+│   ├── gene_graphs/        <gene>/<gene>_<variant>.pt
+│   └── build_manifest.json Resume manifest (atomic JSON)
+├── dicts/                  star_alleles.tsv and other static lookups
+├── raw/, processed/        Training inputs
+└── ref_genome/             Reference FASTA + indices
+
+scripts/                    Standalone visualisation / inspection utilities
+                            (med_matrix.py, viz.py, viz_double.py)
+
+.github/workflows/ci.yml    Ruff check + format check + pytest on push / PR
 ```
 
 ## Configuration flow
@@ -151,7 +162,7 @@ The legacy `src.config.manager` shim was removed during post-refactor cleanup.
 
 ```
 data/snp_data_output.tsv ─┐
-data/drugs_cid.tsv        ├─► python -m src.data.library  ─► src/library/{drugs,gene_graphs}/*.pt
+data/drugs_cid.tsv        ├─► python -m src.data.library  ─► data/library/{drugs,gene_graphs}/*.pt
 data/haplotype_variants/  │
 data/ref_genome/*.fa      ┘
                                                   │
@@ -159,12 +170,53 @@ train_data/train_data.tsv ─► PharmacogenomicCleaner ─► geno_key column
                                                   │
                             DoubleTowerDataset ────┴─► GraphCache (lazy or preload)
                                                   │      ▲
-                                                  │      └─ src/library/*.pt
+                                                  │      └─ data/library/*.pt
                                                   │
                             DoubleTowerCollater ──────► PyG Batch ──► StandardTrainer
                                                                      │
-                                                                     └─► src/pgen_model/
+                                                                     ├─► src/pgen_model/checkpoints/  (model weights)
+                                                                     └─► src/pgen_model/encoders/     (encoder bundle: encoders + drug_dim + geno_dim)
 ```
+
+## Engine bootstrap contract
+
+`src/model/engine/base.py` centralises the helpers every engine
+(training, tuning, inference) reuses. Build new engines on top of these
+rather than reimplementing device selection, data loading, dataset
+wiring, or model construction.
+
+| Helper | Purpose |
+| --- | --- |
+| `resolve_device(override=None)` | Pick CUDA or CPU, honoring an explicit override. |
+| `extract_tower_dims(cfg)` | Build the nested `{drugs/geno: {features, edges, attrs}}` spec from `cfg.extras`. |
+| `load_and_clean_data(csv_path, cfg)` | `TabularLoader` → `PharmacogenomicCleaner` + column / missingness validation. |
+| `stratified_split(df, val_split)` | Train/val split respecting the `_stratify` column when present. |
+| `build_two_tower_datasets(...)` | Paired train/val `DoubleTowerDataset` with shared encoders. |
+| `infer_dataset_dimensions(...)` | Probe a sample to learn `drug_dim`, `geno_dim`, `target_dims`. |
+| `build_train_val_loaders(...)` | Standard paired `DataLoader`s with project defaults. |
+| `build_gnn_model(...)` | Wraps `create_gnn_model` with the inferred dims. |
+
+## Training-artifact bundle
+
+`src/pipeline.train_pipeline` writes a single artifact at
+`Settings.paths.encoders / encoders_{model_name}.pkl` after dimension
+inference, just before training starts:
+
+```python
+{
+    "encoders": dict[str, LabelEncoder | MultiLabelBinarizer],
+    "drug_dim": int,    # inferred from real graphs, not cfg defaults
+    "geno_dim": int,
+    "schema_version": 1,
+}
+```
+
+`PGenPredictor._load_training_artifacts` reads this bundle and uses the
+saved `drug_dim` / `geno_dim` to rebuild a model whose `state_dict`
+matches the checkpoint exactly. The plain `{target_col: encoder}` dict
+written by older pipelines is still loadable but produces a warning and
+falls back to `cfg.extras` defaults — always retrain to refresh the
+bundle.
 
 ## API surface
 
@@ -220,24 +272,27 @@ OpenAPI docs at `/docs`.
 These items were intentionally deferred during the refactor (see
 [`Ref.md`](../Ref.md) and [`CLAUDE.md`](../CLAUDE.md)):
 
-1. **Phase 8 — CI workflow and final docs sweep.** No
-   `.github/workflows/` yet.
-2. **Package rename.** Rename `src` → `pharmagen` so users
+1. **Package rename.** Rename `src` → `pharmagen` so users
    `from pharmagen.api import ...`. Touches every import; deferred while
    the structure is still settling.
-3. **Library artefact relocation.** `src/library/` mixes generated `.pt`
-   caches with an `__init__.py`. A future phase should move the artefacts
-   to `data/library/` and turn `src/library/` into pure code (or remove
-   it). `src/data/datasets.py` still hard-codes `PROJECT_ROOT / "src" /
-   "library"`; once the artefacts move, switch to
-   `get_settings().paths.<…>`.
-4. **`src/model/engine/` shares too little with `src/model/training/`.**
-   `predictor.py` and `tuner.py` were not restructured during the trainer
-   split and could share a base with `TrainingLoop`.
-5. **`main.py` (~300 LOC) mixes CLI parsing, logging setup, and dispatch.**
-   A future `src/cli/app.py` would let `main.py` become a one-liner.
-6. **`tests/integration/` is empty.** Needs smoke tests (pipeline import,
-   predict round-trip).
-7. **Library schema migration.** Some existing `src/library/drugs/*.pt`
-   artefacts were built before the 25-feature schema was finalized and need
-   rebuilding via `python -m src.data.library --force`.
+2. **`main.py` (~300 LOC) mixes CLI parsing, logging setup, and dispatch.**
+   A future `src/cli/app.py` would let `main.py` become a one-liner entry
+   point.
+3. **`torch` not declared as a direct dependency.** It comes in
+   transitively via `torch_geometric`. Pinning a specific CUDA wheel
+   (e.g. cu130) requires manual `uv pip install` after `uv sync` and is
+   not reproducible from the lockfile alone.
+4. **End-to-end predictor verification needs real artifacts.** The
+   integration smoke tests cover the import + artifact-loading paths
+   (encoder bundle, missing-artifact fail-fast) but not a full
+   forward-pass round-trip — that needs a trained checkpoint.
+5. **Library schema migration.** Some existing `data/library/drugs/*.pt`
+   artefacts were built before the 25-feature schema was finalized and
+   need rebuilding via `python -m src.data.library --force`.
+
+Resolved during the 2026-05 cleanup (left here for historical context):
+
+- ~~Phase 8 — CI workflow and final docs sweep~~ — `.github/workflows/ci.yml` shipped.
+- ~~Library artefact relocation~~ — artefacts now live at `data/library/`, exposed via `Settings.paths.library`.
+- ~~`src/model/engine/` shares too little with `src/model/training/`~~ — `src/model/engine/base.py` is the shared bootstrap; `PGenPredictor` was rewritten on top of `DoubleTowerDataset` + `DoubleTowerCollater` + the GNN forward.
+- ~~`tests/integration/` is empty~~ — `tests/integration/test_pipeline_smoke.py` covers imports, helpers, and predictor fail-fast behaviour.

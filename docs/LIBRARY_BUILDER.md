@@ -17,7 +17,7 @@ the CLI surface. For internal architecture, see
 ## What it produces
 
 ```
-src/library/
+data/library/                     # exposed programmatically as Settings.paths.library
 ├── drugs/
 │   ├── 2244_aspirin.pt           PubChem CID + safe-name → PyG Data
 │   ├── 2519_caffeine.pt
@@ -31,6 +31,11 @@ src/library/
 │   └── …
 └── build_manifest.json           Resume tracking (atomic JSON)
 ```
+
+> Until the 2026-05 cleanup, these artefacts lived under `src/library/`.
+> The directory may still exist as an empty folder on workstations that
+> never pulled the relocation commit; it is harmless (no `__init__.py`,
+> ignored by git) and can be removed manually.
 
 **Schema** (frozen — must stay in sync with the trained TwoTowerGAT model):
 
@@ -166,7 +171,7 @@ from src.data.library.manifest import BuildManifest
 
 ## Resume support
 
-Every successful save updates `src/library/build_manifest.json`. The next run reads it on startup, so:
+Every successful save updates `data/library/build_manifest.json`. The next run reads it on startup, so:
 
 * An interrupted build (Ctrl-C, kernel OOM, power loss) just resumes — no rebuilding the first 4000 drugs you already had.
 * Failures are recorded too: ``manifest.failed["drug:2244"] = "Invalid SMILES"`` so you can grep the JSON to triage.
@@ -184,7 +189,7 @@ To start fresh: `--force`, or delete the manifest manually.
 | `Chromosome 'X' not in FASTA` | TSV chromosome label doesn't appear in FASTA index. Most often happens with mixed `chr1` / `1` / `NC_000001.11` conventions. | The validator already normalizes; if you still see this, check `pyfaidx` indexed the FASTA correctly. |
 | `REF mismatch: TSV=A vs FASTA=G` | Wrong genome build (GRCh37 vs GRCh38) or the TSV's `start_pos` is 0-based instead of 1-based. | Confirm the build; remember `start_pos` is **1-based**. |
 | `Invalid SMILES` for many drugs | TSV contains non-canonical SMILES strings or salts/mixtures. | Pre-canonicalize via RDKit before feeding the builder. Failures land in `<library_root>/build_failures.log`. |
-| Drug graphs have 24 features instead of 25 | Old artifacts produced before the schema was finalized. | `python -m src.data.library --force` (or selectively delete `src/library/drugs/` and rerun). |
+| Drug graphs have 24 features instead of 25 | Old artifacts produced before the schema was finalized. | `python -m src.data.library --force` (or selectively delete `data/library/drugs/` and rerun). |
 | Gene subdirs are empty after a run | The PGx folder schema didn't match. | `--verbose` to see which VCFs got parsed; check filenames match the rules in § Inputs. |
 | Need only one gene's graphs for testing | | `--only-gene CYP2D6 --skip-drugs` |
 

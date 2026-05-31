@@ -136,9 +136,16 @@ src/
 ├── data/        Carga, limpieza, normalización, library builder
 ├── genomics/    Pipeline NGS, genoma de referencia, alelos estrella, variantes
 ├── interface/   UI de consola y CLI interactiva
-├── library/     Caché de grafos en disco (drugs/, gene_graphs/)
-├── model/       Arquitectura GATv2, entrenamiento, engine
+├── model/       Arquitectura GATv2, entrenamiento, engine (engine/base.py es el bootstrap compartido)
 └── pipeline.py  Orquestador de entrenamiento
+
+data/
+├── library/     Caché de grafos en disco (drugs/, gene_graphs/) — Settings.paths.library
+├── dicts/       star_alleles.tsv y otras tablas estáticas
+└── …            raw/, processed/, ref_genome/
+
+scripts/         Utilidades de visualización / inspección
+.github/         Workflow de CI (ruff + pytest en push / PR)
 ```
 
 Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para el mapa completo de módulos.
@@ -148,10 +155,13 @@ Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) para el mapa completo de mód
 ## Tests
 
 ```bash
-pytest tests/unit/ -q                # 231 tests unitarios
-pytest tests/unit/api/               # tests de FastAPI
-pytest tests/unit/domain/ -v         # modelos de dominio
+uv run pytest tests/unit -q          # suite unitaria completa (~240 tests)
+uv run pytest tests/integration -q   # smoke tests del pipeline
+uv run pytest tests/unit/api -q      # tests de FastAPI
+uv run pytest tests/unit/domain -v   # modelos de dominio
 ```
+
+La CI replica esto en cada push y PR vía `.github/workflows/ci.yml`.
 
 La cobertura está activada por defecto vía `pyproject.toml`
 (`addopts = ["--cov=src", "--cov-report=term-missing", ...]`).

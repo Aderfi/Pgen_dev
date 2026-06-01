@@ -102,7 +102,7 @@ class LibraryBuildConfig(BaseModel):
             drugs_tsv=drugs_tsv or data_dir / "drugs_cid.tsv",
             fasta_path=settings.paths.ref_genome_fasta,
             pgx_dir=data_dir / "haplotype_variants",
-            library_root=settings.paths.project_root / "src" / "library",
+            library_root=settings.paths.library,
             force=force,
             only_gene=only_gene,
             skip_drugs=skip_drugs,

@@ -482,7 +482,7 @@ requires-dist = [
     { name = "optree", specifier = "==0.17.0" },
     { name = "optuna", specifier = ">=4.0.0" },
     { name = "optuna", marker = "extra == 'dev'" },
-    { name = "optuna", marker = "extra == 'train'", specifier = ">=3.0.0" },
+    { name = "optuna", marker = "extra == 'train'", specifier = ">=4.0.0" },
     { name = "packaging", specifier = "==25.0" },
     { name = "pandas", specifier = "==2.3.3" },
     { name = "pillow", specifier = "==11.3.0" },

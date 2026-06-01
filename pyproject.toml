@@ -5,7 +5,7 @@
 [project]
 name = "dev_Pharmagen"
 version = "1.5.0"
-description = "Software de predicción farmacogenética y eficacia terapéutica mediante Deep Learning"
+description = "Pharmacogenetic prediction and therapeutic efficacy software powered by Deep Learning"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 license = { file = "LICENSE" }
@@ -28,7 +28,7 @@ keywords = [
   #############################
   "deep-learning",
   "pytorch",
-  "deepfm",
+  "graph-neural-networks",
   "neural-networks",
   "artificial-intelligence",
   "machine-learning",
@@ -145,7 +145,7 @@ dependencies = [
 
 [project.optional-dependencies]
 train = [
-    "optuna>=3.0.0", 
+    "optuna>=4.0.0",
     "matplotlib>=3.7.0",
     "torch_geometric",
 ]

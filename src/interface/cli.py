@@ -89,7 +89,7 @@ def run_training_flow():
     ConsoleIO.print_success(f"Selected model: {model_name}")
 
     # 2. Select Data File
-    default_data = get_settings().paths.data / "processed" / "train_data. tsv"
+    default_data = get_settings().paths.data / "processed" / "train_data.tsv"
     if not default_data.exists():
         # Fallback to project root default if exists
         fallback = PROJECT_ROOT / "train_data" / "train_data.tsv"
@@ -99,7 +99,7 @@ def run_training_flow():
             default_data = None
 
     csv_path = ConsoleIO.input_path(
-        "Training Data Path", default=default_data, file_extensions=[". csv", ".tsv"]
+        "Training Data Path", default=default_data, file_extensions=[".csv", ".tsv"]
     )
 
     # 3. Select Training Mode

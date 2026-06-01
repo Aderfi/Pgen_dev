@@ -140,6 +140,4 @@ uv run pytest tests/unit/api -q
 ## Outstanding tech debt
 
 - `main.py` (~300 LOC) still mixes CLI parsing, logging setup, and dispatch; a future `src/cli/app.py` would keep `main.py` as a one-liner entry point.
-- `torch` is not declared as a direct dependency in `pyproject.toml` — it comes in transitively through `torch_geometric`. Pinning a specific CUDA wheel (e.g. cu130) requires manual `uv pip install` after `uv sync` and is not reproducible from the lockfile alone.
 - End-to-end predictor verification still requires a real trained checkpoint; the integration smoke tests only cover the import + artifact-loading paths.
-- `src/library/` directory may still exist as an empty folder on some workstations from before the relocation; harmless (no `__init__.py`, ignored by git) but can be removed manually.

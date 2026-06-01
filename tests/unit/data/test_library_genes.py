@@ -28,6 +28,6 @@ class TestGeneSchemaConstants:
         # These two values are mirrored in src/config/data/models.toml under
         # [TwoTowerGAT].geno_node_features / geno_attrs_features. Changing
         # either silently would invalidate every trained model in
-        # src/pgen_model/.
+        # data/pgen_model/.
         assert GENE_NODE_DIM == 9
         assert GENE_EDGE_DIM == 3

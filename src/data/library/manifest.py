@@ -11,7 +11,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,8 +33,8 @@ class BuildManifest(BaseModel):
 
     model_config = ConfigDict()
 
-    started_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     completed_drug_cids: list[int] = Field(default_factory=list)
     completed_gene_keys: list[str] = Field(
         default_factory=list,
@@ -63,7 +63,7 @@ class BuildManifest(BaseModel):
     def save(self, path: Path) -> None:
         """Atomic write: temp file then rename."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.updated_at = datetime.now(tz=timezone.utc)
+        self.updated_at = datetime.now(tz=UTC)
         payload = self.model_dump_json(indent=2)
         with tempfile.NamedTemporaryFile(
             mode="w", dir=path.parent, delete=False, prefix=".manifest.", suffix=".tmp"

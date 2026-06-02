@@ -76,7 +76,7 @@ class StandardTrainer(TrainingLoop):
                 model, mode="default", dynamic=True, backend="inductor"
             )
             logger.debug("Model compiled with torch.compile (inductor).")
-            return cast(nn.Module, compiled)
+            return cast("nn.Module", compiled)
         except Exception as e:  # noqa: BLE001
             logger.warning("torch.compile failed: %s. Using eager mode.", e)
             return model

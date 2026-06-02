@@ -39,9 +39,11 @@ exclude = [
 ]
 
 [lint]
-# Patterns enabled: 
-# PL (Pylint), E/W (pycodestyle), I (isort), F (Pyflakes)
-select = ["PL", "E", "W", "I", "F", "TID253"]
+# Patterns enabled:
+# PL (Pylint), E/W (pycodestyle), I (isort), F (Pyflakes), TID253 (banned imports)
+# UP (pyupgrade) — modern py3.14 typing: list/dict/X | None instead of List/Dict/Optional
+# FA (flake8-future-annotations), TC (flake8-type-checking)
+select = ["PL", "E", "W", "I", "F", "TID253", "UP", "FA", "TC"]
 ignore = [
     "E203",   # Conflicting with Black-style formatting
     "E501",   # Line length handled by formatter
@@ -64,6 +66,9 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 [lint.per-file-ignores]
 # Merged from the former pyproject [tool.ruff] config (now the single source).
 "__init__.py" = ["F401", "F403"]
+# Pydantic models resolve type hints at runtime to build/validate; moving the
+# imported types into a TYPE_CHECKING block (TC001/2/3) would break them.
+"src/domain/**/*.py" = ["TC001", "TC002", "TC003"]
 "tests/**/*.py" = ["PLR2004", "S101"]
 # Standalone utility/visualisation scripts: kept formatted + linted, but not
 # held to the package's function-complexity budget.

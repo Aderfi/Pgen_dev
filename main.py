@@ -268,7 +268,7 @@ def main(args: argparse.Namespace | None = None):
     if args is None:
         args = arguments_parser().parse_args()
 
-    args = cast(argparse.Namespace, args)
+    args = cast("argparse.Namespace", args)
 
     # Configure logging level based on flags
     log_level = logging.WARNING

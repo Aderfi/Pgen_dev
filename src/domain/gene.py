@@ -9,7 +9,7 @@ strict — anything else should be cleaned upstream rather than accepted here.
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -18,7 +18,7 @@ _ENSG_ID = re.compile(r"^ENSG\d{11}(?:\.\d+)?$")
 _STAR_ALLELE = re.compile(r"^([A-Z][A-Z0-9-]+)\*(\d+(?:\.\d+)?[A-Z]?)$")
 
 
-class AlleleFunction(str, Enum):
+class AlleleFunction(StrEnum):
     """Functional classification of a star allele.
 
     Aligned with the CPIC/PharmGKB allele functionality categories. Values are

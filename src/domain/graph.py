@@ -6,14 +6,14 @@ catalogues, and FastAPI responses where shipping the full tensor is wasteful.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 from torch_geometric.data import Data as PyGData
 
 
-class GraphKind(str, Enum):
+class GraphKind(StrEnum):
     DRUG = "drug"
     GENE = "gene"
 

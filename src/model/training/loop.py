@@ -160,7 +160,7 @@ class TrainingLoop(ABC):
             total_loss = self.uncertainty_module(losses_per_task)
         else:
             total_loss = sum(losses_per_task.values())
-        total_loss = cast(torch.Tensor, total_loss)
+        total_loss = cast("torch.Tensor", total_loss)
 
         accuracies: list[float] = []
         with torch.no_grad():

@@ -86,7 +86,7 @@ def iter_variants(
     region: str | None = None,
     *,
     skip_ref_blocks: bool = True,
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[dict[str, Any]]:
     """Yield validated variants from a VCF, one record at a time.
 
     Each variant is validated against ``fasta_path``: records whose REF doesn't

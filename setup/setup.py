@@ -54,7 +54,7 @@ class SystemUtils:
 
     @staticmethod
     def run_command(
-        command: List[str], cwd: Optional[Path] = None, dry_run: bool = False
+        command: list[str], cwd: Path | None = None, dry_run: bool = False
     ) -> bool:
         cmd_str = " ".join(command)
         if dry_run:
@@ -317,7 +317,7 @@ class ConfigManager:
             with open(self.config_path, "w") as f:
                 json.dump(config, f, indent=4)
             logger.info(f"Configuration saved to {self.CONFIG_FILE}")
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Failed to save configuration: {e}")
 
 

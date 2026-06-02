@@ -8,7 +8,7 @@ is a programming-internal detail and never leaves these models.
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -48,7 +48,7 @@ def normalize_chromosome(chrom: str) -> str:
     return bare
 
 
-class GenomeBuild(str, Enum):
+class GenomeBuild(StrEnum):
     """Reference assembly identifier.
 
     Pharmagen targets GRCh38 by default; GRCh37 is accepted but flagged at the
@@ -59,7 +59,7 @@ class GenomeBuild(str, Enum):
     GRCH38 = "GRCh38"
 
 
-class VariantType(str, Enum):
+class VariantType(StrEnum):
     SNP = "SNP"
     MNP = "MNP"
     INSERTION = "INS"
@@ -69,7 +69,7 @@ class VariantType(str, Enum):
     OTHER = "OTHER"
 
 
-class Zygosity(str, Enum):
+class Zygosity(StrEnum):
     HOMOZYGOUS_REF = "0/0"
     HETEROZYGOUS = "0/1"
     HOMOZYGOUS_ALT = "1/1"

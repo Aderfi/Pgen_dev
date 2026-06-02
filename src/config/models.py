@@ -87,7 +87,7 @@ class LogSpec(_BaseSpec):
 
 
 OptunaSpec = Annotated[
-    Union[CategoricalSpec, IntSpec, FloatSpec, LogSpec],
+    CategoricalSpec | IntSpec | FloatSpec | LogSpec,
     Discriminator("kind"),
 ]
 

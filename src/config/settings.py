@@ -14,11 +14,11 @@ Override via environment variables prefixed ``PHARMAGEN_`` (e.g.
 from __future__ import annotations
 
 import logging
+import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import tomllib
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

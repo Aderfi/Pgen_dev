@@ -213,7 +213,7 @@ class MambaStrategy(EnvStrategy):
         # Given the requirements.txt structure (hashes), pip is safer.
 
         if SystemUtils.get_os() == "Windows":
-            pip_executable = ( #noqa
+            pip_executable = (  # noqa
                 self.root_path / "envs" / self.env_name / "Scripts" / "pip.exe"
             )  # approximate path for conda
             # Conda paths vary. Better to use 'mamba run -n env pip install ...'

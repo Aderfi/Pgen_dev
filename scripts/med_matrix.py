@@ -25,20 +25,36 @@ import torch
 # =============================================================================
 
 NODE_FEATURE_NAMES = [
-    "atomic_num_norm",          # Número atómico / 100
-    "degree_raw",               # Grado (valor directo)
+    "atomic_num_norm",  # Número atómico / 100
+    "degree_raw",  # Grado (valor directo)
     # One-hot grado [0,1,2,3,4]
-    "degree_0", "degree_1", "degree_2", "degree_3", "degree_4",
+    "degree_0",
+    "degree_1",
+    "degree_2",
+    "degree_3",
+    "degree_4",
     # One-hot carga formal [-2,-1,0,1,2]
-    "charge_-2", "charge_-1", "charge_0", "charge_+1", "charge_+2",
+    "charge_-2",
+    "charge_-1",
+    "charge_0",
+    "charge_+1",
+    "charge_+2",
     # One-hot hibridación [SP, SP2, SP3]
-    "hybrid_SP", "hybrid_SP2", "hybrid_SP3",
+    "hybrid_SP",
+    "hybrid_SP2",
+    "hybrid_SP3",
     # One-hot num Hs [0,1,2,3,4]
-    "totalH_0", "totalH_1", "totalH_2", "totalH_3", "totalH_4",
+    "totalH_0",
+    "totalH_1",
+    "totalH_2",
+    "totalH_3",
+    "totalH_4",
     # One-hot quiralidad [UNSPECIFIED, CW, CCW]
-    "chiral_unspec", "chiral_CW", "chiral_CCW",
-    "is_aromatic",              # Aromaticidad (0/1)
-    "mass_norm",                # Masa * 0.01
+    "chiral_unspec",
+    "chiral_CW",
+    "chiral_CCW",
+    "is_aromatic",  # Aromaticidad (0/1)
+    "mass_norm",  # Masa * 0.01
 ]
 
 EDGE_FEATURE_NAMES = [
@@ -55,6 +71,7 @@ EDGE_FEATURE_NAMES = [
 # =============================================================================
 #  FUNCIONES DE EXPORTACIÓN
 # =============================================================================
+
 
 def load_graph(pt_path: Path):
     """Carga el objeto Data desde el .pt."""
@@ -143,20 +160,25 @@ def print_summary(data, pt_path: Path):
 #  MAIN
 # =============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect a drug .pt graph file")
     parser.add_argument("--pt", required=True, type=str, help="Path to the .pt file")
     parser.add_argument(
-        "--output", type=str, default=None,
-        help="Output directory (default: same folder as .pt file)"
+        "--output",
+        type=str,
+        default=None,
+        help="Output directory (default: same folder as .pt file)",
     )
     parser.add_argument(
-        "--weighted-adj", action="store_true",
-        help="Encode bond type in adjacency matrix (1=single,2=double,3=triple,4=aromatic)"
+        "--weighted-adj",
+        action="store_true",
+        help="Encode bond type in adjacency matrix (1=single,2=double,3=triple,4=aromatic)",
     )
     parser.add_argument(
-        "--no-adj", action="store_true",
-        help="Skip adjacency matrix export (useful for large molecules)"
+        "--no-adj",
+        action="store_true",
+        help="Skip adjacency matrix export (useful for large molecules)",
     )
     args = parser.parse_args()
 
@@ -179,7 +201,9 @@ def main():
     node_df = build_node_table(data)
     node_path = out_dir / f"{stem}_nodes.csv"
     node_df.to_csv(node_path, index=False)
-    print(f"✅ Node table  → {node_path}  ({len(node_df)} atoms × {len(node_df.columns)-1} features)")
+    print(
+        f"✅ Node table  → {node_path}  ({len(node_df)} atoms × {len(node_df.columns) - 1} features)"
+    )
 
     # --- Edge table ---
     edge_df = build_edge_table(data)
@@ -193,7 +217,9 @@ def main():
         adj_path = out_dir / f"{stem}_adjacency.csv"
         adj_df.to_csv(adj_path)
         mode = "weighted" if args.weighted_adj else "binary"
-        print(f"✅ Adj matrix  → {adj_path}  ({adj_df.shape[0]}×{adj_df.shape[1]}, {mode})")
+        print(
+            f"✅ Adj matrix  → {adj_path}  ({adj_df.shape[0]}×{adj_df.shape[1]}, {mode})"
+        )
     else:
         print("⏭️  Adjacency matrix skipped (--no-adj)")
 

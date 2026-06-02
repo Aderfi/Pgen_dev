@@ -178,7 +178,7 @@ class DrugGraphBuilder:
             cid_raw = row["cid"]
             try:
                 cid = int(cid_raw)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 failed += 1
                 failures.append((-1, str(cid_raw), "non-integer CID"))
                 continue

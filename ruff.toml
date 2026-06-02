@@ -62,6 +62,9 @@ unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [lint.per-file-ignores]
+# Merged from the former pyproject [tool.ruff] config (now the single source).
+"__init__.py" = ["F401", "F403"]
+"tests/**/*.py" = ["PLR2004", "S101"]
 # Standalone utility/visualisation scripts: kept formatted + linted, but not
 # held to the package's function-complexity budget.
 "scripts/**/*.py" = ["PLR0912", "PLR0915"]

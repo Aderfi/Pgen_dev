@@ -12,6 +12,8 @@ build/
 .coverage.*
 htmlcov/
 .aiexclude
+.mypy_cache/
+.*
 
 # =======================================================
 # 2. ENVIRONMENTS & SECRETS (CRITICAL)

@@ -22,7 +22,7 @@ The core refactor is complete. The original plan lives in **`Ref.md`**. Highligh
 
 ## Layout
 
-```
+```mmd
 src/
 ├── api/                 # FastAPI service (create_app + routers + DI)
 ├── core/                # Cross-cutting: exception hierarchy, logging, validators

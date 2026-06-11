@@ -92,8 +92,11 @@ _RE_PROT_INS = re.compile(
     rf"^(?P<aa1>{_AA})(?P<idx1>\d+)_(?P<aa2>{_AA})(?P<idx2>\d+)"
     rf"ins(?P<ins>(?:{_AA})+)$"
 )
-# Frameshift: Ser1982Argfs*22, Ser1982fs, Arg97Profs*?
-_RE_PROT_FS = re.compile(rf"^{_PROT_POS}(?P<new>{_AA})?fs(?:\*(?P<term>\d+|\?))?$")
+# Frameshift: Ser1982Argfs*22, Ser1982fs, Arg97Profs*?, Phe59fsTer10, Arg97ProfsTer23.
+# The new stop may be written as '*', 'Ter' or 'X' per HGVS — all accepted here.
+_RE_PROT_FS = re.compile(
+    rf"^{_PROT_POS}(?P<new>{_AA})?fs(?:(?:\*|Ter|X)(?P<term>\d+|\?))?$"
+)
 # C-terminal extension: *110Trpext*17, Ter110Trpext*?
 _RE_PROT_EXT_C = re.compile(
     rf"^(?:\*|Ter)(?P<idx>\d+)(?P<new>{_AA})?ext\*(?P<term>\d+|\?)$"

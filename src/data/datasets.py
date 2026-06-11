@@ -31,7 +31,7 @@ PRELOAD_THRESHOLD = 5000
 # Default tower dimensions when callers don't override.
 DEFAULT_DIMENSIONS: dict[str, dict[str, int]] = {
     "drugs": {"features": 61, "edges": 18, "attrs": 0, "global": 1038, "admet": 41},
-    "geno": {"features": 9, "edges": 3, "attrs": 0, "global": 10},
+    "geno": {"features": 9, "edges": 3, "attrs": 0, "global": 27},
 }
 
 

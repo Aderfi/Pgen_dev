@@ -13,10 +13,10 @@ Output schema (frozen — must stay in sync with the trained genotype tower):
                         + 4 functional flags (is_coding, is_regulatory,
                           is_splicing, is_intergenic)
     Edge features (3):  one-hot of {backbone_link, ref_path, alt_path}
-    Global (10):        per-variant ``geno_global_feats`` [1, 10] — PGx allele
-                        function one-hot + activity + pathogenicity (AlphaMissense,
-                        CADD). Decoupled from node features; see
-                        :mod:`src.data.library.geno_func`.
+    Global (27):        per-variant ``geno_global_feats`` [1, 27] — PGx allele
+                        function (6) + Sequence Ontology consequence (13) + HGVS
+                        protein-change physicochemistry (8). Decoupled from node
+                        features; see :mod:`src.data.library.geno_func`.
 
 The validator runs in pure Polars + pyfaidx; no module-level globals.
 """
@@ -262,6 +262,7 @@ class GenomicGraphBuilder:
                 "variant_name",
                 "variant_type_calc",
                 "activity_score",
+                "FXN_CLASS",
                 "is_coding",
                 "is_regulatory",
                 "is_splicing",
@@ -407,11 +408,7 @@ class GenomicGraphBuilder:
                     )
                     pyg = self._to_pyg(graph_nx, str(var_name))
                     pyg.geno_global_feats = self.func.vector_for(
-                        str(var_name),
-                        row0["CHROM"],
-                        row0["POS"],
-                        row0["REF"],
-                        row0["ALT"],
+                        str(var_name), row0.get("FXN_CLASS")
                     )
                 except Exception as e:  # noqa: BLE001
                     failed += 1

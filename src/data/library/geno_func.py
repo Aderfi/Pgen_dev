@@ -1,4 +1,4 @@
-"""Predicted functional / pathogenicity profile for the genotype tower.
+"""Per-variant functional profile for the genotype tower (geno_global_feats).
 
 Why this exists
 ---------------
@@ -10,31 +10,31 @@ allele has **no enzyme function**. Until now ``activity_score`` was hard-coded t
 ``0.5`` for every variant, so the single most causal feature carried no
 information.
 
-This module attaches a per-variant ``geno_global_feats`` vector (decoupled from
+This module assembles a per-variant ``geno_global_feats`` vector (decoupled from
 the node features, mirroring the drug tower's ``global_feats`` / ``admet_feats``)
-built from two complementary layers:
+from three complementary layers:
 
 Layer A — PGx allele function (causal), keyed by rsID
     From ``data/dicts/star_alleles.tsv``: the CPIC/PharmVar **function status**
     (no / decreased / normal / increased) one-hot + the real **activity score**.
-    This is the direct phenotype driver but only covers known PGx star alleles.
+    The direct phenotype driver, but only covers known PGx star alleles.
 
-Layer B — genome-wide pathogenicity (coverage), keyed by GRCh38 coordinate
-    AlphaMissense (missense deleteriousness) and CADD PHRED, joined on
-    ``(chrom, pos, ref, alt)``. Generic but high coverage, filling the long tail
-    of variants outside the curated star-allele tables. Each score carries a
-    "scored" mask so "no annotation" (zero) is distinguishable from "benign".
+Layer B — Sequence Ontology molecular consequence, from ``FXN_CLASS``
+    Severity-aware multi-hot over consequence groups (see
+    :mod:`src.data.library.consequence`). Local, high coverage — the same signal
+    HGVS notation expresses in its ``VariantKind`` grammar.
 
-The ``GENE_GLOBAL_DIM`` (10) profile
-------------------------------------
-    A: func_no, func_decreased, func_normal, func_increased,   (4)
-       activity_score, pgx_known                                (2)
-    B: alphamissense, am_scored, cadd_norm, cadd_scored         (4)
+Layer C — HGVS protein change, keyed by rsID
+    Physicochemistry of the amino-acid substitution (Grantham, charge, hydropathy,
+    volume, polarity, stop-gain, frameshift) parsed from the variant's protein
+    HGVS expression (see :mod:`src.data.library.protein_change`). The protein
+    expressions come from a cached dbSNP lookup; absent ⇒ that block stays zero.
 
-Layer B degrades gracefully: with no AlphaMissense / CADD source the four B dims
-are zero with mask 0 — a valid "no pathogenicity annotation" input — so a build
-always runs with at least the local PGx-function signal. See
-:meth:`GenoFuncProvider.from_sources`.
+``GENE_GLOBAL_DIM`` = 6 (A) + 13 (B) + 8 (C) = 27.
+
+Every layer degrades gracefully — an unknown variant, a missing ``FXN_CLASS``,
+or no protein expression each leave their block zero (with a mask flag where
+relevant), so a build always runs with whatever signal is available.
 """
 
 from __future__ import annotations
@@ -46,13 +46,15 @@ from typing import TYPE_CHECKING
 import polars as pl
 import torch
 
+from src.data.library.consequence import CONSEQUENCE_DIM, consequence_vector
+from src.data.library.protein_change import PROTEIN_CHANGE_DIM, protein_change_vector
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# --- Vector layout (order defines geno_global_feats) --- #
-# Layer A — PGx allele function (by rsID).
+# --- Layer A — PGx allele function (by rsID) --- #
 _FUNC_STATUSES: tuple[str, ...] = (
     "no_function",
     "decreased_function",
@@ -67,13 +69,13 @@ _FUNC_DEFAULT_AS: dict[str, float] = {
     "normal_function": 1.0,
     "increased_function": 1.5,
 }
-_CADD_PHRED_CAP = 40.0  # PHRED scores are capped/normalised to [0, 1] at this value.
+_FUNCTION_DIM = len(_FUNC_STATUSES) + 2  # status one-hot + activity + pgx_known = 6
 
-#: Length of the per-variant functional vector attached as ``geno_global_feats``.
-GENE_GLOBAL_DIM: int = len(_FUNC_STATUSES) + 2 + 4  # A(6) + B(4) = 10
+#: Length of the assembled per-variant vector attached as ``geno_global_feats``.
+GENE_GLOBAL_DIM: int = _FUNCTION_DIM + CONSEQUENCE_DIM + PROTEIN_CHANGE_DIM  # 27
 
 _AS_RE = re.compile(r"AS\s+([0-9]+(?:\.[0-9]+)?)")
-_VARIANT_COLS = ("chrom", "pos", "ref", "alt")
+_RSID_COL, _HGVS_COL = "rsid", "hgvs_p"
 
 
 def parse_activity_score(notes: str | None, function: str) -> float:
@@ -116,88 +118,86 @@ def load_star_allele_function(star_alleles_tsv: Path) -> dict[str, tuple[str, fl
     return mapping
 
 
-def _read_coord_scores(
-    path: Path | None, score_col: str, *, label: str
-) -> dict[tuple[str, int, str, str], float]:
-    """Read a ``(chrom, pos, ref, alt) -> score`` table for a pathogenicity source.
+def load_hgvs_protein_table(path: Path | None) -> dict[str, str]:
+    """Map ``rsID -> protein HGVS expression`` from a cached dbSNP table.
 
-    The file is any delimited table carrying ``chrom, pos, ref, alt`` plus
-    ``score_col`` (chromosomes are normalised to bare ``"1".."22","X","Y"``).
-    Missing path returns an empty map so Layer B degrades to zeros + mask 0.
+    The table (``.parquet`` or delimited) needs an ``rsid`` and an ``hgvs_p``
+    column. A missing path returns an empty map so Layer C degrades to zeros.
     """
     if path is None:
-        logger.info("GenoFunc: no %s source — that layer stays zero (mask 0).", label)
+        logger.info("GenoFunc: no HGVS protein table — Layer C stays zero.")
         return {}
     if not path.exists():
-        logger.warning(
-            "GenoFunc: %s source %s not found — skipping layer.", label, path
-        )
+        logger.warning("GenoFunc: HGVS table %s not found — Layer C stays zero.", path)
         return {}
 
-    sep = "\t" if path.suffix in {".tsv", ".gz", ".bgz"} else ","
-    frame = pl.read_csv(path, separator=sep, infer_schema_length=10_000)
-    needed = {*_VARIANT_COLS, score_col}
-    missing = needed - set(frame.columns)
+    frame = (
+        pl.read_parquet(path)
+        if path.suffix == ".parquet"
+        else pl.read_csv(path, separator="\t")
+    )
+    missing = {_RSID_COL, _HGVS_COL} - set(frame.columns)
     if missing:
-        msg = f"{label} source {path} missing columns {sorted(missing)}"
+        msg = f"HGVS table {path} missing columns {sorted(missing)}"
         raise KeyError(msg)
 
-    scores: dict[tuple[str, int, str, str], float] = {}
-    for row in frame.iter_rows(named=True):
-        value = row[score_col]
-        if value is None:
-            continue
-        chrom = str(row["chrom"]).removeprefix("chr")
-        key = (chrom, int(row["pos"]), str(row["ref"]).upper(), str(row["alt"]).upper())
-        scores[key] = float(value)
-    logger.info("GenoFunc: loaded %d %s scores from %s", len(scores), label, path)
-    return scores
+    mapping: dict[str, str] = {}
+    for rsid, hgvs in zip(
+        frame.get_column(_RSID_COL).to_list(),
+        frame.get_column(_HGVS_COL).to_list(),
+        strict=True,
+    ):
+        if rsid and hgvs:
+            mapping.setdefault(str(rsid), str(hgvs))
+    logger.info(
+        "GenoFunc: loaded %d HGVS protein expressions from %s", len(mapping), path
+    )
+    return mapping
 
 
 class GenoFuncProvider:
-    """Lookup from a variant to its :data:`GENE_GLOBAL_DIM` functional vector.
+    """Assemble a variant's :data:`GENE_GLOBAL_DIM` functional vector.
 
-    Layer A is resolved by rsID (``variant_name``), Layer B by GRCh38 coordinate.
-    A variant absent from *both* layers yields a zero vector (a valid "no
-    functional annotation" input) and is tallied in :attr:`misses`.
+    Layer A (PGx function) and Layer C (HGVS protein) are resolved by rsID
+    (``variant_name``); Layer B (SO consequence) is computed from the variant's
+    ``FXN_CLASS`` passed at lookup time. A variant with no signal in *any* layer
+    yields a zero vector and is tallied in :attr:`misses`.
     """
 
     def __init__(
         self,
         function_by_rsid: dict[str, tuple[str, float]],
-        alphamissense: dict[tuple[str, int, str, str], float] | None = None,
-        cadd: dict[tuple[str, int, str, str], float] | None = None,
+        hgvs_by_rsid: dict[str, str] | None = None,
+        *,
+        enabled: bool = True,
     ) -> None:
         self._function = function_by_rsid
-        self._alphamissense = alphamissense or {}
-        self._cadd = cadd or {}
+        self._hgvs = hgvs_by_rsid or {}
+        self._enabled = enabled
         self._zero = torch.zeros((1, GENE_GLOBAL_DIM), dtype=torch.float)
         self.misses = 0
 
     @classmethod
     def null(cls) -> GenoFuncProvider:
-        """A provider with no entries — every lookup returns a zero vector.
+        """A disabled provider — every lookup returns a zero vector.
 
         Used for ``--skip-geno-func`` builds: the graph schema stays complete
-        (``geno_global_feats`` present) but carries no functional signal.
+        (``geno_global_feats`` present) but carries no functional signal at all,
+        including the otherwise-free Layer B consequence block.
         """
-        return cls({}, {}, {})
+        return cls({}, {}, enabled=False)
 
     @classmethod
     def from_sources(
         cls,
         star_alleles_tsv: Path,
         *,
-        alphamissense_path: Path | None = None,
-        cadd_path: Path | None = None,
+        hgvs_table: Path | None = None,
     ) -> GenoFuncProvider:
-        """Build a provider from the local PGx table + optional pathogenicity files."""
+        """Build a provider from the local PGx table + optional dbSNP HGVS table."""
         return cls(
             load_star_allele_function(star_alleles_tsv),
-            _read_coord_scores(
-                alphamissense_path, "alphamissense", label="AlphaMissense"
-            ),
-            _read_coord_scores(cadd_path, "cadd_phred", label="CADD"),
+            load_hgvs_protein_table(hgvs_table),
         )
 
     def activity_for(self, variant_name: str) -> float | None:
@@ -208,50 +208,36 @@ class GenoFuncProvider:
         hit = self._function.get(variant_name)
         return hit[1] if hit is not None else None
 
-    def vector_for(
-        self,
-        variant_name: str,
-        chrom: str | None,
-        pos: int | None,
-        ref: str | None,
-        alt: str | None,
-    ) -> torch.Tensor:
-        """Return the ``[1, GENE_GLOBAL_DIM]`` functional vector for a variant."""
-        vec = [0.0] * GENE_GLOBAL_DIM
+    def _function_block(self, variant_name: str) -> tuple[list[float], bool]:
+        block = [0.0] * _FUNCTION_DIM
+        hit = self._function.get(variant_name)
+        if hit is None:
+            return block, False
+        status, activity = hit
+        block[_FUNC_STATUSES.index(status)] = 1.0
+        block[len(_FUNC_STATUSES)] = activity
+        block[len(_FUNC_STATUSES) + 1] = 1.0  # pgx_known mask
+        return block, True
 
-        # Layer A — PGx function by rsID.
-        func_hit = self._function.get(variant_name)
-        if func_hit is not None:
-            status, activity = func_hit
-            vec[_FUNC_STATUSES.index(status)] = 1.0
-            vec[len(_FUNC_STATUSES)] = activity  # activity_score
-            vec[len(_FUNC_STATUSES) + 1] = 1.0  # pgx_known mask
+    def vector_for(self, variant_name: str, fxn_class: str | None) -> torch.Tensor:
+        """Return the ``[1, GENE_GLOBAL_DIM]`` functional vector for a variant.
 
-        # Layer B — pathogenicity by coordinate.
-        b0 = len(_FUNC_STATUSES) + 2
-        coord_hit = False
-        if None not in (chrom, pos, ref, alt):
-            key = (
-                str(chrom).removeprefix("chr"),
-                int(pos),
-                str(ref).upper(),
-                str(alt).upper(),
-            )
-            am = self._alphamissense.get(key)
-            if am is not None:
-                vec[b0] = am
-                vec[b0 + 1] = 1.0
-                coord_hit = True
-            cadd = self._cadd.get(key)
-            if cadd is not None:
-                vec[b0 + 2] = min(cadd, _CADD_PHRED_CAP) / _CADD_PHRED_CAP
-                vec[b0 + 3] = 1.0
-                coord_hit = True
+        Concatenates Layer A (PGx function, by rsID), Layer B (SO consequence,
+        from ``fxn_class``) and Layer C (HGVS protein change, by rsID). A disabled
+        provider (``null()`` / ``--skip-geno-func``) always returns zeros.
+        """
+        if not self._enabled:
+            return self._zero.clone()
+        func_block, func_hit = self._function_block(variant_name)
+        cons_block = consequence_vector(fxn_class)
+        prot_block = protein_change_vector(self._hgvs.get(variant_name))
 
-        if func_hit is None and not coord_hit:
+        if not (func_hit or any(cons_block) or any(prot_block)):
             self.misses += 1
             return self._zero.clone()
-        return torch.tensor([vec], dtype=torch.float)
+        return torch.tensor(
+            [[*func_block, *cons_block, *prot_block]], dtype=torch.float
+        )
 
 
 def zero_geno_func_vector() -> torch.Tensor:
@@ -262,6 +248,7 @@ def zero_geno_func_vector() -> torch.Tensor:
 __all__ = [
     "GENE_GLOBAL_DIM",
     "GenoFuncProvider",
+    "load_hgvs_protein_table",
     "load_star_allele_function",
     "parse_activity_score",
     "zero_geno_func_vector",

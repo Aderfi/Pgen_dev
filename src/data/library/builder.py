@@ -84,15 +84,13 @@ class LibraryBuilder:
             return GenoFuncProvider.null()
 
         logger.info(
-            "GenoFunc: building profile (star_alleles=%s, alphamissense=%s, cadd=%s)",
+            "GenoFunc: building profile (star_alleles=%s, hgvs_table=%s)",
             cfg.star_alleles_tsv,
-            cfg.alphamissense_path,
-            cfg.cadd_path,
+            cfg.hgvs_table,
         )
         return GenoFuncProvider.from_sources(
             cfg.star_alleles_tsv,
-            alphamissense_path=cfg.alphamissense_path,
-            cadd_path=cfg.cadd_path,
+            hgvs_table=cfg.hgvs_table,
         )
 
     def run(self) -> BuildSummary:

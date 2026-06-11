@@ -48,7 +48,7 @@ class GraphDims:
     drug_admet: int = 41  # predicted ADMET/CYP profile (drugs only)
     geno_features: int = 9
     geno_edges: int = 3
-    geno_global: int = 10  # per-variant functional profile (genes only)
+    geno_global: int = 27  # per-variant functional profile (genes only)
 
 
 def make_empty_graph(

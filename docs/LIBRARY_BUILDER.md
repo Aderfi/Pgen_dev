@@ -43,11 +43,11 @@ data/library/                     # exposed programmatically as Settings.paths.l
 | Graph kind | Node features | Edge features | Graph-level vectors |
 | ---------- | ------------- | ------------- | ------------------- |
 | Drug       | 61            | 18            | `global_feats` [1,1038] + `admet_feats` [1,41] |
-| Gene       | 9             | 3             | `geno_global_feats` [1,10] |
+| Gene       | 9             | 3             | `geno_global_feats` [1,27] |
 
 The Gene node `activity_score` (feature index 4) now carries the **real** per-allele activity from the star-allele table instead of the old `0.5` placeholder; `geno_global_feats` adds the decoupled functional profile (see § Genotype functional profile).
 
-The dimensions live in `src/data/library/{drugs,admet,genes,geno_func}.py` as module-level constants and are pinned by `tests/unit/data/test_library_{drugs,genes}.py` so accidental changes fail CI before silently invalidating every trained model.
+The dimensions live in `src/data/library/{drugs,admet,genes,geno_func,consequence,protein_change}.py` as module-level constants and are pinned by `tests/unit/data/test_library_*.py` so accidental changes fail CI before silently invalidating every trained model.
 
 ---
 
@@ -144,16 +144,21 @@ Build the offline drug + variant graph library.
 > profiles). See `docs/ADMET_TOOLS.md`.
 
 > **Genotype functional profile.** When the gene pipeline runs (no
-> `--skip-genes`/`--skip-geno-func`), each variant graph carries a 10-dim
-> `geno_global_feats` built from two layers:
-> - **Layer A — PGx allele function (causal):** function status one-hot
+> `--skip-genes`/`--skip-geno-func`), each variant graph carries a 27-dim
+> `geno_global_feats` built from three layers:
+> - **Layer A — PGx allele function (causal, 6):** function status one-hot
 >   (no/decreased/normal/increased) + real activity score, joined by rsID against
 >   `data/dicts/star_alleles.tsv`. Always available.
-> - **Layer B — pathogenicity (coverage):** AlphaMissense + CADD PHRED, joined by
->   `(chrom, pos, ref, alt)`. **Optional** — drop a TSV with columns
->   `chrom, pos, ref, alt, alphamissense` at `data/dicts/alphamissense_pgx.tsv`
->   (and/or `chrom, pos, ref, alt, cadd_phred` at `data/dicts/cadd_pgx.tsv`) and
->   it auto-enables; absent, those four dims stay zero with a mask flag of 0.
+> - **Layer B — Sequence Ontology consequence (13):** severity-aware multi-hot
+>   over consequence groups (missense / stop_gained / frameshift / splice / …)
+>   derived locally from the `FXN_CLASS` column of the variants TSV. Always
+>   available. See `src/data/library/consequence.py`.
+> - **Layer C — HGVS protein change (8):** amino-acid-substitution
+>   physicochemistry (Grantham, charge / hydropathy / volume / polarity deltas,
+>   stop-gain, frameshift) parsed via `src.genomics.hgvs_parser`. **Optional** —
+>   drop a `data/dicts/dbsnp_hgvs.parquet` (or `.tsv`) with columns `rsid, hgvs_p`
+>   and it auto-enables; absent, those eight dims stay zero. See
+>   `src/data/library/protein_change.py`.
 >
 > See `src/data/library/geno_func.py`.
 

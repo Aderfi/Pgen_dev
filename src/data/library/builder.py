@@ -12,11 +12,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from src.data.library.config import LibraryBuildConfig
-from src.data.library.drugs import DrugGraphBuilder
+from src.data.library.admet import AdmetProvider, records_from_rows
+from src.data.library.drugs import DrugGraphBuilder, load_drug_records
 from src.data.library.genes import GenomicGraphBuilder
 from src.data.library.manifest import BuildManifest
+
+if TYPE_CHECKING:
+    from src.data.library.config import LibraryBuildConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,31 @@ class LibraryBuilder:
     def __init__(self, config: LibraryBuildConfig) -> None:
         self.config = config
 
+    def _build_admet_provider(self, cfg: LibraryBuildConfig) -> AdmetProvider:
+        """Build (or load-from-cache) the ADMET profile provider for the drugs.
+
+        With ``skip_admet`` the provider is null (every drug gets a zero
+        ``admet_feats``); otherwise the catalog SMILES are run through ADMET-AI
+        once and cached at ``cfg.admet_cache``.
+        """
+        if cfg.skip_admet:
+            logger.info("ADMET prediction skipped (skip_admet=True) — zero profiles.")
+            return AdmetProvider.null()
+
+        records = records_from_rows(load_drug_records(cfg.drugs_tsv))
+        logger.info(
+            "ADMET: preparing profile for %d catalog drugs (cache=%s, force=%s)",
+            len(records),
+            cfg.admet_cache,
+            cfg.force_admet,
+        )
+        return AdmetProvider.from_records(
+            records,
+            cfg.admet_cache,
+            strip_salts=cfg.strip_salts,
+            force=cfg.force_admet,
+        )
+
     def run(self) -> BuildSummary:
         cfg = self.config
         cfg.ensure_outputs()
@@ -55,16 +84,24 @@ class LibraryBuilder:
 
         drugs_built = drugs_skipped = drugs_failed = 0
         if not cfg.skip_drugs:
+            admet = self._build_admet_provider(cfg)
             drug_builder = DrugGraphBuilder(
                 cfg.drugs_out,
                 force=cfg.force,
                 failures_log=cfg.log_failures_path,
                 saturation_log=cfg.log_saturation_path,
                 strip_salts=cfg.strip_salts,
+                admet=admet,
             )
             drugs_built, drugs_skipped, drugs_failed = drug_builder.build(
                 cfg.drugs_tsv, manifest=manifest
             )
+            if admet.misses:
+                logger.warning(
+                    "ADMET: %d drug graphs got a zero profile (CID absent from the "
+                    "ADMET table).",
+                    admet.misses,
+                )
             manifest.save(cfg.manifest_path)
         else:
             logger.info("Skipping drug pipeline (skip_drugs=True).")

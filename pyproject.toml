@@ -100,6 +100,7 @@ dependencies = [
     # Misc
     "requests>=2.32.0",
     "matplotlib>=3.10.0",
+    "admet-ai>=2.0.1",
 ]
 
 [project.optional-dependencies]

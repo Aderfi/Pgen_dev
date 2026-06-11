@@ -85,6 +85,7 @@ def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
             "edges": extras.get("drug_attrs_features", 18),
             "attrs": extras.get("drug_in_attributes", 0),
             "global": extras.get("drug_global_features", 1038),
+            "admet": extras.get("drug_admet_features", 41),
         },
         "geno": {
             "features": extras.get("geno_node_features", 9),
@@ -305,6 +306,7 @@ def build_gnn_model(
         "num_features": drug_dim,
         "edge_dim": dims["drugs"]["edges"],
         "global_dim": dims["drugs"].get("global", 0),
+        "admet_dim": dims["drugs"].get("admet", 0),
     }
     geno_config = {"num_features": geno_dim, "edge_dim": dims["geno"]["edges"]}
     try:

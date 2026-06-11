@@ -22,6 +22,7 @@ targets = ["phenotype_category"]
 drug_node_features = 61
 drug_attrs_features = 18
 drug_global_features = 1038   # per-molecule descriptor vector: 14 QSAR physchem + 1024 ECFP4
+drug_admet_features = 41      # predicted ADMET/CYP profile (ADMET-AI); see src/data/library/admet.py
 
     # NODES --> element[13], degree[7], valence[7], charge scalar+1h[5], hybridization[7],
     #           total_Hs[5], chirality[4], aromatic+in_ring[2], ring_sizes[5],
@@ -30,6 +31,8 @@ drug_global_features = 1038   # per-molecule descriptor vector: 14 QSAR physchem
     # GLOBAL --> MolWt, LogP, TPSA, HBD, HBA, RotBonds, FractionCSP3, RingCount,
     #            AromaticRings, AliphaticRings, Heteroatoms, SaturatedRings, QED,
     #            StereoCenters (14) + Morgan/ECFP4 fingerprint (1024)
+    # ADMET  --> absorption[8], distribution[3], metabolism/CYP[8], excretion[3],
+    #            toxicity[19] = 41 predicted endpoints (decoupled from GLOBAL)
 
 
 # Haplo Tower (From all_in_one.py)

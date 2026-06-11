@@ -51,6 +51,18 @@ class LibraryBuildConfig(BaseModel):
     )
     skip_drugs: bool = False
     skip_genes: bool = False
+    skip_admet: bool = Field(
+        default=False,
+        description="Skip ADMET prediction; drug graphs get a zero admet_feats "
+        "vector instead of the predicted profile (no GPU / fast CI builds).",
+    )
+    force_admet: bool = Field(
+        default=False,
+        description="Recompute the ADMET cache even if a valid one exists.",
+    )
+    admet_cache: Path = Field(
+        ..., description="Parquet cache for the predicted ADMET profile table."
+    )
     strip_salts: bool = Field(
         default=True,
         description="Reduce multi-fragment drug SMILES to their largest fragment "
@@ -73,6 +85,7 @@ class LibraryBuildConfig(BaseModel):
         "fasta_path",
         "pgx_dir",
         "library_root",
+        "admet_cache",
         mode="before",
     )
     @classmethod
@@ -107,6 +120,8 @@ class LibraryBuildConfig(BaseModel):
         only_gene: str | None = None,
         skip_drugs: bool = False,
         skip_genes: bool = False,
+        skip_admet: bool = False,
+        force_admet: bool = False,
         strip_salts: bool = True,
     ) -> LibraryBuildConfig:
         """Build a config rooted at the project's standard paths."""
@@ -122,10 +137,13 @@ class LibraryBuildConfig(BaseModel):
             fasta_path=settings.paths.ref_genome_fasta,
             pgx_dir=data_dir / "haplotype_variants",
             library_root=settings.paths.library,
+            admet_cache=settings.paths.library / "admet_profile.parquet",
             force=force,
             only_gene=only_gene,
             skip_drugs=skip_drugs,
             skip_genes=skip_genes,
+            skip_admet=skip_admet,
+            force_admet=force_admet,
             strip_salts=strip_salts,
             log_failures_path=log_failures_path,
             log_saturation_path=log_saturation_path,

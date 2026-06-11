@@ -32,7 +32,7 @@
 **Pharmagen** maps a patient's *(drug, genotype)* pair to phenotypic outcomes
 using a **Two-Tower Graph Neural Network** (GATv2, PyTorch Geometric):
 
-- **Drug tower** — molecular graphs derived from SMILES (RDKit): 61 node / 18 edge features, plus a per-molecule **global descriptor vector** (14 QSAR physicochemical descriptors + 1024-bit ECFP4) fused into the embedding.
+- **Drug tower** — molecular graphs derived from SMILES (RDKit): 61 node / 18 edge features, plus a per-molecule **global descriptor vector** (14 QSAR physicochemical descriptors + 1024-bit ECFP4) and a predicted **ADMET profile** (41 endpoints via ADMET-AI), both fused into the embedding.
 - **Genotype tower** — variant-topology graphs built from VCF/TSV, validated against GRCh38. 9 node features, 3 edge features.
 - The two graph embeddings are fused and routed into **multi-task heads** sized by `target_dims`.
 
@@ -230,11 +230,23 @@ encoded as all-zeros (saturation ≈ 0 on the real catalog):
   becomes geometric. The fused embedding keeps `embedding_dim`, so the
   interaction MLP and heads are unchanged.
 
-> Widths are kept in sync across `drugs.py` (`DRUG_NODE_DIM` / `DRUG_EDGE_DIM` /
-> `DRUG_GLOBAL_DIM`), `models.toml` (`drug_node_features` / `drug_attrs_features`
-> / `drug_global_features`), `engine/base.extract_tower_dims`, `cache.GraphDims`,
+- **ADMET (41), attached as `admet_feats` [1,41]:** a predicted ADMET /
+  enzyme-interaction profile from **ADMET-AI** (Chemprop D-MPNN) — absorption[8],
+  distribution[3], metabolism/CYP[8] (5 inhibition + 3 substrate), excretion[3],
+  toxicity[19]. Classification endpoints keep their probability; regression
+  endpoints use the DrugBank percentile / 100. Kept **decoupled from
+  `global_feats`** (structure vs predicted PK) and consumed by a **second parallel
+  branch** (`drug_admet_mlp`) fused alongside the global branch. Computed once per
+  catalog and cached at `data/library/admet_profile.parquet`. See
+  `src/data/library/admet.py` and `docs/ADMET_TOOLS.md`.
+
+> Widths are kept in sync across `drugs.py` / `admet.py` (`DRUG_NODE_DIM` /
+> `DRUG_EDGE_DIM` / `DRUG_GLOBAL_DIM` / `DRUG_ADMET_DIM`), `models.toml`
+> (`drug_node_features` / `drug_attrs_features` / `drug_global_features` /
+> `drug_admet_features`), `engine/base.extract_tower_dims`, `cache.GraphDims`,
 > and `datasets.DEFAULT_DIMENSIONS`. PyG auto-batches the graph-level
-> `global_feats` to `[B, 1038]`; the empty-graph fallback carries a zero vector.
+> `global_feats` / `admet_feats` to `[B, 1038]` / `[B, 41]`; the empty-graph
+> fallback carries zero vectors.
 
 **Failure handling & logging.** Failures are categorized by `DrugFailureCategory`
 (`non_integer_cid`, `missing_smiles`, `invalid_smiles`, `empty_graph`, `save_error`).

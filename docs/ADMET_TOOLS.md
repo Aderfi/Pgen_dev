@@ -37,8 +37,15 @@ public models predict **inhibition** (far more PubChem bioassay data exists), an
 fewer predict substrate well.
 
 - **Substrate (PGx-causal):** CypReact (most specialised), ADMETlab 3.0,
-  admetSAR, pkCSM.
-- **Inhibition only:** ADMET-AI, SwissADME.
+  admetSAR, pkCSM, **and ADMET-AI** (CYP2C9/2D6/3A4 via the CarbonMangels
+  datasets — see the evaluation in §8).
+- **Inhibition:** ADMET-AI (5 isoforms, Veith), SwissADME.
+
+> **Correction (verified empirically, §8):** ADMET-AI is *not* inhibition-only.
+> Its output includes `CYP2C9/2D6/3A4_Substrate_CarbonMangels`, so it covers the
+> core PGx-causal substrate signal for the three most pharmacogenetically
+> relevant isoforms. This is why Pharmagen uses ADMET-AI alone for step (c) and
+> defers CypReact.
 
 The ideal enzyme profile combines both: *is it a CYP2D6 substrate?* (causal for
 metabolizer phenotype) **and** *is it an inhibitor?* (relevant for drug–drug
@@ -161,3 +168,60 @@ interactions).
 - SMARTCyp — `smartcyp.sund.ku.dk`
 - FAME3 — NERDD server, `nerdd.univie.ac.at`
 - OPERA — `github.com/NIEHS/OPERA`
+
+---
+
+## 8. Evaluation on the real catalog (2026-06-11)
+
+ADMET-AI 2.0.1 was evaluated on random samples of the real
+`data/dicts/cid_smiles_dict.json` (~109k SMILES) before integrating — see
+`scripts/eval_admet_ai.py`.
+
+**Findings**
+
+- **Coverage: 100 %.** 0 NaN across 200 + 1000 random molecules; the D-MPNN
+  always returns a prediction (RDKit-parseable input assumed).
+- **Output: 53 base endpoints + 53 DrugBank-approved percentiles** (106 columns).
+- **CYP: substrate *and* inhibition.** `CYP2C9/2D6/3A4_Substrate_CarbonMangels`
+  (substrate, PGx-causal) **plus** `CYP1A2/2C19/2C9/2D6/3A4_Veith` (inhibition).
+  Distributions are biologically sane (e.g. CYP3A4-substrate mean ≈ 0.63 — most
+  drugs are 3A4 substrates).
+- **Overlap:** MolWt, LogP, TPSA, HBD, HBA, QED, stereo centres and Lipinski
+  duplicate the QSAR block already in `global_feats` — excluded from `admet_feats`.
+- **Throughput:** ~0.13 s/mol inference on an RTX 4070 Ti SUPER (GPU) plus a
+  one-time ensemble load (~3 min) ⇒ **~3–4 h one-time for 109k**, cached.
+
+**Decision:** ADMET-AI alone for step (c); **CypReact deferred** (ADMET-AI already
+covers the 2C9/2D6/3A4 substrate signal).
+
+## 9. Implemented integration (`src/data/library/admet.py`)
+
+A curated **41-endpoint** profile (`DRUG_ADMET_DIM`) is attached to every drug
+graph as `admet_feats` `[1, 41]`, **decoupled from `global_feats`**:
+
+| Block | n | Endpoints |
+|---|---|---|
+| Absorption | 8 | HIA, bioavailability, solubility, lipophilicity, hydration FE, Caco-2, PAMPA, P-gp |
+| Distribution | 3 | BBB, PPBR, VDss |
+| Metabolism | 8 | CYP1A2/2C19/2C9/2D6/3A4 inhibition + CYP2C9/2D6/3A4 substrate |
+| Excretion | 3 | hepatocyte clearance, microsome clearance, half-life |
+| Toxicity | 19 | hERG, AMES, DILI, ClinTox, carcinogenicity, skin, LD50, Tox21 (12) |
+
+- **Representation:** classification endpoints keep their raw probability `[0,1]`;
+  the 10 regression endpoints use the DrugBank-approved **percentile / 100**
+  (bounded, distribution-aware). No binarisation.
+- **Pipeline:** `AdmetProvider.from_records(...)` runs ADMET-AI once over the
+  catalog (canonicalised on the same largest-fragment moiety the graph uses) and
+  caches the table to `data/library/admet_profile.parquet`; the `DrugGraphBuilder`
+  then attaches each `cid`'s vector. Missing CIDs get a zero vector (tallied).
+- **Model:** `PharmagenTwoTower` consumes `admet_feats` in a parallel
+  `drug_admet_mlp` branch fused alongside the `global_feats` branch into the drug
+  embedding (single `drug_fuse`), keeping `embedding_dim` and the heads unchanged.
+- **Dim chain (sources of truth):** `admet.DRUG_ADMET_DIM` →
+  `models.toml: drug_admet_features` → `extract_tower_dims` → `cache.GraphDims` →
+  `datasets.DEFAULT_DIMENSIONS` → `build_gnn_model` → `create_gnn_model`.
+- **CLI:** `python -m src.data.library` builds ADMET by default;
+  `--skip-admet` (zero profiles, no GPU) and `--force-admet` (recompute cache).
+
+**Deferred:** CYP *substrate* via CypReact (ADMET-AI's CarbonMangels substrate
+endpoints already cover the core signal); site-of-metabolism (SMARTCyp/FAME3).

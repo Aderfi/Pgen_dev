@@ -29,6 +29,7 @@ data/library/                     # exposed programmatically as Settings.paths.l
 │   │   └── …
 │   ├── DPYD/
 │   └── …
+├── admet_profile.parquet         Cached ADMET-AI profile table (cid → 41 endpoints)
 └── build_manifest.json           Resume tracking (atomic JSON)
 ```
 
@@ -39,12 +40,12 @@ data/library/                     # exposed programmatically as Settings.paths.l
 
 **Schema** (frozen — must stay in sync with the trained TwoTowerGAT model):
 
-| Graph kind | Node features | Edge features |
-| ---------- | ------------- | ------------- |
-| Drug       | 25            | 7             |
-| Gene       | 9             | 3             |
+| Graph kind | Node features | Edge features | Graph-level vectors |
+| ---------- | ------------- | ------------- | ------------------- |
+| Drug       | 61            | 18            | `global_feats` [1,1038] + `admet_feats` [1,41] |
+| Gene       | 9             | 3             | — |
 
-The dimensions live in `src/data/library/{drugs,genes}.py` as module-level constants and are pinned by `tests/unit/data/test_library_{drugs,genes}.py` so accidental changes fail CI before silently invalidating every trained model.
+The dimensions live in `src/data/library/{drugs,admet,genes}.py` as module-level constants and are pinned by `tests/unit/data/test_library_{drugs,genes}.py` so accidental changes fail CI before silently invalidating every trained model.
 
 ---
 
@@ -113,7 +114,8 @@ usage: python -m src.data.library [-h]
                                   [--variants-tsv VARIANTS_TSV]
                                   [--drugs-tsv DRUGS_TSV]
                                   [--force] [--only-gene SYMBOL]
-                                  [--skip-drugs] [--skip-genes] [--verbose]
+                                  [--skip-drugs] [--skip-genes]
+                                  [--skip-admet] [--force-admet] [--verbose]
 
 Build the offline drug + variant graph library.
 
@@ -123,8 +125,18 @@ Build the offline drug + variant graph library.
   --only-gene SYMBOL    Build only this gene's variants (verification mode).
   --skip-drugs          Skip the drug pipeline.
   --skip-genes          Skip the gene pipeline.
+  --skip-admet          Skip ADMET prediction; drug graphs get a zero
+                        admet_feats vector (no GPU / fast builds).
+  --force-admet         Recompute the ADMET cache even if a valid one exists.
   --verbose, -v         DEBUG-level logging.
 ```
+
+> **ADMET step.** When the drug pipeline runs (no `--skip-drugs`/`--skip-admet`),
+> the catalog SMILES are scored once with **ADMET-AI** (GPU, ~3–4 h for ~109k on
+> first run) and cached to `data/library/admet_profile.parquet`; subsequent
+> builds reuse the cache. Each drug graph carries the predicted 41-endpoint
+> profile as `admet_feats`. Use `--skip-admet` for a fast, GPU-free build (zero
+> profiles). See `docs/ADMET_TOOLS.md`.
 
 Defaults are derived from the project `Settings`, so a zero-argument invocation just works.
 

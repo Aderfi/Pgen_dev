@@ -56,6 +56,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-drugs", action="store_true", help="Skip the drug pipeline.")
     p.add_argument("--skip-genes", action="store_true", help="Skip the gene pipeline.")
     p.add_argument(
+        "--skip-admet",
+        action="store_true",
+        help="Skip ADMET prediction; drug graphs get a zero admet_feats vector "
+        "(no GPU / fast builds).",
+    )
+    p.add_argument(
+        "--force-admet",
+        action="store_true",
+        help="Recompute the ADMET cache even if a valid one already exists.",
+    )
+    p.add_argument(
         "--keep-salts",
         action="store_true",
         help="Keep salt counterions (do not reduce SMILES to the largest fragment).",
@@ -81,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         only_gene=args.only_gene,
         skip_drugs=args.skip_drugs,
         skip_genes=args.skip_genes,
+        skip_admet=args.skip_admet,
+        force_admet=args.force_admet,
         strip_salts=not args.keep_salts,
     )
 

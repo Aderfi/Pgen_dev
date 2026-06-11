@@ -27,6 +27,10 @@ encoded as an all-zeros vector (see :class:`FeatureSaturation`).
     Global features (1038), attached as ``global_feats`` [1, 1038]:
         14 normalised QSAR physicochemical descriptors
         + Morgan/ECFP4 fingerprint (1024 bits)
+    ADMET features (41), attached as ``admet_feats`` [1, 41]:
+        predicted ADMET / enzyme-interaction profile (ADMET-AI), decoupled from
+        ``global_feats`` — see :mod:`src.data.library.admet`. Attached by the
+        builder from an :class:`~src.data.library.admet.AdmetProvider`.
 
 Input formats (auto-detected by file extension):
     * ``.tsv`` / ``.csv`` — tabular catalog with ``cid, smiles,
@@ -62,6 +66,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
+    from src.data.library.admet import AdmetProvider
     from src.data.library.manifest import BuildManifest
 
 logger = logging.getLogger(__name__)
@@ -491,12 +496,21 @@ class DrugGraphBuilder:
         failures_log: Path | None = None,
         saturation_log: Path | None = None,
         strip_salts: bool = True,
+        admet: AdmetProvider | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.force = force
         self.failures_log = failures_log
         self.saturation_log = saturation_log
         self.strip_salts = strip_salts
+        # Predicted ADMET / enzyme-interaction profile attached as ``admet_feats``.
+        # A null provider (no entries) yields zero vectors, keeping the graph
+        # schema complete even for an ADMET-free build.
+        if admet is None:
+            from src.data.library.admet import AdmetProvider as _AdmetProvider
+
+            admet = _AdmetProvider.null()
+        self.admet = admet
         # Tally of failures by nature; populated by ``build``.
         self.failure_counts: Counter[DrugFailureCategory] = Counter()
         # One-hot saturation tally + count of drugs with >=1 saturated feature.
@@ -625,6 +639,10 @@ class DrugGraphBuilder:
                 events,
                 smiles,
             )
+
+        # Attach the predicted ADMET / enzyme-interaction profile [1, DRUG_ADMET_DIM],
+        # decoupled from ``global_feats`` (structure) so the model can branch on it.
+        graph.admet_feats = self.admet.vector_for(cid)
 
         graph.cid = cid
         graph.name = name

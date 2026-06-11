@@ -27,6 +27,7 @@ def create_gnn_model(
         geno_in_features=geno_config["num_features"],
         geno_edge_dim=geno_config.get("edge_dim", 0),
         geno_hidden_dim=params["hidden_dim"],
+        geno_global_dim=geno_config.get("global_dim", 0),
         embedding_dim=params["embedding_dim"],
         target_dims=target_dims,
         num_layers=params["n_layers"],

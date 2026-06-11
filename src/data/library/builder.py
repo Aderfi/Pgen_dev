@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from src.data.library.admet import AdmetProvider, records_from_rows
 from src.data.library.drugs import DrugGraphBuilder, load_drug_records
 from src.data.library.genes import GenomicGraphBuilder
+from src.data.library.geno_func import GenoFuncProvider
 from src.data.library.manifest import BuildManifest
 
 if TYPE_CHECKING:
@@ -70,6 +71,30 @@ class LibraryBuilder:
             force=cfg.force_admet,
         )
 
+    def _build_geno_func_provider(self, cfg: LibraryBuildConfig) -> GenoFuncProvider:
+        """Build the per-variant functional provider for the genotype tower.
+
+        With ``skip_geno_func`` the provider is null (every variant gets a zero
+        ``geno_global_feats``); otherwise Layer A (PGx allele function) is loaded
+        from the local star-allele table and Layer B (pathogenicity) from the
+        optional AlphaMissense / CADD files when configured.
+        """
+        if cfg.skip_geno_func:
+            logger.info("Geno functional profile skipped — zero vectors.")
+            return GenoFuncProvider.null()
+
+        logger.info(
+            "GenoFunc: building profile (star_alleles=%s, alphamissense=%s, cadd=%s)",
+            cfg.star_alleles_tsv,
+            cfg.alphamissense_path,
+            cfg.cadd_path,
+        )
+        return GenoFuncProvider.from_sources(
+            cfg.star_alleles_tsv,
+            alphamissense_path=cfg.alphamissense_path,
+            cadd_path=cfg.cadd_path,
+        )
+
     def run(self) -> BuildSummary:
         cfg = self.config
         cfg.ensure_outputs()
@@ -108,17 +133,25 @@ class LibraryBuilder:
 
         genes_built = genes_failed = 0
         if not cfg.skip_genes:
+            func_provider = self._build_geno_func_provider(cfg)
             gene_builder = GenomicGraphBuilder(
                 cfg.fasta_path,
                 cfg.pgx_dir,
                 only_gene=cfg.only_gene,
                 force=cfg.force,
+                func_provider=func_provider,
             )
             genes_built, genes_failed = gene_builder.build(
                 cfg.variants_tsv,
                 cfg.genes_out,
                 manifest=manifest,
             )
+            if func_provider.misses:
+                logger.warning(
+                    "GenoFunc: %d variant graphs got a zero functional profile "
+                    "(no PGx-function and no pathogenicity annotation).",
+                    func_provider.misses,
+                )
             manifest.save(cfg.manifest_path)
         else:
             logger.info("Skipping gene pipeline (skip_genes=True).")

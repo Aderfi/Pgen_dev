@@ -43,9 +43,11 @@ data/library/                     # exposed programmatically as Settings.paths.l
 | Graph kind | Node features | Edge features | Graph-level vectors |
 | ---------- | ------------- | ------------- | ------------------- |
 | Drug       | 61            | 18            | `global_feats` [1,1038] + `admet_feats` [1,41] |
-| Gene       | 9             | 3             | — |
+| Gene       | 9             | 3             | `geno_global_feats` [1,10] |
 
-The dimensions live in `src/data/library/{drugs,admet,genes}.py` as module-level constants and are pinned by `tests/unit/data/test_library_{drugs,genes}.py` so accidental changes fail CI before silently invalidating every trained model.
+The Gene node `activity_score` (feature index 4) now carries the **real** per-allele activity from the star-allele table instead of the old `0.5` placeholder; `geno_global_feats` adds the decoupled functional profile (see § Genotype functional profile).
+
+The dimensions live in `src/data/library/{drugs,admet,genes,geno_func}.py` as module-level constants and are pinned by `tests/unit/data/test_library_{drugs,genes}.py` so accidental changes fail CI before silently invalidating every trained model.
 
 ---
 
@@ -115,7 +117,8 @@ usage: python -m src.data.library [-h]
                                   [--drugs-tsv DRUGS_TSV]
                                   [--force] [--only-gene SYMBOL]
                                   [--skip-drugs] [--skip-genes]
-                                  [--skip-admet] [--force-admet] [--verbose]
+                                  [--skip-admet] [--force-admet]
+                                  [--skip-geno-func] [--verbose]
 
 Build the offline drug + variant graph library.
 
@@ -128,15 +131,31 @@ Build the offline drug + variant graph library.
   --skip-admet          Skip ADMET prediction; drug graphs get a zero
                         admet_feats vector (no GPU / fast builds).
   --force-admet         Recompute the ADMET cache even if a valid one exists.
+  --skip-geno-func      Skip the genotype functional profile; variant graphs
+                        get a zero geno_global_feats vector.
   --verbose, -v         DEBUG-level logging.
 ```
 
 > **ADMET step.** When the drug pipeline runs (no `--skip-drugs`/`--skip-admet`),
-> the catalog SMILES are scored once with **ADMET-AI** (GPU, ~3–4 h for ~109k on
+> the catalog SMILES are scored once with **ADMET-AI** (GPU, ~9–10 h for ~109k on
 > first run) and cached to `data/library/admet_profile.parquet`; subsequent
 > builds reuse the cache. Each drug graph carries the predicted 41-endpoint
 > profile as `admet_feats`. Use `--skip-admet` for a fast, GPU-free build (zero
 > profiles). See `docs/ADMET_TOOLS.md`.
+
+> **Genotype functional profile.** When the gene pipeline runs (no
+> `--skip-genes`/`--skip-geno-func`), each variant graph carries a 10-dim
+> `geno_global_feats` built from two layers:
+> - **Layer A — PGx allele function (causal):** function status one-hot
+>   (no/decreased/normal/increased) + real activity score, joined by rsID against
+>   `data/dicts/star_alleles.tsv`. Always available.
+> - **Layer B — pathogenicity (coverage):** AlphaMissense + CADD PHRED, joined by
+>   `(chrom, pos, ref, alt)`. **Optional** — drop a TSV with columns
+>   `chrom, pos, ref, alt, alphamissense` at `data/dicts/alphamissense_pgx.tsv`
+>   (and/or `chrom, pos, ref, alt, cadd_phred` at `data/dicts/cadd_pgx.tsv`) and
+>   it auto-enables; absent, those four dims stay zero with a mask flag of 0.
+>
+> See `src/data/library/geno_func.py`.
 
 Defaults are derived from the project `Settings`, so a zero-argument invocation just works.
 

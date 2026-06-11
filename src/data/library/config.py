@@ -63,6 +63,26 @@ class LibraryBuildConfig(BaseModel):
     admet_cache: Path = Field(
         ..., description="Parquet cache for the predicted ADMET profile table."
     )
+    skip_geno_func: bool = Field(
+        default=False,
+        description="Skip the genotype functional profile; variant graphs get a "
+        "zero geno_global_feats vector instead of PGx-function + pathogenicity.",
+    )
+    star_alleles_tsv: Path = Field(
+        ...,
+        description="Star-allele function table (gene, allele, rsids, function, "
+        "notes) — Layer A of geno_global_feats.",
+    )
+    alphamissense_path: Path | None = Field(
+        default=None,
+        description="Optional (chrom,pos,ref,alt,alphamissense) table — Layer B "
+        "pathogenicity. Absent ⇒ those dims stay zero (mask 0).",
+    )
+    cadd_path: Path | None = Field(
+        default=None,
+        description="Optional (chrom,pos,ref,alt,cadd_phred) table — Layer B "
+        "pathogenicity. Absent ⇒ those dims stay zero (mask 0).",
+    )
     strip_salts: bool = Field(
         default=True,
         description="Reduce multi-fragment drug SMILES to their largest fragment "
@@ -86,6 +106,7 @@ class LibraryBuildConfig(BaseModel):
         "pgx_dir",
         "library_root",
         "admet_cache",
+        "star_alleles_tsv",
         mode="before",
     )
     @classmethod
@@ -122,15 +143,20 @@ class LibraryBuildConfig(BaseModel):
         skip_genes: bool = False,
         skip_admet: bool = False,
         force_admet: bool = False,
+        skip_geno_func: bool = False,
         strip_salts: bool = True,
     ) -> LibraryBuildConfig:
         """Build a config rooted at the project's standard paths."""
         settings = get_settings()
         data_dir = settings.paths.data
+        dicts_dir = data_dir / "dicts"
         stamp = datetime.now(tz=UTC).strftime("%Y%m%d")
         library_logs = settings.paths.logs / "library"
         log_failures_path = library_logs / f"drug_build_failures_{stamp}.log"
         log_saturation_path = library_logs / f"drug_feature_saturation_{stamp}.log"
+        # Layer B (pathogenicity) auto-enables when the conventional file is present.
+        am_default = dicts_dir / "alphamissense_pgx.tsv"
+        cadd_default = dicts_dir / "cadd_pgx.tsv"
         return cls(
             variants_tsv=variants_tsv or data_dir / "snp_data_output.tsv",
             drugs_tsv=drugs_tsv or data_dir / "drugs_cid.tsv",
@@ -138,12 +164,16 @@ class LibraryBuildConfig(BaseModel):
             pgx_dir=data_dir / "haplotype_variants",
             library_root=settings.paths.library,
             admet_cache=settings.paths.library / "admet_profile.parquet",
+            star_alleles_tsv=dicts_dir / "star_alleles.tsv",
+            alphamissense_path=am_default if am_default.exists() else None,
+            cadd_path=cadd_default if cadd_default.exists() else None,
             force=force,
             only_gene=only_gene,
             skip_drugs=skip_drugs,
             skip_genes=skip_genes,
             skip_admet=skip_admet,
             force_admet=force_admet,
+            skip_geno_func=skip_geno_func,
             strip_salts=strip_salts,
             log_failures_path=log_failures_path,
             log_saturation_path=log_saturation_path,

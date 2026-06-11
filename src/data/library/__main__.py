@@ -67,6 +67,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recompute the ADMET cache even if a valid one already exists.",
     )
     p.add_argument(
+        "--skip-geno-func",
+        action="store_true",
+        help="Skip the genotype functional profile; variant graphs get a zero "
+        "geno_global_feats vector (no PGx-function / pathogenicity signal).",
+    )
+    p.add_argument(
         "--keep-salts",
         action="store_true",
         help="Keep salt counterions (do not reduce SMILES to the largest fragment).",
@@ -94,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_genes=args.skip_genes,
         skip_admet=args.skip_admet,
         force_admet=args.force_admet,
+        skip_geno_func=args.skip_geno_func,
         strip_salts=not args.keep_salts,
     )
 

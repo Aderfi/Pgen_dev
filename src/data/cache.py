@@ -48,6 +48,7 @@ class GraphDims:
     drug_admet: int = 41  # predicted ADMET/CYP profile (drugs only)
     geno_features: int = 9
     geno_edges: int = 3
+    geno_global: int = 10  # per-variant functional profile (genes only)
 
 
 def make_empty_graph(
@@ -87,6 +88,9 @@ def make_empty_graph(
         data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
         data.admet_feats = torch.zeros((1, d.drug_admet), dtype=torch.float)
     if kind == "geno":
+        # Match the functional vector real variant graphs carry, so a missing
+        # variant never breaks batching of the ``geno_global_feats`` attr.
+        data.geno_global_feats = torch.zeros((1, d.geno_global), dtype=torch.float)
         data.variant_name = str(graph_id)
     return _sanitize(data)
 

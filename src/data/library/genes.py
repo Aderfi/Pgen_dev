@@ -8,10 +8,15 @@ Produces one PyG ``Data`` per (gene, variant) combination:
 
 Output schema (frozen — must stay in sync with the trained genotype tower):
     Node features (9):  one-hot of {backbone, split/merge, ref, alt}
-                        + activity_score (alt only)
+                        + activity_score (alt only; real per-allele value from
+                          the star-allele table, no longer a 0.5 placeholder)
                         + 4 functional flags (is_coding, is_regulatory,
                           is_splicing, is_intergenic)
     Edge features (3):  one-hot of {backbone_link, ref_path, alt_path}
+    Global (10):        per-variant ``geno_global_feats`` [1, 10] — PGx allele
+                        function one-hot + activity + pathogenicity (AlphaMissense,
+                        CADD). Decoupled from node features; see
+                        :mod:`src.data.library.geno_func`.
 
 The validator runs in pure Polars + pyfaidx; no module-level globals.
 """
@@ -32,6 +37,7 @@ from torch_geometric.data import Data as PyGData
 from tqdm.auto import tqdm
 
 from src.data.library.chromosome import CHROM_TO_REFSEQ
+from src.data.library.geno_func import GenoFuncProvider
 from src.data.library.manifest import BuildManifest
 from src.data.library.pgx import load_pgx_folder
 
@@ -144,11 +150,18 @@ class GenomicGraphBuilder:
         *,
         only_gene: str | None = None,
         force: bool = False,
+        func_provider: GenoFuncProvider | None = None,
     ) -> None:
         self.fasta_path = fasta_path
         self.pgx_dir = pgx_dir
         self.only_gene = only_gene
         self.force = force
+        # Per-variant PGx-function + pathogenicity profile attached as
+        # ``geno_global_feats``. A null provider yields zero vectors, keeping the
+        # graph schema complete even for a function-free build.
+        self.func = (
+            func_provider if func_provider is not None else GenoFuncProvider.null()
+        )
 
     # ----- public -----------------------------------------------------------
 
@@ -386,8 +399,20 @@ class GenomicGraphBuilder:
                     continue
                 df_variant = df_gene.filter(pl.col("variant_name") == var_name)
                 try:
-                    graph_nx = self._build_nx_graph(df_variant, gene, str(var_name))
+                    row0 = df_variant.row(0, named=True)
+                    # Real per-allele activity score (replaces the 0.5 placeholder).
+                    activity = self.func.activity_for(str(var_name))
+                    graph_nx = self._build_nx_graph(
+                        df_variant, gene, str(var_name), activity_override=activity
+                    )
                     pyg = self._to_pyg(graph_nx, str(var_name))
+                    pyg.geno_global_feats = self.func.vector_for(
+                        str(var_name),
+                        row0["CHROM"],
+                        row0["POS"],
+                        row0["REF"],
+                        row0["ALT"],
+                    )
                 except Exception as e:  # noqa: BLE001
                     failed += 1
                     manifest.mark_gene_failed(
@@ -416,7 +441,13 @@ class GenomicGraphBuilder:
     # ----- graph construction -----------------------------------------------
 
     @staticmethod
-    def _build_nx_graph(df: pl.DataFrame, gene: str, var_name: str) -> nx.MultiDiGraph:
+    def _build_nx_graph(
+        df: pl.DataFrame,
+        gene: str,
+        var_name: str,
+        *,
+        activity_override: float | None = None,
+    ) -> nx.MultiDiGraph:
         g = nx.MultiDiGraph(name=f"{gene}_{var_name}")
         pos_val = df["POS"][0]
 
@@ -439,11 +470,16 @@ class GenomicGraphBuilder:
             if row["ALT"] == ref_seq:
                 continue
             alt_n = f"alt_{pos_val}_{idx}"
+            score = (
+                activity_override
+                if activity_override is not None
+                else row["activity_score"]
+            )
             g.add_node(
                 alt_n,
                 type="allele_alt",
                 seq=row["ALT"],
-                score=row["activity_score"],
+                score=score,
                 variant_name=var_name,
                 is_coding=row["is_coding"],
                 is_regulatory=row["is_regulatory"],

@@ -38,6 +38,10 @@ drug_admet_features = 41      # predicted ADMET/CYP profile (ADMET-AI); see src/
 # Haplo Tower (From all_in_one.py)
 geno_node_features = 9   # [backbone, split/merge, ref, alt, score]
 geno_attrs_features = 3      # [backbone_link, ref_path, alt_path] (If you applied the fix I suggested)
+geno_global_features = 10    # per-variant functional profile; see src/data/library/geno_func.py
+    # GENO GLOBAL --> PGx function one-hot[no,decreased,normal,increased] (4)
+    #                 + activity_score + pgx_known mask (2)
+    #                 + AlphaMissense + mask + CADD_norm + mask (4) = 10
 
 
 

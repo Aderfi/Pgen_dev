@@ -124,11 +124,14 @@ class PharmagenTwoTower(nn.Module):
         drug_global_dim: int = 0,
         # Predicted ADMET / enzyme-interaction profile (ADMET-AI); 0 disables.
         drug_admet_dim: int = 0,
+        # Per-variant functional profile (PGx function + pathogenicity); 0 disables.
+        geno_global_dim: int = 0,
     ):
         super().__init__()
         self.target_dims: dict[str, int] = target_dims
         self.drug_global_dim = drug_global_dim
         self.drug_admet_dim = drug_admet_dim
+        self.geno_global_dim = geno_global_dim
 
         # --- Drug Tower ---
         self.drug_tower = GATv2Tower(
@@ -172,6 +175,17 @@ class PharmagenTwoTower(nn.Module):
             dropout=dropout,
             pooling="add",
         )
+
+        # --- Auxiliary genotype branch fused into the variant embedding ---
+        # The per-variant functional profile (PGx allele function + pathogenicity)
+        # is projected to ``embedding_dim`` and fused with the topology embedding,
+        # exactly like the drug auxiliary branches. This is the causal PGx signal
+        # that the variant-topology graph alone cannot express.
+        if geno_global_dim > 0:
+            self.geno_global_mlp = self._make_branch_mlp(
+                geno_global_dim, embedding_dim, dropout
+            )
+            self.geno_fuse = nn.Linear(embedding_dim * 2, embedding_dim)
 
         # --- Interaction & Prediction Heads ---
         combined_dim = embedding_dim * 2
@@ -271,6 +285,16 @@ class PharmagenTwoTower(nn.Module):
             edge_attr=getattr(geno_data, "edge_attr", None),
             batch=geno_data.batch,
         )
+
+        # Fuse the per-variant functional profile (PGx function + pathogenicity)
+        # into the genotype embedding — the causal signal the topology graph lacks.
+        if self.geno_global_dim > 0:
+            geno_global_feats = self._require_graph_attr(
+                geno_data, "geno_global_feats", self.geno_global_dim
+            )
+            geno_emb = self.geno_fuse(
+                cat([geno_emb, self.geno_global_mlp(geno_global_feats)], dim=1)
+            )
 
         combined = cat([drug_emb, geno_emb], dim=1)
         interacted = self.interaction_mlp(combined)

@@ -84,6 +84,7 @@ def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
             "features": extras.get("drug_node_features", 61),
             "edges": extras.get("drug_attrs_features", 18),
             "attrs": extras.get("drug_in_attributes", 0),
+            "global": extras.get("drug_global_features", 1038),
         },
         "geno": {
             "features": extras.get("geno_node_features", 9),
@@ -300,7 +301,11 @@ def build_gnn_model(
     device: torch.device,
 ) -> nn.Module:
     """Instantiate PharmagenTwoTower with the inferred / configured shapes."""
-    drug_config = {"num_features": drug_dim, "edge_dim": dims["drugs"]["edges"]}
+    drug_config = {
+        "num_features": drug_dim,
+        "edge_dim": dims["drugs"]["edges"],
+        "global_dim": dims["drugs"].get("global", 0),
+    }
     geno_config = {"num_features": geno_dim, "edge_dim": dims["geno"]["edges"]}
     try:
         model = create_gnn_model(

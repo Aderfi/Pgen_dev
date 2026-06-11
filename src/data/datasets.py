@@ -30,7 +30,7 @@ PRELOAD_THRESHOLD = 5000
 
 # Default tower dimensions when callers don't override.
 DEFAULT_DIMENSIONS: dict[str, dict[str, int]] = {
-    "drugs": {"features": 61, "edges": 18, "attrs": 0},
+    "drugs": {"features": 61, "edges": 18, "attrs": 0, "global": 1038},
     "geno": {"features": 9, "edges": 3, "attrs": 0},
 }
 
@@ -50,6 +50,7 @@ def _dims_from_input(input_dimensions: dict[str, dict[str, int]] | None) -> Grap
     return GraphDims(
         drug_features=drugs.get("features", DEFAULT_DIMENSIONS["drugs"]["features"]),
         drug_edges=drugs.get("edges", DEFAULT_DIMENSIONS["drugs"]["edges"]),
+        drug_global=drugs.get("global", DEFAULT_DIMENSIONS["drugs"]["global"]),
         geno_features=geno.get("features", DEFAULT_DIMENSIONS["geno"]["features"]),
         geno_edges=geno.get("edges", DEFAULT_DIMENSIONS["geno"]["edges"]),
     )

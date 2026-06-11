@@ -114,9 +114,12 @@ class PharmagenTwoTower(nn.Module):
         num_layers: int = 3,
         heads: int = 4,
         dropout: float = 0.1,
+        # Per-molecule global descriptor vector (QSAR physchem + ECFP); 0 disables.
+        drug_global_dim: int = 0,
     ):
         super().__init__()
         self.target_dims: dict[str, int] = target_dims
+        self.drug_global_dim = drug_global_dim
 
         # --- Drug Tower ---
         self.drug_tower = GATv2Tower(
@@ -129,6 +132,20 @@ class PharmagenTwoTower(nn.Module):
             dropout=dropout,
             pooling="mean",
         )
+
+        # --- Drug global-descriptor branch (fused into the drug embedding) ---
+        if drug_global_dim > 0:
+            self.drug_global_mlp = nn.Sequential(
+                nn.Linear(drug_global_dim, embedding_dim),
+                nn.LayerNorm(embedding_dim),
+                nn.ELU(),
+                nn.Dropout(dropout),
+                nn.Linear(embedding_dim, embedding_dim),
+                nn.ELU(),
+            )
+            # Fuse graph embedding + descriptor embedding back to embedding_dim,
+            # so the downstream interaction/heads are unchanged.
+            self.drug_fuse = nn.Linear(embedding_dim * 2, embedding_dim)
 
         # --- Genotype Tower ---
         self.geno_tower: GATv2Tower = GATv2Tower(
@@ -193,6 +210,17 @@ class PharmagenTwoTower(nn.Module):
             edge_attr=getattr(drug_data, "edge_attr", None),
             batch=drug_data.batch,
         )
+
+        # Fuse the per-molecule global descriptor vector into the drug embedding.
+        if self.drug_global_dim > 0:
+            global_feats = getattr(drug_data, "global_feats", None)
+            if global_feats is None:
+                raise ValueError(
+                    "drug_data is missing 'global_feats' but the model was built "
+                    f"with drug_global_dim={self.drug_global_dim}"
+                )
+            global_emb = self.drug_global_mlp(global_feats)
+            drug_emb = self.drug_fuse(cat([drug_emb, global_emb], dim=1))
 
         geno_emb = self.geno_tower(
             x=geno_data.x,

@@ -44,6 +44,7 @@ class GraphDims:
 
     drug_features: int = 61
     drug_edges: int = 18
+    drug_global: int = 1038  # per-molecule descriptor vector (drugs only)
     geno_features: int = 9
     geno_edges: int = 3
 
@@ -79,6 +80,10 @@ def make_empty_graph(
     data.cid = str(graph_id)
     data.smiles = ""
     data.name = name
+    if kind == "drug":
+        # Match the global descriptor vector real drug graphs carry, so a missing
+        # drug never breaks batching of the graph-level ``global_feats`` attr.
+        data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
     if kind == "geno":
         data.variant_name = str(graph_id)
     return _sanitize(data)

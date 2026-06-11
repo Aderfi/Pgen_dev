@@ -22,6 +22,7 @@ def create_gnn_model(
         drug_in_features=drug_config["num_features"],
         drug_edge_dim=drug_config.get("edge_dim", 0),
         drug_hidden_dim=params["hidden_dim"],
+        drug_global_dim=drug_config.get("global_dim", 0),
         geno_in_features=geno_config["num_features"],
         geno_edge_dim=geno_config.get("edge_dim", 0),
         geno_hidden_dim=params["hidden_dim"],

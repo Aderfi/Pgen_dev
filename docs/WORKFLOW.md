@@ -32,7 +32,7 @@
 **Pharmagen** maps a patient's *(drug, genotype)* pair to phenotypic outcomes
 using a **Two-Tower Graph Neural Network** (GATv2, PyTorch Geometric):
 
-- **Drug tower** — molecular graphs derived from SMILES (RDKit). 61 node features, 18 edge features.
+- **Drug tower** — molecular graphs derived from SMILES (RDKit): 61 node / 18 edge features, plus a per-molecule **global descriptor vector** (14 QSAR physicochemical descriptors + 1024-bit ECFP4) fused into the embedding.
 - **Genotype tower** — variant-topology graphs built from VCF/TSV, validated against GRCh38. 9 node features, 3 edge features.
 - The two graph embeddings are fused and routed into **multi-task heads** sized by `target_dims`.
 
@@ -221,10 +221,20 @@ encoded as all-zeros (saturation ≈ 0 on the real catalog):
   `is_conjugated`, `is_in_ring`, ring-size membership[3..7],
   stereo one-hot[none,Z,E,cis,trans,other]. Edges are **bidirectional**.
 
-> Node/edge widths are kept in sync across `drugs.py` (`DRUG_NODE_DIM` /
-> `DRUG_EDGE_DIM`), `models.toml` (`drug_node_features` / `drug_attrs_features`),
-> `engine/base.extract_tower_dims`, `cache.GraphDims`, and
-> `datasets.DEFAULT_DIMENSIONS`.
+- **Global (1038), attached as `global_feats` [1,1038]:** 14 normalised QSAR
+  physicochemical descriptors (MolWt, LogP, TPSA, HBD/HBA, rotatable bonds,
+  FractionCSP3, ring counts, heteroatoms, QED, stereocentres) + a Morgan/ECFP4
+  fingerprint (1024 bits). Computed per molecule and **fused into the drug
+  embedding** by `PharmagenTwoTower` (`drug_global_mlp` → `drug_fuse`), so two
+  structurally similar drugs land near each other — pharmacological similarity
+  becomes geometric. The fused embedding keeps `embedding_dim`, so the
+  interaction MLP and heads are unchanged.
+
+> Widths are kept in sync across `drugs.py` (`DRUG_NODE_DIM` / `DRUG_EDGE_DIM` /
+> `DRUG_GLOBAL_DIM`), `models.toml` (`drug_node_features` / `drug_attrs_features`
+> / `drug_global_features`), `engine/base.extract_tower_dims`, `cache.GraphDims`,
+> and `datasets.DEFAULT_DIMENSIONS`. PyG auto-batches the graph-level
+> `global_feats` to `[B, 1038]`; the empty-graph fallback carries a zero vector.
 
 **Failure handling & logging.** Failures are categorized by `DrugFailureCategory`
 (`non_integer_cid`, `missing_smiles`, `invalid_smiles`, `empty_graph`, `save_error`).

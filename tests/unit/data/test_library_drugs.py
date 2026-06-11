@@ -1,15 +1,19 @@
 """Tests for src.data.library.drugs.
 
 The schema dimensions are tested explicitly because changing them silently
-would invalidate every previously-trained model — they must stay 25/7.
+would invalidate every previously-trained model — they must stay 61/18/1038.
 """
 
 import pytest
 import torch
+import torch.nn.functional as F
+from rdkit import Chem
 
 from src.data.library.drugs import (
     DRUG_EDGE_DIM,
+    DRUG_GLOBAL_DIM,
     DRUG_NODE_DIM,
+    molecular_descriptors,
     safe_filename,
     smiles_to_graph,
 )
@@ -74,3 +78,33 @@ class TestSmilesToGraph:
         assert g.x.dtype == torch.float
         assert g.edge_index.dtype == torch.long
         assert g.edge_attr.dtype == torch.float
+
+
+class TestGlobalDescriptors:
+    """Per-molecule QSAR + ECFP global vector attached as ``global_feats``."""
+
+    def test_descriptor_vector_length(self) -> None:
+        mol = Chem.MolFromSmiles(ASPIRIN)
+        vec = molecular_descriptors(mol)
+        assert len(vec) == DRUG_GLOBAL_DIM == 1038
+
+    def test_global_feats_attached_to_graph(self) -> None:
+        g = smiles_to_graph(ASPIRIN)
+        assert g is not None
+        assert hasattr(g, "global_feats")
+        assert g.global_feats.shape == (1, DRUG_GLOBAL_DIM)
+        assert g.global_feats.dtype == torch.float
+
+    def test_no_nan_or_inf(self) -> None:
+        vec = torch.tensor(molecular_descriptors(Chem.MolFromSmiles(ASPIRIN)))
+        assert torch.isfinite(vec).all()
+
+    def test_similar_molecules_have_similar_vectors(self) -> None:
+        # Homologs (hexanol/heptanol) should be far closer than hexanol/pyridine.
+        hexanol = torch.tensor(molecular_descriptors(Chem.MolFromSmiles("CCCCCCO")))
+        heptanol = torch.tensor(molecular_descriptors(Chem.MolFromSmiles("CCCCCCCO")))
+        pyridine = torch.tensor(molecular_descriptors(Chem.MolFromSmiles("c1ccncc1")))
+        sim_homolog = F.cosine_similarity(hexanol, heptanol, dim=0)
+        sim_distinct = F.cosine_similarity(hexanol, pyridine, dim=0)
+        assert sim_homolog > sim_distinct
+        assert sim_homolog > 0.8

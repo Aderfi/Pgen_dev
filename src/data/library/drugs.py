@@ -24,6 +24,9 @@ encoded as an all-zeros vector (see :class:`FeatureSaturation`).
         is_conjugated, is_in_ring                             (2)
         ring-size membership[3,4,5,6,7]                        (5)
         stereo one-hot[NONE,Z,E,CIS,TRANS,other]              (6)
+    Global features (1038), attached as ``global_feats`` [1, 1038]:
+        14 normalised QSAR physicochemical descriptors
+        + Morgan/ECFP4 fingerprint (1024 bits)
 
 Input formats (auto-detected by file extension):
     * ``.tsv`` / ``.csv`` — tabular catalog with ``cid, smiles,
@@ -45,7 +48,13 @@ from typing import TYPE_CHECKING, Any, Literal
 import polars as pl
 import torch
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdchem
+from rdkit.Chem import (
+    AllChem,
+    Descriptors,
+    rdchem,
+    rdFingerprintGenerator,
+    rdMolDescriptors,
+)
 from torch_geometric.data import Data as PyGData
 from tqdm.auto import tqdm
 
@@ -61,9 +70,21 @@ logger = logging.getLogger(__name__)
 _ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 # Schema dimensions exposed for sanity checks — see DOCSTRING above. Must match
-# ``drug_node_features`` / ``drug_attrs_features`` in src/config/data/models.toml.
+# ``drug_node_features`` / ``drug_attrs_features`` / ``drug_global_features`` in
+# src/config/data/models.toml.
 DRUG_NODE_DIM: int = 61
 DRUG_EDGE_DIM: int = 18
+
+# Per-molecule global descriptor vector (QSAR physchem + ECFP fingerprint),
+# attached to each drug graph as ``global_feats`` and fused into the drug tower
+# embedding. 14 normalised physicochemical descriptors + a Morgan/ECFP4 bit vector.
+_N_PHYSCHEM: int = 14
+_ECFP_RADIUS: int = 2
+_ECFP_BITS: int = 1024
+DRUG_GLOBAL_DIM: int = _N_PHYSCHEM + _ECFP_BITS  # 1038
+_MORGAN_GEN = rdFingerprintGenerator.GetMorganGenerator(
+    radius=_ECFP_RADIUS, fpSize=_ECFP_BITS
+)
 
 # --- Categorical vocabularies (all use an explicit "other" bucket) --- #
 _ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B", "Se", "Si"]
@@ -261,6 +282,43 @@ def _bond_features(bond: rdchem.Bond) -> list[float]:
     return feats
 
 
+def _num_stereo_centers(mol: Chem.Mol) -> int:
+    try:
+        return rdMolDescriptors.CalcNumAtomStereoCenters(mol)
+    except RuntimeError, ValueError:
+        return 0
+
+
+def molecular_descriptors(mol: Chem.Mol) -> list[float]:
+    """Per-molecule global descriptor vector (length :data:`DRUG_GLOBAL_DIM`).
+
+    Concatenates 14 normalised QSAR physicochemical descriptors (ADMET-relevant
+    bulk properties) with a Morgan/ECFP4 bit vector. The fingerprint gives two
+    structurally-similar drugs a similar global vector, so pharmacological
+    similarity is geometric in the fused drug embedding. NaN/inf descriptors
+    (rare) are coerced to 0.
+    """
+    physchem = [
+        Descriptors.MolWt(mol) / 500.0,
+        Descriptors.MolLogP(mol) / 10.0,
+        Descriptors.TPSA(mol) / 150.0,
+        Descriptors.NumHDonors(mol) / 10.0,
+        Descriptors.NumHAcceptors(mol) / 20.0,
+        Descriptors.NumRotatableBonds(mol) / 20.0,
+        Descriptors.FractionCSP3(mol),
+        Descriptors.RingCount(mol) / 10.0,
+        Descriptors.NumAromaticRings(mol) / 10.0,
+        Descriptors.NumAliphaticRings(mol) / 10.0,
+        Descriptors.NumHeteroatoms(mol) / 30.0,
+        Descriptors.NumSaturatedRings(mol) / 10.0,
+        Descriptors.qed(mol),
+        _num_stereo_centers(mol) / 10.0,
+    ]
+    physchem = [0.0 if math.isnan(v) or math.isinf(v) else v for v in physchem]
+    ecfp = [float(b) for b in _MORGAN_GEN.GetFingerprint(mol)]
+    return physchem + ecfp
+
+
 def _largest_fragment(mol: Chem.Mol) -> Chem.Mol:
     """Return the fragment with the most atoms (drops salts / counterions).
 
@@ -320,7 +378,10 @@ def smiles_to_graph(
         edge_index = torch.tensor(edge_indices, dtype=torch.long).t().contiguous()
         edge_attr = torch.tensor(edge_attrs, dtype=torch.float)
 
-    return PyGData(x=x, edge_index=edge_index, edge_attr=edge_attr)
+    data = PyGData(x=x, edge_index=edge_index, edge_attr=edge_attr)
+    # Per-molecule global descriptor vector [1, DRUG_GLOBAL_DIM] (graph-level).
+    data.global_feats = torch.tensor([molecular_descriptors(mol)], dtype=torch.float)
+    return data
 
 
 # --------------------------------------------------------------------------- #

@@ -17,14 +17,19 @@ targets = ["phenotype_category"]
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
-# Must match DRUG_NODE_DIM / DRUG_EDGE_DIM in src/data/library/drugs.py.
+# Must match DRUG_NODE_DIM / DRUG_EDGE_DIM / DRUG_GLOBAL_DIM in
+# src/data/library/drugs.py.
 drug_node_features = 61
 drug_attrs_features = 18
+drug_global_features = 1038   # per-molecule descriptor vector: 14 QSAR physchem + 1024 ECFP4
 
     # NODES --> element[13], degree[7], valence[7], charge scalar+1h[5], hybridization[7],
     #           total_Hs[5], chirality[4], aromatic+in_ring[2], ring_sizes[5],
     #           gasteiger[1], electronegativity[1], H_donor+acceptor[2], mass+radicals[2]
     # EDGES --> bond_type[5], conjugated[1], in_ring[1], ring_sizes[5], stereo[6]
+    # GLOBAL --> MolWt, LogP, TPSA, HBD, HBA, RotBonds, FractionCSP3, RingCount,
+    #            AromaticRings, AliphaticRings, Heteroatoms, SaturatedRings, QED,
+    #            StereoCenters (14) + Morgan/ECFP4 fingerprint (1024)
 
 
 # Haplo Tower (From all_in_one.py)

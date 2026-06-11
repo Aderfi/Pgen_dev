@@ -188,8 +188,12 @@ ADMET-AI 2.0.1 was evaluated on random samples of the real
   drugs are 3A4 substrates).
 - **Overlap:** MolWt, LogP, TPSA, HBD, HBA, QED, stereo centres and Lipinski
   duplicate the QSAR block already in `global_feats` — excluded from `admet_feats`.
-- **Throughput:** ~0.13 s/mol inference on an RTX 4070 Ti SUPER (GPU) plus a
-  one-time ensemble load (~3 min) ⇒ **~3–4 h one-time for 109k**, cached.
+- **Throughput (re-measured 2026-06-11):** ~0.31 s/mol amortised on an RTX 4070
+  Ti SUPER (GPU) — 1000-mol run in 308.6 s; a 200-mol run is ~1.06 s/mol because
+  the fixed per-call overhead dominates a small batch. Extrapolates to
+  **~9–10 h one-time for 109k**, cached. (An earlier ~0.13 s/mol / 3–4 h estimate
+  did not reproduce; the script omits `set_float32_matmul_precision("high")`,
+  which the production path in `admet.py` sets.)
 
 **Decision:** ADMET-AI alone for step (c); **CypReact deferred** (ADMET-AI already
 covers the 2C9/2D6/3A4 substrate signal).

@@ -15,18 +15,16 @@ of re-parsing strings every trial.
 from __future__ import annotations
 
 import sys
+import tomllib
 from functools import lru_cache
-from pathlib import Path
-from typing import Annotated, Any, Literal, Union
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
 from src.config.settings import CONFIG_DATA_DIR
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Optuna search-space specs

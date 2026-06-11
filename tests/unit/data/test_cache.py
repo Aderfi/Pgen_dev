@@ -41,8 +41,8 @@ def saved_variant(tmp_path: Path) -> Path:
 class TestMakeEmptyGraph:
     def test_drug_dims(self) -> None:
         g = make_empty_graph("drug")
-        assert g.x.shape == (1, 25)
-        assert g.edge_attr.shape == (0, 7)
+        assert g.x.shape == (1, 61)
+        assert g.edge_attr.shape == (0, 18)
         assert g.name == "dummy_drug"
 
     def test_geno_dims(self) -> None:
@@ -80,7 +80,7 @@ class TestGraphCacheLookup:
     def test_unknown_drug_returns_empty(self) -> None:
         cache = GraphCache(drug_index={}, variant_index={})
         g = cache.get_drug("does_not_exist")
-        assert g.x.shape == (1, 25)
+        assert g.x.shape == (1, 61)
         assert cache.stats()["drug_misses"] == 1
 
     def test_corrupt_file_returns_empty(self, tmp_path: Path) -> None:
@@ -88,7 +88,7 @@ class TestGraphCacheLookup:
         bad.write_bytes(b"not a torch file")
         cache = GraphCache(drug_index={"123": bad}, variant_index={})
         g = cache.get_drug("123")
-        assert g.x.shape == (1, 25)  # placeholder
+        assert g.x.shape == (1, 61)  # placeholder
 
     def test_variant_lookup_via_underscore_split(self, saved_variant: Path) -> None:
         cache = GraphCache(

@@ -42,8 +42,8 @@ class GraphDims:
     break batching.
     """
 
-    drug_features: int = 25
-    drug_edges: int = 7
+    drug_features: int = 61
+    drug_edges: int = 18
     geno_features: int = 9
     geno_edges: int = 3
 

@@ -135,6 +135,7 @@ uv run pytest tests/unit/api -q
 - **Engine bootstrap goes through `src/model/engine/base.py`.** Don't reimplement device selection, dataset wiring, or `create_gnn_model` calls inside engines.
 - **Exceptions, logging, validators live in `src/core/`.** Import via `from src.core import EncoderError`, `from src.core import setup_logging`, etc. — not the old flat-`src/` modules.
 - **No emoji in log messages.** Emoji are for `ConsoleIO` user-facing output. Log messages use `logger.info("Doing X (sample=%s)", sample_id)` style.
+- **Always report through `logging`.** Diagnostics, progress, and failures go through the stdlib `logging` module and the central logger configured by `src.core.setup_logging` (use `logging.getLogger(__name__)`, or a dedicated child logger with its own `FileHandler` for a separate audit file). Never hand-roll reporting with `print`/`f.write`, and don't gate output behind ad-hoc conditionals when a logger call expresses the intent directly. See `src/data/library/drugs.py` (`_build_failure_logger`) for the file-handler-per-report pattern.
 - **English everywhere.** Spanish identifiers/comments in `src/` are tech debt to fix; `BACKUPS/` is exempted.
 
 ## Outstanding tech debt

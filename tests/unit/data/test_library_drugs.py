@@ -41,8 +41,8 @@ class TestSmilesToGraph:
     def test_aspirin_dimensions(self) -> None:
         g = smiles_to_graph(ASPIRIN)
         assert g is not None
-        assert g.x.shape[1] == DRUG_NODE_DIM == 25
-        assert g.edge_attr.shape[1] == DRUG_EDGE_DIM == 7
+        assert g.x.shape[1] == DRUG_NODE_DIM == 61
+        assert g.edge_attr.shape[1] == DRUG_EDGE_DIM == 18
         assert g.edge_index.shape[0] == 2
         # 13 heavy atoms, 13 bonds (× 2 directions = 26 edges)
         assert g.x.shape[0] == 13
@@ -63,9 +63,9 @@ class TestSmilesToGraph:
         # Benzene — every atom is aromatic.
         g = smiles_to_graph("c1ccccc1")
         assert g is not None
-        # Feature layout: atomic_num(1) + degree(1) + one-hot degree(5)
-        # + charge(5) + hybridization(3) + Hs(5) + chiral(3) = 23, then aromatic at index 23.
-        aromatic_col = g.x[:, 23]
+        # Feature layout: element(13) + degree(7) + valence(7) + charge[scalar+1h](5)
+        # + hybridization(7) + Hs(5) + chirality(4) = 48, then is_aromatic at index 48.
+        aromatic_col = g.x[:, 48]
         assert (aromatic_col > 0).all(), "every benzene atom should be aromatic"
 
     def test_dtype_consistency(self) -> None:

@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
 from src.api.deps import get_registry
 from src.api.routers import health, library, models, predict
 from src.config import configure_logging_level, get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 logger = logging.getLogger(__name__)
 

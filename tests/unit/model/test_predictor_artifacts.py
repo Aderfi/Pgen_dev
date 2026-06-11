@@ -89,7 +89,7 @@ def test_legacy_plain_dict_falls_back_to_cfg_extras(
     assert predictor._saved_drug_dim is None
     assert predictor._saved_geno_dim is None
     assert any("legacy encoders pickle" in r.message for r in caplog.records)
-    assert predictor._resolve_tower_dim(None, "drugs") == 25
+    assert predictor._resolve_tower_dim(None, "drugs") == 61
     assert predictor._resolve_tower_dim(None, "geno") == 9
 
 

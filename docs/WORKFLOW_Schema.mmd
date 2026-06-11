@@ -1,0 +1,111 @@
+%% Pharmagen — Master workflow schema
+%% Companion to docs/WORKFLOW.md and docs/WORKFLOW.canvas
+%% Render: mermaid.live, the Obsidian Mermaid plugin, or `mmdc -i WORKFLOW_Schema.mmd -o schema.svg`
+
+flowchart TB
+    %% ============================ ENTRY POINTS ============================
+    subgraph ENTRY["Entry points"]
+        CLI([main.py CLI])
+        LIBCLI([python -m src.data.library])
+        UVICORN([uvicorn src.api.main:app])
+    end
+
+    CLI --> MODE{--mode}
+    MODE -->|menu| MENU[interface/cli.py menu]
+    MODE -->|train| HTRAIN[_run_headless_training]
+    MODE -->|predict| HPRED[_run_headless_prediction]
+
+    %% ============================ ENGINE BASE ============================
+    subgraph BASE["Shared engine — src/model/engine/base.py"]
+        DEV[resolve_device]
+        DIMS[extract_tower_dims]
+        LCD[load_and_clean_data]
+        SPLIT[stratified_split]
+        DSETS[build_two_tower_datasets]
+        INFER[infer_dataset_dimensions]
+        LOADERS[build_train_val_loaders]
+        BUILDM[build_gnn_model]
+    end
+    LCD --> SPLIT --> DSETS --> INFER --> BUILDM
+    DSETS --> LOADERS
+    DIMS --> DSETS
+    DIMS --> BUILDM
+
+    %% ============================ LIBRARY BUILD ============================
+    subgraph LIB["Library build (offline) — src/data/library"]
+        LBCFG[LibraryBuildConfig.from_settings] --> LBRUN[LibraryBuilder.run]
+        LBRUN --> MANIFEST[(BuildManifest JSON)]
+        LBRUN --> DRUGB[DrugGraphBuilder.build]
+        LBRUN --> GENEB[GenomicGraphBuilder.build]
+        DRUGB -->|smiles_to_graph| DRUGPT[(drugs/*.pt 25/7)]
+        GENEB -->|nx → PyG| GENEPT[(gene_graphs/**/*.pt 9/3)]
+        DRUGB -. failures .-> FAILLOG[(logs/library/*.log + counter)]
+        FASTA[(GRCh38 FASTA)] --> GENEB
+        PGXDIR[(haplotype_variants VCFs)] --> GENEB
+    end
+    LIBCLI --> LBCFG
+
+    %% ============================ TRAINING ============================
+    subgraph TRAIN["Standard training — src/pipeline.py"]
+        TP[train_pipeline] --> SETUP[_setup_trainer<br/>loss+opt+sched]
+        SETUP --> SFIT[StandardTrainer.fit<br/>AMP + early stop + checkpoint]
+        SFIT --> CKPT[(models/ best checkpoint)]
+        TP --> PERSIST[_persist_training_artifacts]
+        PERSIST --> ENCPKL[(encoders_MODEL.pkl<br/>encoders + dims)]
+    end
+    HTRAIN -->|no optuna| TP
+    MENU --> TP
+
+    %% ============================ OPTUNA ============================
+    subgraph OPT["Optuna tuning — src/model/engine/tuner.py"]
+        ROS[run_optuna_study] --> TUNER[PGenTuner]
+        TUNER --> STATIC[_initialize_static_data<br/>load+split ONCE]
+        TUNER --> STUDY[create_study<br/>TPE/Hyperband + SQLite]
+        STUDY --> OBJ{per trial: objective}
+        OBJ --> SUG[_suggest_params] --> OTT[OptunaTrialTrainer.fit<br/>report + prune]
+        STUDY --> RESULTS[(JSON report + plots)]
+    end
+    HTRAIN -->|--optuna| ROS
+    MENU --> ROS
+
+    %% ============================ PREDICTION ============================
+    subgraph PRED["Inference — src/model/engine/predictor.py"]
+        PG[PGenPredictor] --> LOADART[_load_training_artifacts]
+        LOADART --> LOADMODEL[build_gnn_model + load_best]
+        LOADMODEL --> FWD[_forward_loader no_grad]
+        FWD --> DECODE[_decode_logits]
+        DECODE --> PREDOUT[(predictions CSV/JSON)]
+    end
+    HPRED --> PG
+    MENU --> PG
+
+    %% ============================ API ============================
+    subgraph API["FastAPI — src/api"]
+        APPF[create_app + lifespan] --> ROUTES[health / models / library / predict]
+        ROUTES --> REGISTRY[PredictorRegistry.get<br/>lazy, locked, 503 if missing]
+    end
+    UVICORN --> APPF
+    REGISTRY --> PG
+
+    %% ============================ NGS ============================
+    subgraph NGS["NGS pipeline — src/genomics/ngs_pipeline.py"]
+        FQ[(raw FASTQ)] --> QC[QC + trim] --> ALIGN[BWA align + dedup] --> CALL[Freebayes call] --> ANNOT[VEP annotate] --> AVCF[(annotated VCF)]
+    end
+    AVCF -. variants .-> PGXDIR
+
+    %% ============================ WIRING TO ENGINE / LIBRARY ============================
+    TP --> DEV
+    TP --> LCD
+    ROS --> LCD
+    PG --> DIMS
+    DRUGPT --> DSETS
+    GENEPT --> DSETS
+    DRUGPT --> FWD
+    GENEPT --> FWD
+    ENCPKL --> LOADART
+    CKPT --> LOADMODEL
+
+    classDef store fill:#cfe2ff,stroke:#3b6fb6,color:#10243e;
+    classDef art fill:#d7f8d7,stroke:#3a8a3a,color:#10331a;
+    class DRUGPT,GENEPT,MANIFEST,FAILLOG,FASTA,PGXDIR,FQ,AVCF store;
+    class CKPT,ENCPKL,RESULTS,PREDOUT art;

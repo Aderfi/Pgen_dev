@@ -77,15 +77,17 @@ def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
     be a non-negative int — otherwise a ConfigurationError is raised.
     """
     extras = cfg.extras
+    # Keys match src/config/data/models.toml. Drug defaults must equal
+    # DRUG_NODE_DIM / DRUG_EDGE_DIM in src/data/library/drugs.py (61 / 18).
     dims = {
         "drugs": {
-            "features": extras.get("drug_in_features", 25),
-            "edges": extras.get("drug_edge_dim", 7),
+            "features": extras.get("drug_node_features", 61),
+            "edges": extras.get("drug_attrs_features", 18),
             "attrs": extras.get("drug_in_attributes", 0),
         },
         "geno": {
-            "features": extras.get("haplo_in_features", 9),
-            "edges": extras.get("haplo_edge_dim", 3),
+            "features": extras.get("geno_node_features", 9),
+            "edges": extras.get("geno_attrs_features", 3),
             "attrs": extras.get("haplo_in_attributes", 0),
         },
     }

@@ -17,10 +17,14 @@ targets = ["phenotype_category"]
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
-drug_node_features = 25   
-drug_attrs_features = 7
+# Must match DRUG_NODE_DIM / DRUG_EDGE_DIM in src/data/library/drugs.py.
+drug_node_features = 61
+drug_attrs_features = 18
 
-    # EDGES --> Bond_Type[SINGLE, DOUBLE, TRIPLE, AROMATIC], Conjugated[1,0], In_Ring[1,0], Stereo[1,0], [start, end], [end, start]
+    # NODES --> element[13], degree[7], valence[7], charge scalar+1h[5], hybridization[7],
+    #           total_Hs[5], chirality[4], aromatic+in_ring[2], ring_sizes[5],
+    #           gasteiger[1], electronegativity[1], H_donor+acceptor[2], mass+radicals[2]
+    # EDGES --> bond_type[5], conjugated[1], in_ring[1], ring_sizes[5], stereo[6]
 
 
 # Haplo Tower (From all_in_one.py)

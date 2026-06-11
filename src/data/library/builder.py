@@ -58,8 +58,9 @@ class LibraryBuilder:
             drug_builder = DrugGraphBuilder(
                 cfg.drugs_out,
                 force=cfg.force,
-                failures_log=cfg.log_failures_path
-                or (cfg.library_root / "build_failures.log"),
+                failures_log=cfg.log_failures_path,
+                saturation_log=cfg.log_saturation_path,
+                strip_salts=cfg.strip_salts,
             )
             drugs_built, drugs_skipped, drugs_failed = drug_builder.build(
                 cfg.drugs_tsv, manifest=manifest

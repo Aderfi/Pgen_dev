@@ -38,7 +38,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--drugs-tsv",
         type=Path,
         default=None,
-        help="Path to the drugs TSV (default: data/drugs_cid.tsv).",
+        help="Path to the drug catalog: .tsv/.csv or .json "
+        "(default: data/drugs_cid.tsv).",
     )
     p.add_argument(
         "--force",
@@ -54,6 +55,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--skip-drugs", action="store_true", help="Skip the drug pipeline.")
     p.add_argument("--skip-genes", action="store_true", help="Skip the gene pipeline.")
+    p.add_argument(
+        "--keep-salts",
+        action="store_true",
+        help="Keep salt counterions (do not reduce SMILES to the largest fragment).",
+    )
     p.add_argument("--verbose", "-v", action="store_true", help="DEBUG-level logging.")
     return p
 
@@ -75,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         only_gene=args.only_gene,
         skip_drugs=args.skip_drugs,
         skip_genes=args.skip_genes,
+        strip_salts=not args.keep_salts,
     )
 
     summary = LibraryBuilder(cfg).run()

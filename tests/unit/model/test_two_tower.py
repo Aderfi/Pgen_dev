@@ -1,8 +1,8 @@
-"""Tests for PharmagenTwoTower — focused on the global-descriptor branch.
+"""Tests for PharmagenTwoTower — focused on the per-molecule fusion branches.
 
 The drug tower optionally fuses a per-molecule global descriptor vector
-(``global_feats``) into its graph embedding; these tests cover the branch being
-on (global_dim>0) and off (global_dim=0).
+(``global_feats``) and a predicted ADMET profile (``admet_feats``) into its graph
+embedding; these tests cover each branch on (dim>0) and off (dim=0).
 """
 
 from __future__ import annotations
@@ -21,10 +21,11 @@ PARAMS = {
     "heads": 4,
 }
 GLOBAL_DIM = 1038
+ADMET_DIM = 41
 TARGETS = {"phenotype_category": 5}
 
 
-def _drug_graph(*, with_global: bool) -> Data:
+def _drug_graph(*, with_global: bool, with_admet: bool = False) -> Data:
     g = Data(
         x=torch.randn(4, 61),
         edge_index=torch.tensor([[0, 1, 2], [1, 2, 3]]),
@@ -32,6 +33,8 @@ def _drug_graph(*, with_global: bool) -> Data:
     )
     if with_global:
         g.global_feats = torch.randn(1, GLOBAL_DIM)
+    if with_admet:
+        g.admet_feats = torch.randn(1, ADMET_DIM)
     return g
 
 
@@ -43,10 +46,15 @@ def _geno_graph() -> Data:
     )
 
 
-def _model(global_dim: int):
+def _model(global_dim: int, admet_dim: int = 0):
     return create_gnn_model(
         "TwoTowerGAT",
-        drug_config={"num_features": 61, "edge_dim": 18, "global_dim": global_dim},
+        drug_config={
+            "num_features": 61,
+            "edge_dim": 18,
+            "global_dim": global_dim,
+            "admet_dim": admet_dim,
+        },
         geno_config={"num_features": 9, "edge_dim": 3},
         target_dims=TARGETS,
         params=PARAMS,
@@ -76,3 +84,43 @@ class TestGlobalBranch:
         geno = Batch.from_data_list([_geno_graph() for _ in range(2)])
         with pytest.raises(ValueError, match="missing 'global_feats'"):
             model(drug, geno)
+
+
+class TestAdmetBranch:
+    def test_forward_with_admet_profile(self) -> None:
+        model = _model(0, ADMET_DIM)
+        assert hasattr(model, "drug_admet_mlp")
+        drug = Batch.from_data_list(
+            [_drug_graph(with_global=False, with_admet=True) for _ in range(3)]
+        )
+        geno = Batch.from_data_list([_geno_graph() for _ in range(3)])
+        out = model(drug, geno)
+        assert out["phenotype_category"].shape == (3, 5)
+
+    def test_admet_branch_disabled(self) -> None:
+        model = _model(0, 0)
+        assert not hasattr(model, "drug_admet_mlp")
+        drug = Batch.from_data_list([_drug_graph(with_global=False) for _ in range(2)])
+        geno = Batch.from_data_list([_geno_graph() for _ in range(2)])
+        out = model(drug, geno)
+        assert out["phenotype_category"].shape == (2, 5)
+
+    def test_missing_admet_feats_raises(self) -> None:
+        model = _model(0, ADMET_DIM)
+        drug = Batch.from_data_list(
+            [_drug_graph(with_global=False, with_admet=False) for _ in range(2)]
+        )
+        geno = Batch.from_data_list([_geno_graph() for _ in range(2)])
+        with pytest.raises(ValueError, match="missing 'admet_feats'"):
+            model(drug, geno)
+
+    def test_global_and_admet_fuse_together(self) -> None:
+        model = _model(GLOBAL_DIM, ADMET_DIM)
+        assert hasattr(model, "drug_global_mlp")
+        assert hasattr(model, "drug_admet_mlp")
+        drug = Batch.from_data_list(
+            [_drug_graph(with_global=True, with_admet=True) for _ in range(2)]
+        )
+        geno = Batch.from_data_list([_geno_graph() for _ in range(2)])
+        out = model(drug, geno)
+        assert out["phenotype_category"].shape == (2, 5)

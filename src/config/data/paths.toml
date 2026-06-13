@@ -37,3 +37,8 @@ training = "reports/train_reports"
 [genome_references]
 ref_genome_dir = "data/ref_genome"
 ref_genome_fasta = "data/ref_genome/HSapiens_GChr38.fa"
+# GRCh38 RefSeq annotation + sequence (NCBI GCF_000001405.26), used to build
+# per-gene variation graphs and resolve c./p. HGVS.
+ref_genome_gff = "data/ref_genome/HSapiens_GChr38.gff"
+ref_genome_rna_fasta = "data/ref_genome/HSapiens_GChr38.rna.fna"
+ref_genome_cds_fasta = "data/ref_genome/HSapiens_GChr38.cds.fna"

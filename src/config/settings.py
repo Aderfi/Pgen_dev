@@ -98,6 +98,19 @@ def _build_paths(paths_cfg: dict[str, Any]) -> Paths:
         ref_genome_fasta=_abs(
             genome.get("ref_genome_fasta", "data/ref_genome/HSapiens_GChr38.fa")
         ),
+        ref_genome_gff=_abs(
+            genome.get("ref_genome_gff", "data/ref_genome/HSapiens_GChr38.gff")
+        ),
+        ref_genome_rna_fasta=_abs(
+            genome.get(
+                "ref_genome_rna_fasta", "data/ref_genome/HSapiens_GChr38.rna.fna"
+            )
+        ),
+        ref_genome_cds_fasta=_abs(
+            genome.get(
+                "ref_genome_cds_fasta", "data/ref_genome/HSapiens_GChr38.cds.fna"
+            )
+        ),
     )
 
 

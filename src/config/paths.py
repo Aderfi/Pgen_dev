@@ -32,6 +32,9 @@ class Paths(BaseModel):
     library: Path
     ref_genome_dir: Path
     ref_genome_fasta: Path
+    ref_genome_gff: Path
+    ref_genome_rna_fasta: Path
+    ref_genome_cds_fasta: Path
 
     @field_validator("project_root", mode="before")
     @classmethod

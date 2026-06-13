@@ -153,7 +153,7 @@ def build_gene_graph(
         node_pos.append(v.pos)
         node_hgvs.append(v.g_hgvs)
 
-    edge_index, edge_attr = _chain_edges(node_pos, gene.length)
+    edge_index, edge_attr = chain_edges(node_pos, gene.length)
 
     paths = {
         h.label: tuple(index_of[v.g_hgvs] for v in h.variants if v.g_hgvs in index_of)
@@ -167,6 +167,7 @@ def build_gene_graph(
     )
     data.gene = gene.symbol
     data.accession = gene.accession
+    data.gene_length = gene.length
     data.node_pos = node_pos
     data.node_hgvs = node_hgvs
     data.paths = paths
@@ -179,10 +180,14 @@ def build_gene_graph(
     return data
 
 
-def _chain_edges(
+def chain_edges(
     node_pos: list[int], gene_length: int
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Bidirectional chain over nodes in order; edge_attr = [is_anchor_link, gap]."""
+    """Bidirectional chain over nodes in order; edge_attr = [is_anchor_link, gap].
+
+    ``node_pos`` is the genomic position of each node (anchor first); reused both
+    for the full gene graph and for path/diplotype subgraphs.
+    """
     if len(node_pos) < 2:
         return (
             torch.empty((2, 0), dtype=torch.long),
@@ -210,4 +215,5 @@ __all__ = [
     "GENE_NODE_DIM",
     "GENE_NODE_STRUCT_DIM",
     "build_gene_graph",
+    "chain_edges",
 ]

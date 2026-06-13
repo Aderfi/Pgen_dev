@@ -99,3 +99,19 @@ def test_encode_reference_is_anchor_only(library: GenoLibrary) -> None:
 def test_encode_missing_gene_raises(library: GenoLibrary) -> None:
     with pytest.raises(KeyError, match="not in GenoLibrary"):
         library.encode("NOPE", "*1")
+
+
+def test_encode_variants_ad_hoc_path(library: GenoLibrary) -> None:
+    data = library.encode_variants(
+        "GENEX", ["NC_000022.11:g.150C>T", "NC_000022.11:g.250del"]
+    )
+    # anchor + the two requested variant nodes.
+    assert data.x.shape == (3, GENE_NODE_DIM)
+    assert data.labels == []
+    # ad-hoc path has no star allele, so function is zero.
+    assert data.geno_function.abs().sum().item() == 0.0
+
+
+def test_encode_variants_drops_unknown(library: GenoLibrary) -> None:
+    data = library.encode_variants("GENEX", ["NC_000022.11:g.999A>G"])
+    assert data.x.shape == (1, GENE_NODE_DIM)  # only the anchor survives

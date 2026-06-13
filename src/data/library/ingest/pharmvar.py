@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _HAPLO_GLOB = "*.haplotypes.tsv"
 _REFERENCE_SEQ = "REFERENCE"  # ReferenceSequence value on a reference (*1) row
 _NAME, _GENE, _SEQ = "Haplotype Name", "Gene", "ReferenceSequence"
+_RSID = "rsID"
 _START, _STOP = "Variant Start", "Variant Stop"
 _REF, _ALT = "Reference Allele", "Variant Allele"
 
@@ -129,4 +130,32 @@ def iter_haplotypes(pharmvar_dir: Path) -> Iterator[IngestedHaplotype]:
         yield from load_gene_haplotypes(tsv)
 
 
-__all__ = ["iter_haplotypes", "load_gene_haplotypes"]
+def rsid_hgvs_index(pharmvar_dir: Path) -> dict[str, str]:
+    """Map dbSNP ``rsID`` → genomic HGVS, scanned from the PharmVar TSVs.
+
+    The bridge that lets legacy rsID-based genotypes resolve to HGVS variant
+    nodes (the rsID is a data-prep lookup, never the library key). rsIDs are
+    globally unique, so the map is gene-agnostic; the first occurrence wins.
+    """
+    index: dict[str, str] = {}
+    if not pharmvar_dir.exists():
+        logger.warning("PharmVar folder not found: %s", pharmvar_dir)
+        return index
+    for tsv in sorted(pharmvar_dir.rglob(_HAPLO_GLOB)):
+        frame = pl.read_csv(
+            tsv, separator="\t", comment_prefix="#", infer_schema_length=0
+        )
+        if _NAME not in frame.columns:
+            continue
+        for row in frame.iter_rows(named=True):
+            rsid = (row.get(_RSID) or "").strip()
+            if not rsid:
+                continue
+            variant = _variant_from_row((row.get(_GENE) or "").strip(), row)
+            if variant is not None:
+                index.setdefault(rsid, variant.g_hgvs)
+    logger.info("PharmVar: built rsID→HGVS index of %d entries", len(index))
+    return index
+
+
+__all__ = ["iter_haplotypes", "load_gene_haplotypes", "rsid_hgvs_index"]

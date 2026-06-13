@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from src.data.library.ingest.pharmvar import iter_haplotypes, load_gene_haplotypes
+from src.data.library.ingest.pharmvar import (
+    iter_haplotypes,
+    load_gene_haplotypes,
+    rsid_hgvs_index,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -75,3 +79,12 @@ def test_iter_haplotypes_scans_folder(tsv_path: Path) -> None:
 
 def test_missing_folder_yields_nothing(tmp_path: Path) -> None:
     assert list(iter_haplotypes(tmp_path / "nope")) == []
+
+
+def test_rsid_hgvs_index(tsv_path: Path) -> None:
+    index = rsid_hgvs_index(tsv_path.parent)
+    assert index == {
+        "rs1": "NC_000022.11:g.100C>T",
+        "rs2": "NC_000022.11:g.200del",
+        "rs3": "NC_000022.11:g.300_301insAC",
+    }

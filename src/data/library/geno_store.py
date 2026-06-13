@@ -81,6 +81,25 @@ class GenoLibrary:
 
     # ----- encoding -------------------------------------------------------- #
 
+    def _require(self, gene: str) -> Data:
+        base = self._graphs.get(gene)
+        if base is None:
+            msg = f"gene {gene!r} not in GenoLibrary"
+            raise KeyError(msg)
+        return base
+
+    def _subgraph(
+        self, base: Data, selected: list[int], geno_function: list[float]
+    ) -> Data:
+        """Induced subgraph over ``selected`` node indices, re-chained in order."""
+        positions = [base.node_pos[i] for i in selected]
+        edge_index, edge_attr = chain_edges(positions, int(base.gene_length))
+        data = Data(
+            x=base.x[selected].clone(), edge_index=edge_index, edge_attr=edge_attr
+        )
+        data.geno_function = torch.tensor([geno_function], dtype=torch.float32)
+        return data
+
     def encode(self, gene: str, labels: str | Iterable[str]) -> Data:
         """Materialise the subgraph for a haplotype (one label) or diplotype (two).
 
@@ -89,36 +108,36 @@ class GenoLibrary:
         the mean of the selected alleles' PGx-function vectors. Raises ``KeyError``
         when the gene is absent from the library.
         """
-        base = self._graphs.get(gene)
-        if base is None:
-            msg = f"gene {gene!r} not in GenoLibrary"
-            raise KeyError(msg)
-
+        base = self._require(gene)
         label_list = [labels] if isinstance(labels, str) else list(labels)
         selected = sorted(
             {0}.union(*(set(base.paths.get(label, ())) for label in label_list))
             if label_list
             else {0}
         )
-
-        positions = [base.node_pos[i] for i in selected]
-        edge_index, edge_attr = chain_edges(positions, int(base.gene_length))
         functions = [
             base.path_function[label]
             for label in label_list
             if label in base.path_function
         ]
-
-        data = Data(
-            x=base.x[selected].clone(),
-            edge_index=edge_index,
-            edge_attr=edge_attr,
-        )
-        data.geno_function = torch.tensor(
-            [_mean_vectors(functions)], dtype=torch.float32
-        )
+        data = self._subgraph(base, selected, _mean_vectors(functions))
         data.gene = gene
         data.labels = label_list
+        return data
+
+    def encode_variants(self, gene: str, g_hgvs: Iterable[str]) -> Data:
+        """Materialise the subgraph for an ad-hoc set of genomic-HGVS variants.
+
+        Used for genotypes given by rsID (resolved to HGVS upstream): the path is
+        the anchor plus whichever of the requested variants exist as nodes in the
+        gene graph. Carries no star-allele label, so ``geno_function`` is zero.
+        """
+        base = self._require(gene)
+        index = {hgvs: i for i, hgvs in enumerate(base.node_hgvs)}
+        selected = sorted({0} | {index[h] for h in g_hgvs if h in index})
+        data = self._subgraph(base, selected, [0.0] * PATH_FUNCTION_DIM)
+        data.gene = gene
+        data.labels = []
         return data
 
 

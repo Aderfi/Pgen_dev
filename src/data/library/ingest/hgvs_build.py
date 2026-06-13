@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from src.core.exceptions import BioinformaticsError
 from src.data.library.chromosome import to_refseq
+from src.domain.hgvs import MolecularType
+from src.genomics.hgvs_parser import parse
 
 
 def _trim(pos: int, ref: str, alt: str) -> tuple[int, str, str]:
@@ -104,4 +106,40 @@ def hgvs_body_from_alleles(start: int, stop: int, ref: str, alt: str) -> str:
     return f"g.{span}delins{a}"  # multi-base replacement
 
 
-__all__ = ["genomic_hgvs", "genomic_hgvs_body", "hgvs_body_from_alleles"]
+def parse_genomic_anchor(g_hgvs: str) -> tuple[str, int, str, str]:
+    """Extract ``(accession, pos, ref, alt)`` from a genomic (``g.``) HGVS string.
+
+    The inverse of the builders: lets an adapter re-derive a consistent genomic
+    anchor from a canonical ``g.`` key (``ref``/``alt`` empty for del/dup/inv,
+    where the bases live in the reference). Raises :class:`BioinformaticsError`
+    when the expression is not genomic or lacks an accession or a resolved start.
+    """
+    variant = parse(g_hgvs)
+    if variant.molecular_type is not MolecularType.GENOMIC:
+        msg = f"expected genomic (g.) HGVS, got {variant.molecular_type.value} in {g_hgvs!r}"
+        raise BioinformaticsError(msg)
+    if variant.reference_sequence is None:
+        msg = f"genomic HGVS without accession: {g_hgvs!r}"
+        raise BioinformaticsError(msg)
+
+    change = variant.primary_change
+    base = change.start.base if change.start is not None else None
+    if base is None:
+        msg = f"genomic HGVS without a resolved start position: {g_hgvs!r}"
+        raise BioinformaticsError(msg)
+
+    ref = getattr(change, "reference_allele", None) or ""
+    alt = (
+        getattr(change, "alternate_allele", None)
+        or getattr(change, "inserted_sequence", None)
+        or ""
+    )
+    return variant.reference_sequence, base, ref, alt
+
+
+__all__ = [
+    "genomic_hgvs",
+    "genomic_hgvs_body",
+    "hgvs_body_from_alleles",
+    "parse_genomic_anchor",
+]

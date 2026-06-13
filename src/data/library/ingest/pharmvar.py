@@ -66,15 +66,13 @@ def _variant_from_row(gene: str, row: dict[str, str]) -> IngestedVariant | None:
         logger.warning("PharmVar: skipping unbuildable variant (%s): %s", row, exc)
         return None
 
-    normal_ref = "" if ref in {"-", ".", ""} else ref
-    normal_alt = "" if alt in {"-", ".", ""} else alt
     return IngestedVariant(
         gene=gene,
         g_hgvs=f"{accession}:{body}",
         accession=accession,
         pos=start,
-        ref=normal_ref or normal_alt,  # keep a non-empty REF marker for the model
-        alt=normal_alt or normal_ref,
+        ref="" if ref in {"-", ".", ""} else ref,
+        alt="" if alt in {"-", ".", ""} else alt,
     )
 
 

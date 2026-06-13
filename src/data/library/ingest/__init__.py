@@ -12,6 +12,7 @@ from src.data.library.ingest.hgvs_build import (
     genomic_hgvs,
     genomic_hgvs_body,
     hgvs_body_from_alleles,
+    parse_genomic_anchor,
 )
 from src.data.library.ingest.models import IngestedHaplotype, IngestedVariant
 
@@ -21,4 +22,5 @@ __all__ = [
     "genomic_hgvs",
     "genomic_hgvs_body",
     "hgvs_body_from_alleles",
+    "parse_genomic_anchor",
 ]

@@ -75,4 +75,33 @@ def genomic_hgvs(chrom: str, pos: int, ref: str, alt: str) -> str:
     return f"{accession}:{genomic_hgvs_body(pos, ref, alt)}"
 
 
-__all__ = ["genomic_hgvs", "genomic_hgvs_body"]
+# Tokens PharmVar (and VEP) use for an absent allele on an indel.
+_EMPTY_ALLELE = frozenset({"", "-", "."})
+
+
+def hgvs_body_from_alleles(start: int, stop: int, ref: str, alt: str) -> str:
+    """Return the ``g.``-body from explicit-allele coordinates (PharmVar style).
+
+    Unlike :func:`genomic_hgvs_body` (VCF convention, shared anchor base, trimmed),
+    here the alleles are already the *actual* changed bases with **no** anchor: an
+    absent allele is written ``-`` (deletion has no ``alt``; insertion has no
+    ``ref``, with ``start``/``stop`` the two flanking positions). Raises
+    :class:`BioinformaticsError` when both alleles are empty.
+    """
+    r = "" if ref.strip() in _EMPTY_ALLELE else ref.strip().upper()
+    a = "" if alt.strip() in _EMPTY_ALLELE else alt.strip().upper()
+    if not r and not a:
+        msg = f"both alleles empty at {start}"
+        raise BioinformaticsError(msg)
+
+    span = f"{start}" if start == stop else f"{start}_{stop}"
+    if r and a and len(r) == 1 and len(a) == 1 and start == stop:  # substitution
+        return f"g.{start}{r}>{a}"
+    if not a:  # deletion over [start, stop]
+        return f"g.{span}del"
+    if not r:  # insertion between the flanking start and stop
+        return f"g.{start}_{stop}ins{a}"
+    return f"g.{span}delins{a}"  # multi-base replacement
+
+
+__all__ = ["genomic_hgvs", "genomic_hgvs_body", "hgvs_body_from_alleles"]

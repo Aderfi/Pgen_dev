@@ -8,7 +8,11 @@ consumes only these models, so adding a format means adding an adapter, not
 touching the builder.
 """
 
-from src.data.library.ingest.hgvs_build import genomic_hgvs, genomic_hgvs_body
+from src.data.library.ingest.hgvs_build import (
+    genomic_hgvs,
+    genomic_hgvs_body,
+    hgvs_body_from_alleles,
+)
 from src.data.library.ingest.models import IngestedHaplotype, IngestedVariant
 
 __all__ = [
@@ -16,4 +20,5 @@ __all__ = [
     "IngestedVariant",
     "genomic_hgvs",
     "genomic_hgvs_body",
+    "hgvs_body_from_alleles",
 ]

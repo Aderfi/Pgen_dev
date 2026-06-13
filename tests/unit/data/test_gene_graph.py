@@ -117,3 +117,20 @@ def test_empty_gene_has_only_anchor() -> None:
     g = build_gene_graph(_GENE)
     assert g.x.shape == (1, GENE_NODE_DIM)
     assert g.edge_index.shape == (2, 0)
+
+
+def test_path_function_attached() -> None:
+    from src.data.library.haplotype_function import (
+        PATH_FUNCTION_DIM,
+        HaplotypeFunctionProvider,
+    )
+
+    provider = HaplotypeFunctionProvider({("GENEX", "4"): ("no_function", 0.0)})
+    haplos = [
+        IngestedHaplotype(gene="GENEX", label="*4", variants=(_SUB,)),
+        IngestedHaplotype(gene="GENEX", label="*9", variants=(_DEL,)),
+    ]
+    g = build_gene_graph(_GENE, haplotypes=haplos, function_provider=provider)
+    assert g.path_function["*4"][0] == 1.0  # no_function one-hot
+    assert g.path_function["*4"][5] == 1.0  # pgx_known
+    assert g.path_function["*9"] == [0.0] * PATH_FUNCTION_DIM  # unknown allele

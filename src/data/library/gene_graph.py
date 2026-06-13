@@ -28,6 +28,7 @@ import torch
 from torch_geometric.data.data import Data
 
 from src.data.library.consequence import CONSEQUENCE_DIM, consequence_vector
+from src.data.library.haplotype_function import HaplotypeFunctionProvider
 from src.data.library.protein_change import PROTEIN_CHANGE_DIM, protein_change_vector
 
 if TYPE_CHECKING:
@@ -121,14 +122,19 @@ def build_gene_graph(
     gene: GeneModel,
     variants: Iterable[IngestedVariant] = (),
     haplotypes: Iterable[IngestedHaplotype] = (),
+    *,
+    function_provider: HaplotypeFunctionProvider | None = None,
 ) -> Data:
     """Build the variant-centric variation graph for one gene.
 
     ``variants`` are standalone variants (VCF / HGVS list); ``haplotypes`` are
     named alleles whose variants also populate the graph and whose membership is
     recorded in ``data.paths`` (a reference allele maps to an empty path).
+    ``function_provider`` supplies each path's PGx function vector
+    (``data.path_function``); a null provider leaves them zero.
     """
     haplotypes = list(haplotypes)
+    functions = function_provider or HaplotypeFunctionProvider.null()
     ordered = _collect_variants(variants, haplotypes)
 
     span = max(gene.length - 1, 1)
@@ -164,6 +170,9 @@ def build_gene_graph(
     data.node_pos = node_pos
     data.node_hgvs = node_hgvs
     data.paths = paths
+    data.path_function = {
+        label: functions.vector_for(gene.symbol, label) for label in paths
+    }
     logger.debug(
         "Gene graph %s: %d variants, %d paths.", gene.symbol, len(ordered), len(paths)
     )

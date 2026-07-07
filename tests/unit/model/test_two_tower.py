@@ -22,6 +22,7 @@ PARAMS = {
 }
 GLOBAL_DIM = 1038
 ADMET_DIM = 41
+GENO_FUNCTION_DIM = 6
 TARGETS = {"phenotype_category": 5}
 
 
@@ -59,6 +60,63 @@ def _model(global_dim: int, admet_dim: int = 0):
         target_dims=TARGETS,
         params=PARAMS,
     )
+
+
+def _geno_graph_v2(*, with_function: bool) -> Data:
+    g = Data(
+        x=torch.randn(3, 30),
+        edge_index=torch.tensor([[0, 1], [1, 2]]),
+        edge_attr=torch.randn(2, 2),
+    )
+    if with_function:
+        g.geno_function = torch.randn(1, GENO_FUNCTION_DIM)
+    return g
+
+
+def _geno_model(geno_function_dim: int):
+    return create_gnn_model(
+        "TwoTowerGAT",
+        drug_config={"num_features": 61, "edge_dim": 18},
+        geno_config={
+            "num_features": 30,
+            "edge_dim": 2,
+            "global_dim": geno_function_dim,
+        },
+        target_dims=TARGETS,
+        params=PARAMS,
+    )
+
+
+class TestGenoFunctionBranch:
+    def test_forward_fuses_geno_function(self) -> None:
+        model = _geno_model(GENO_FUNCTION_DIM)
+        assert hasattr(model, "geno_global_mlp")
+        drug = Batch.from_data_list([_drug_graph(with_global=False) for _ in range(3)])
+        geno = Batch.from_data_list(
+            [_geno_graph_v2(with_function=True) for _ in range(3)]
+        )
+        out = model(drug, geno)
+        assert out["phenotype_category"].shape == (3, 5)
+
+    def test_geno_function_branch_disabled(self) -> None:
+        model = _geno_model(0)
+        assert not hasattr(model, "geno_global_mlp")
+        drug = Batch.from_data_list([_drug_graph(with_global=False) for _ in range(2)])
+        geno = Batch.from_data_list(
+            [_geno_graph_v2(with_function=False) for _ in range(2)]
+        )
+        out = model(drug, geno)
+        assert out["phenotype_category"].shape == (2, 5)
+
+    def test_missing_geno_function_raises(self) -> None:
+        model = _geno_model(GENO_FUNCTION_DIM)
+        drug = Batch.from_data_list([_drug_graph(with_global=False) for _ in range(2)])
+        # geno graphs lack ``geno_function`` → the fusion branch must complain.
+        geno = Batch.from_data_list(
+            [_geno_graph_v2(with_function=False) for _ in range(2)]
+        )
+        with pytest.raises(ValueError, match="geno_function"):
+            model(drug, geno)
 
 
 class TestGlobalBranch:

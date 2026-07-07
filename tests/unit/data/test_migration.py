@@ -28,7 +28,8 @@ def sample_df():
     return pl.DataFrame(
         {
             "drug_id": ["1001", "1002", "1003", "1001"],
-            "geno_key": ["CYP2D6_*4", "CYP2C19_*17", "DPYD_*2A", "CYP2D6_*1"],
+            "gene": ["CYP2D6", "CYP2C19", "DPYD", "CYP2D6"],
+            "genotype": ["rs3892097", "*17", "*2A", "*1"],
             "outcome": [
                 "Toxicity",
                 "Efficacy",
@@ -43,6 +44,22 @@ def sample_df():
             ],  # Multi-label
         }
     )
+
+
+class _FakeResolver:
+    """Stand-in GenotypeResolver: returns a fixed subgraph for any genotype."""
+
+    def resolve(self, gene: str, genotype: str):  # noqa: ARG002
+        from torch_geometric.data import Data
+
+        g = Data(
+            x=torch.randn(2, 30),
+            edge_index=torch.tensor([[0], [1]]),
+            edge_attr=torch.zeros(1, 2),
+        )
+        g.geno_function = torch.zeros(1, 6)
+        g.gene = gene
+        return g
 
 
 # --- TESTS DE PREPROCESAMIENTO (ENCODERS) ---
@@ -122,81 +139,79 @@ class TestEncoders:
 class TestDoubleTowerDataset:
     """Valida la carga de datos, cache y __getitem__."""
 
-    @patch("torch.load")  # Mockear carga de disco
-    @patch("pathlib.Path.exists", return_value=True)  # Mockear existencia de archivos
+    @patch("torch.load")  # Mock disk load for the drug graph
+    @patch("pathlib.Path.exists", return_value=True)
     def test_initialization_and_getitem(
         self, mock_exists, mock_torch_load, sample_df, mock_graph_data
     ):
+        from src.data.datasets import DoubleTowerDataset
 
-        # IMPORTANTE: Importa tu clase real aquí
-        # from your_module import DoubleTowerDataset
-        # Para que el test corra standalone, definiré un mock de la clase si no existe,
-        # pero tú debes usar la real.
-        try:
-            from src.data.datasets import DoubleTowerDataset  # noqa <--- AJUSTA ESTO
-        except ImportError:
-            pytest.skip("Clase DoubleTowerDataset no encontrada. Ajusta el import.")
-
-        # Configurar el Mock para que torch.load devuelva un grafo falso
         mock_torch_load.return_value = mock_graph_data
 
-        # Mock de builders de índices (para no escanear disco real)
-        with (
-            patch(
-                "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
-                return_value={"1001": Path("d1.pt")},
-            ),
-            patch(
-                "src.data.graph_indexing.GraphIndexBuilder.build_gene_variant_index",
-                return_value={"CYP2D6": {"*4": Path("g1.pt")}},
-            ),
+        # Mock only the drug index; the genotype side is served by an injected
+        # resolver, so no on-disk gene library is needed.
+        with patch(
+            "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
+            return_value={"1001": Path("d1.pt")},
         ):
-            # Instanciar Dataset
             dataset = DoubleTowerDataset(
                 df=sample_df,
                 drug_col="drug_id",
-                geno_col="geno_key",
+                geno_col="genotype",
+                gene_col="gene",
+                genotype_resolver=_FakeResolver(),
                 target_cols=["outcome", "side_effects"],
                 multilabel_cols=["side_effects"],
-                preload_ram=True,  # Probamos el preload optimizado
+                preload_ram=True,
             )
 
-            # 1. Test __len__
             assert len(dataset) == 4  # noqa
 
-            # 2. Test __getitem__ (Acceso optimizado)
             sample = dataset[0]
 
-            # Verificar claves del diccionario
             assert "drug_data" in sample
             assert "geno_data" in sample
             assert "targets" in sample
 
-            # Verificar tipos de datos (Tensores)
-            assert isinstance(sample["drug_data"], type(mock_graph_data))
+            # Genotype subgraph comes from the resolver (30-dim nodes).
+            assert sample["geno_data"].x.shape[1] == 30
             assert isinstance(sample["targets"]["outcome"], torch.Tensor)
             assert isinstance(sample["targets"]["side_effects"], torch.Tensor)
 
-            # Verificar Tipos de Tensores (Long para single, Float para multi)
             assert sample["targets"]["outcome"].dtype == torch.long
             assert sample["targets"]["side_effects"].dtype == torch.float32
 
-            print("\n✅ Dataset Test Passed: Estructuras y Tipos correctos.")
+    @patch("pathlib.Path.exists", return_value=True)
+    def test_unresolved_genotype_falls_back_to_empty(self, mock_exists, sample_df):
+        """A gene the resolver can't place yields a placeholder geno graph."""
+        from src.data.datasets import DoubleTowerDataset
+
+        class _NullResolver:
+            def resolve(self, gene, genotype):  # noqa: ARG002
+                return None
+
+        with patch(
+            "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
+            return_value={},
+        ):
+            dataset = DoubleTowerDataset(
+                df=sample_df,
+                drug_col="drug_id",
+                geno_col="genotype",
+                gene_col="gene",
+                genotype_resolver=_NullResolver(),
+                target_cols=["outcome"],
+                multilabel_cols=[],
+            )
+            geno = dataset[0]["geno_data"]
+            assert geno.x.shape == (1, 30)  # placeholder dims
+            assert geno.geno_function.shape == (1, 6)
 
     def test_polars_row_access_optimization(self, sample_df):
-        """Verifica que NO estamos usando .iloc (que no existe en Polars)."""
-        # Este test asegura que tu implementación usa listas de lookup
-
-        # Simulamos la lógica del __init__ optimizado
+        """Verifica el acceso O(1) por listas de lookup (no .iloc)."""
         lookup_drugs = sample_df["drug_id"].to_list()
-        lookup_genos = sample_df["geno_key"].to_list()
+        lookup_genos = sample_df["genotype"].to_list()
 
         idx = 1
-        # Acceso directo O(1)
-        drug_id = lookup_drugs[idx]
-        geno_id = lookup_genos[idx]
-
-        assert drug_id == "1002"
-        assert geno_id == "CYP2C19_*17"
-        # Si esto pasa, la lógica de extracción de listas funciona correctamente.
-        print("\n✅ Polars Row Access Optimization Test Passed.")
+        assert lookup_drugs[idx] == "1002"
+        assert lookup_genos[idx] == "*17"

@@ -34,12 +34,14 @@ class DoubleTowerCollater:
         """
         self.inference_mode = inference_mode
 
-        # Priority order for ID extraction
-        self.id_priority_keys = ["cid", "variant_name", "graph_id", "name"]
+        # Priority order for ID extraction (``gene`` identifies genotype graphs)
+        self.id_priority_keys = ["cid", "gene", "variant_name", "graph_id", "name"]
 
-        # Keys to remove (string attributes incompatible with batching)
+        # Keys to remove (string / non-tensor attrs incompatible with batching)
         self.keys_to_sanitize = [
             "cid",
+            "gene",
+            "labels",
             "variant_name",
             "name",
             "smiles",

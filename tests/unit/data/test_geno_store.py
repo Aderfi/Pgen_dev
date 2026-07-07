@@ -115,3 +115,28 @@ def test_encode_variants_ad_hoc_path(library: GenoLibrary) -> None:
 def test_encode_variants_drops_unknown(library: GenoLibrary) -> None:
     data = library.encode_variants("GENEX", ["NC_000022.11:g.999A>G"])
     assert data.x.shape == (1, GENE_NODE_DIM)  # only the anchor survives
+
+
+def test_rsid_bridge_persisted(library: GenoLibrary, tmp_path: Path) -> None:
+    lib = GenoLibrary(
+        {g: library.get(g) for g in library.genes},
+        rsid_to_hgvs={"rs150": "NC_000022.11:g.150C>T"},
+    )
+    path = tmp_path / "geno_graphs.pt"
+    lib.save(path)
+    reloaded = GenoLibrary.load(path)
+    assert reloaded.rsid_to_hgvs == {"rs150": "NC_000022.11:g.150C>T"}
+
+
+def test_resolver_routes_star_and_rsid(library: GenoLibrary) -> None:
+    lib = GenoLibrary(
+        {g: library.get(g) for g in library.genes},
+        rsid_to_hgvs={"rs150": "NC_000022.11:g.150C>T"},
+    )
+    resolver = lib.resolver()
+    # Star label → path encode (anchor + 2 nodes of *4).
+    assert resolver.resolve("GENEX", "*4").x.shape == (3, GENE_NODE_DIM)
+    # rsID → HGVS → ad-hoc variant encode (anchor + 1 node).
+    assert resolver.resolve("GENEX", "rs150").x.shape == (2, GENE_NODE_DIM)
+    # Unknown gene → None.
+    assert resolver.resolve("NOPE", "*1") is None

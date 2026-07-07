@@ -20,7 +20,7 @@ import logging
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import joblib
 import polars as pl
@@ -34,13 +34,19 @@ from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
 from src.data.encoders import UNKNOWN_CATEGORY_LABEL
+from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
+    GENE_COLUMN,
+    GENO_LIBRARY_FILE,
     build_gnn_model,
     extract_tower_dims,
     resolve_device,
 )
+
+if TYPE_CHECKING:
+    from src.data.library.genotype_resolver import GenotypeResolver
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +82,7 @@ class PGenPredictor:
             self._load_training_artifacts()
         )
         self.cleaner = PharmacogenomicCleaner(multi_label_cols=self.multi_label_cols)
+        self._resolver: GenotypeResolver | None = None
         self.collater = DoubleTowerCollater(inference_mode=True)
 
         self.model = self._load_model()
@@ -171,6 +178,19 @@ class PGenPredictor:
 
         return model
 
+    @property
+    def resolver(self) -> GenotypeResolver:
+        """Lazily load the genotype library + resolver on first prediction.
+
+        Kept out of ``__init__`` so constructing a predictor (e.g. for a health
+        check or artifact inspection) doesn't require the on-disk gene library.
+        """
+        if self._resolver is None:
+            self._resolver = GenoLibrary.load(
+                get_settings().paths.library / GENO_LIBRARY_FILE
+            ).resolver()
+        return self._resolver
+
     # ----- input normalization -------------------------------------------- #
 
     def _input_to_dataframe(self, sample: Mapping[str, Any]) -> pl.DataFrame:
@@ -186,7 +206,7 @@ class PGenPredictor:
         alleles = normalized.get("alleles", "")
 
         # API-style single inputs collapse gene + allele into a single label
-        # like "CYP2D6*1"; split it back out so the cleaner can build geno_key.
+        # like "CYP2D6*1"; split it back out so the resolver keys (gene, genotype).
         if not gene and isinstance(genotype, str):
             match = _STAR_ALLELE_RE.match(genotype.strip())
             if match:
@@ -223,6 +243,8 @@ class PGenPredictor:
             geno_col=self.feature_cols[1],
             target_cols=[],  # no target encoding needed at inference
             multilabel_cols=set(),
+            gene_col=GENE_COLUMN,
+            genotype_resolver=self.resolver,
             preload_ram=False,
             input_dimensions=self.dims,
             inference_mode=True,

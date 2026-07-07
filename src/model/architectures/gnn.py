@@ -286,14 +286,15 @@ class PharmagenTwoTower(nn.Module):
             batch=geno_data.batch,
         )
 
-        # Fuse the per-variant functional profile (PGx function + pathogenicity)
-        # into the genotype embedding — the causal signal the topology graph lacks.
+        # Fuse the graph-level PGx function vector (``geno_function``) into the
+        # genotype embedding — the causal signal the topology graph lacks.
+        # (Consequence + protein-change now live in the per-node features.)
         if self.geno_global_dim > 0:
-            geno_global_feats = self._require_graph_attr(
-                geno_data, "geno_global_feats", self.geno_global_dim
+            geno_function = self._require_graph_attr(
+                geno_data, "geno_function", self.geno_global_dim
             )
             geno_emb = self.geno_fuse(
-                cat([geno_emb, self.geno_global_mlp(geno_global_feats)], dim=1)
+                cat([geno_emb, self.geno_global_mlp(geno_function)], dim=1)
             )
 
         combined = cat([drug_emb, geno_emb], dim=1)

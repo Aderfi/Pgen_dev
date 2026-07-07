@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
 
+    from src.data.library.genotype_resolver import GenotypeResolver
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 1
@@ -44,8 +46,13 @@ def _mean_vectors(vectors: Sequence[list[float]]) -> list[float]:
 class GenoLibrary:
     """In-memory genotype library: ``gene -> per-gene variation graph``."""
 
-    def __init__(self, graphs: dict[str, Data]) -> None:
+    def __init__(
+        self,
+        graphs: dict[str, Data],
+        rsid_to_hgvs: dict[str, str] | None = None,
+    ) -> None:
         self._graphs = graphs
+        self.rsid_to_hgvs = rsid_to_hgvs or {}
 
     def __contains__(self, gene: str) -> bool:
         return gene in self._graphs
@@ -67,17 +74,42 @@ class GenoLibrary:
 
     # ----- persistence ----------------------------------------------------- #
 
+    def resolver(self) -> GenotypeResolver:
+        """Build a :class:`GenotypeResolver` over this library + its rsID bridge."""
+        from src.data.library.genotype_resolver import GenotypeResolver
+
+        return GenotypeResolver(self, self.rsid_to_hgvs)
+
+    # ----- persistence ----------------------------------------------------- #
+
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"version": _SCHEMA_VERSION, "graphs": self._graphs}, path)
-        logger.info("GenoLibrary: saved %d gene graphs to %s", len(self._graphs), path)
+        torch.save(
+            {
+                "version": _SCHEMA_VERSION,
+                "graphs": self._graphs,
+                "rsid_to_hgvs": self.rsid_to_hgvs,
+            },
+            path,
+        )
+        logger.info(
+            "GenoLibrary: saved %d gene graphs (+%d rsID bridges) to %s",
+            len(self._graphs),
+            len(self.rsid_to_hgvs),
+            path,
+        )
 
     @classmethod
     def load(cls, path: Path) -> GenoLibrary:
         blob = torch.load(path, map_location="cpu", weights_only=False)
-        graphs = blob["graphs"] if isinstance(blob, dict) and "graphs" in blob else blob
+        if isinstance(blob, dict) and "graphs" in blob:
+            graphs = blob["graphs"]
+            rsid_to_hgvs = blob.get("rsid_to_hgvs", {})
+        else:  # legacy: bare {gene: Data}
+            graphs = blob
+            rsid_to_hgvs = {}
         logger.info("GenoLibrary: loaded %d gene graphs from %s", len(graphs), path)
-        return cls(graphs)
+        return cls(graphs, rsid_to_hgvs)
 
     # ----- encoding -------------------------------------------------------- #
 

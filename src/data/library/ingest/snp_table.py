@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 _REQUIRED = ("gene", "chr", "start_pos", "Ref_Allele", "Alt_Allele")
 # Allele tokens that mean "no call" — skipped silently (not malformed rows).
 _MISSING_ALLELE = frozenset({"", "N/A", "NA", "."})
+# dbSNP rsID column (rs-prefixed) used to bridge legacy rsID genotypes to HGVS.
+_RSID_COL = "snp"
 
 
 def iter_variants_from_snp_table(path: Path) -> Iterator[IngestedVariant]:
@@ -66,4 +68,42 @@ def iter_variants_from_snp_table(path: Path) -> Iterator[IngestedVariant]:
         )
 
 
-__all__ = ["iter_variants_from_snp_table"]
+def rsid_hgvs_index(path: Path) -> dict[str, str]:
+    """Map dbSNP ``rsID`` → genomic HGVS, scanned from the SNP table.
+
+    The broad-coverage counterpart to :func:`pharmvar.rsid_hgvs_index`: the SNP
+    table carries the long tail of non-PharmVar genes, so it resolves most of the
+    rsID-based training genotypes. rsIDs are globally unique; the first occurrence
+    wins. Rows without an rsID or with a no-call allele are skipped.
+    """
+    frame = pl.read_csv(path, separator="\t", infer_schema_length=0)
+    missing = [c for c in _REQUIRED if c not in frame.columns]
+    if missing:
+        msg = f"SNP table {path} missing columns {missing}"
+        raise BioinformaticsError(msg)
+    if _RSID_COL not in frame.columns:
+        logger.warning(
+            "SNP table %s missing '%s' column — no rsID index", path, _RSID_COL
+        )
+        return {}
+
+    index: dict[str, str] = {}
+    for row in frame.iter_rows(named=True):
+        rsid = (row.get(_RSID_COL) or "").strip()
+        if not rsid or rsid in index:
+            continue
+        chrom = (row.get("chr") or "").strip()
+        pos_raw = (row.get("start_pos") or "").strip()
+        ref = (row.get("Ref_Allele") or "").strip()
+        alt = (row.get("Alt_Allele") or "").strip()
+        if not chrom or not pos_raw or ref in _MISSING_ALLELE or alt in _MISSING_ALLELE:
+            continue
+        try:
+            index[rsid] = genomic_hgvs(chrom, int(pos_raw), ref, alt)
+        except BioinformaticsError, ValueError:
+            continue
+    logger.info("SNP table: built rsID->HGVS index of %d entries", len(index))
+    return index
+
+
+__all__ = ["iter_variants_from_snp_table", "rsid_hgvs_index"]

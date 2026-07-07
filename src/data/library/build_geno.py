@@ -33,12 +33,15 @@ def build_geno_library(
     variants: Iterable[IngestedVariant] = (),
     haplotypes: Iterable[IngestedHaplotype] = (),
     function_provider: HaplotypeFunctionProvider | None = None,
+    rsid_to_hgvs: dict[str, str] | None = None,
 ) -> GenoLibrary:
     """Assemble per-gene variation graphs into a single :class:`GenoLibrary`.
 
     ``variants`` and ``haplotypes`` are grouped by gene; each gene present in the
     ``annotation`` becomes a graph (others are skipped). ``function_provider``
-    supplies per-path PGx function (null when omitted).
+    supplies per-path PGx function (null when omitted). ``rsid_to_hgvs`` is the
+    rsID → genomic-HGVS bridge stored with the library so rsID-based genotypes
+    resolve to variant nodes at train/inference time.
     """
     variants_by_gene: dict[str, list[IngestedVariant]] = defaultdict(list)
     for variant in variants:
@@ -67,7 +70,7 @@ def build_geno_library(
         len(graphs),
         skipped,
     )
-    return GenoLibrary(graphs)  # type: ignore[arg-type]
+    return GenoLibrary(graphs, rsid_to_hgvs=rsid_to_hgvs or {})  # type: ignore[arg-type]
 
 
 def build_geno_library_from_settings(
@@ -88,9 +91,10 @@ def build_geno_library_from_settings(
     paths = get_settings().paths
     allow = {str(g) for g in genes} if genes is not None else None
 
+    pharmvar_dir = paths.data / "haplotype_variants"
     haplotypes = [
         h
-        for h in pharmvar.iter_haplotypes(paths.data / "haplotype_variants")
+        for h in pharmvar.iter_haplotypes(pharmvar_dir)
         if allow is None or h.gene in allow
     ]
     snp_path = paths.data / "snp_data_output.tsv"
@@ -103,6 +107,11 @@ def build_geno_library_from_settings(
         if snp_path.exists()
         else []
     )
+
+    # rsID → HGVS bridge: SNP table (broad, long tail) overlaid with PharmVar
+    # (PGx genes). PharmVar wins on conflict (curated).
+    rsid_to_hgvs = snp_table.rsid_hgvs_index(snp_path) if snp_path.exists() else {}
+    rsid_to_hgvs.update(pharmvar.rsid_hgvs_index(pharmvar_dir))
 
     needed = {h.gene for h in haplotypes} | {v.gene for v in variants if v.gene}
     annotation = GeneAnnotation.from_gff(paths.ref_genome_gff, genes=needed)
@@ -118,6 +127,7 @@ def build_geno_library_from_settings(
         variants=variants,
         haplotypes=haplotypes,
         function_provider=functions,
+        rsid_to_hgvs=rsid_to_hgvs,
     )
     if save:
         library.save(_library_path(paths.library))

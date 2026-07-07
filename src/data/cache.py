@@ -1,8 +1,11 @@
 """Graph cache + empty-graph generator extracted from ``DoubleTowerDataset``.
 
-A ``GraphCache`` owns the in-memory copies of drug + variant ``Data`` objects
-and the on-disk lookup logic. The dataset becomes a thin orchestrator that
-asks the cache for ``get_drug(id)`` / ``get_variant(key)``.
+A ``GraphCache`` owns the in-memory copies of drug ``Data`` objects and the
+on-disk lookup logic. The dataset asks the cache for ``get_drug(id)``. The
+genotype side no longer goes through this cache — it is resolved on demand from
+the single-file ``GenoLibrary`` via ``GenotypeResolver`` — so the cache is
+drug-only; only the geno *placeholder* (``make_empty_graph('geno', …)``) lives
+here, for rows whose ``(gene, genotype)`` doesn't resolve.
 
 Why split:
     - Easier to swap caching strategy (LRU, on-GPU, sharded by worker, …).
@@ -46,9 +49,9 @@ class GraphDims:
     drug_edges: int = 18
     drug_global: int = 1038  # per-molecule descriptor vector (drugs only)
     drug_admet: int = 41  # predicted ADMET/CYP profile (drugs only)
-    geno_features: int = 9
-    geno_edges: int = 3
-    geno_global: int = 27  # per-variant functional profile (genes only)
+    geno_features: int = 30  # GENE_NODE_DIM: struct[9] + consequence[13] + protein[8]
+    geno_edges: int = 2  # GENE_EDGE_DIM
+    geno_function: int = 6  # graph-level PGx function vector (PATH_FUNCTION_DIM)
 
 
 def make_empty_graph(
@@ -88,10 +91,10 @@ def make_empty_graph(
         data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
         data.admet_feats = torch.zeros((1, d.drug_admet), dtype=torch.float)
     if kind == "geno":
-        # Match the functional vector real variant graphs carry, so a missing
-        # variant never breaks batching of the ``geno_global_feats`` attr.
-        data.geno_global_feats = torch.zeros((1, d.geno_global), dtype=torch.float)
-        data.variant_name = str(graph_id)
+        # Match the graph-level PGx-function vector real gene subgraphs carry, so
+        # an unresolved (gene, genotype) never breaks batching of ``geno_function``.
+        data.geno_function = torch.zeros((1, d.geno_function), dtype=torch.float)
+        data.gene = str(graph_id)
     return _sanitize(data)
 
 
@@ -110,35 +113,28 @@ _GC_INTERVAL = 1000  # how often to gc.collect() during a mass preload
 
 
 class GraphCache:
-    """In-RAM cache over the on-disk graph library.
+    """In-RAM cache over the on-disk **drug** graph library.
 
-    Holds two indices (drug and variant) plus per-kind dicts of loaded
-    ``Data`` objects. ``inference_mode`` controls whether identifying
-    metadata (cid, name, smiles, variant_name) is preserved on returned
-    graphs — training drops it (clutters batches), inference keeps it.
+    Holds the drug index plus a dict of loaded ``Data`` objects.
+    ``inference_mode`` controls whether identifying metadata (cid, name,
+    smiles) is preserved on returned graphs — training drops it (clutters
+    batches), inference keeps it. The genotype tower is served by
+    ``GenotypeResolver`` + ``GenoLibrary``, not by this cache.
     """
 
     def __init__(
         self,
         drug_index: dict[str, Path],
-        variant_index: dict[str, dict[str, Path]],
         *,
         dims: GraphDims | None = None,
         inference_mode: bool = False,
     ) -> None:
         self.drug_index = drug_index
-        self.variant_index = variant_index
         self.dims = dims or GraphDims()
         self.inference_mode = inference_mode
 
         self._drug_cache: dict[str, Data] = {}
-        self._geno_cache: dict[str, Data] = {}
-        self._stats = {
-            "drug_hits": 0,
-            "drug_misses": 0,
-            "geno_hits": 0,
-            "geno_misses": 0,
-        }
+        self._stats = {"drug_hits": 0, "drug_misses": 0}
 
     # ----- lookup ---------------------------------------------------------- #
 
@@ -149,19 +145,6 @@ class GraphCache:
             key=drug_id,
             path=self.drug_index.get(drug_id),
             kind="drug",
-        )
-
-    def get_variant(self, variant_key: str) -> Data:
-        """Return the variant graph for a ``GENE_<variant>`` key."""
-        path: Path | None = None
-        if "_" in variant_key:
-            gene, variant = variant_key.split("_", 1)
-            path = self.variant_index.get(gene, {}).get(variant)
-        return self._get(
-            cache=self._geno_cache,
-            key=variant_key,
-            path=path,
-            kind="geno",
         )
 
     def _get(
@@ -192,7 +175,7 @@ class GraphCache:
                     data.cid = str(key)
             else:
                 # Strip metadata in training mode — it confuses PyG batching.
-                for attr in ("cid", "name", "smiles", "variant_name"):
+                for attr in ("cid", "name", "smiles"):
                     if hasattr(data, attr):
                         delattr(data, attr)
             return _sanitize(data)
@@ -216,43 +199,18 @@ class GraphCache:
             if i and i % _GC_INTERVAL == 0:
                 gc.collect()
 
-    def preload_variants(self, variant_keys: Iterable[str]) -> None:
-        for i, key in enumerate(variant_keys):
-            if "_" not in key:
-                continue
-            gene, variant = key.split("_", 1)
-            path = self.variant_index.get(gene, {}).get(variant)
-            if path is None:
-                continue
-            try:
-                self._geno_cache[key] = torch.load(
-                    path, map_location="cpu", weights_only=False
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Failed to preload variant %s: %s", key, e)
-            if i and i % _GC_INTERVAL == 0:
-                gc.collect()
-
     # ----- diagnostics ----------------------------------------------------- #
 
     @property
     def cached_drug_count(self) -> int:
         return len(self._drug_cache)
 
-    @property
-    def cached_variant_count(self) -> int:
-        return len(self._geno_cache)
-
     def stats(self) -> dict[str, int | float]:
-        """Return raw counters and hit rates for both kinds."""
+        """Return raw drug counters and hit rate."""
         total_drug = self._stats["drug_hits"] + self._stats["drug_misses"]
-        total_geno = self._stats["geno_hits"] + self._stats["geno_misses"]
         return {
             **self._stats,
             "drug_hit_rate": self._stats["drug_hits"] / total_drug
             if total_drug
-            else 0.0,
-            "geno_hit_rate": self._stats["geno_hits"] / total_geno
-            if total_geno
             else 0.0,
         }

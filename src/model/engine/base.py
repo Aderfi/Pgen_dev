@@ -36,6 +36,7 @@ from src.core import (
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
+from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
 from src.model.architectures.layers import create_gnn_model
 
@@ -45,6 +46,8 @@ logger = logging.getLogger(__name__)
 PRELOAD_THRESHOLD = 10_000
 DEFAULT_NUM_WORKERS = 4
 MIN_DATASET_SIZE = 100
+GENE_COLUMN = "gene"
+GENO_LIBRARY_FILE = "geno_graphs.pt"
 
 
 # --------------------------------------------------------------------------- #
@@ -88,10 +91,10 @@ def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
             "admet": extras.get("drug_admet_features", 41),
         },
         "geno": {
-            "features": extras.get("geno_node_features", 9),
-            "edges": extras.get("geno_attrs_features", 3),
+            "features": extras.get("geno_node_features", 30),
+            "edges": extras.get("geno_attrs_features", 2),
             "attrs": extras.get("haplo_in_attributes", 0),
-            "global": extras.get("geno_global_features", 27),
+            "function": extras.get("geno_function_features", 6),
         },
     }
     for tower, sub in dims.items():
@@ -190,12 +193,20 @@ def build_two_tower_datasets(
 
     multi_label_cols = list(get_settings().multi_label_set)
 
+    # Load the single-file genotype library once and share the resolver across
+    # both datasets so there is a single in-RAM copy of the gene graphs.
+    resolver = GenoLibrary.load(
+        get_settings().paths.library / GENO_LIBRARY_FILE
+    ).resolver()
+
     train_dataset = DoubleTowerDataset(
         df=train_df,
         drug_col=cfg.features[0],
         geno_col=cfg.features[1],
         target_cols=cfg.targets,
         multilabel_cols=multi_label_cols,
+        gene_col=GENE_COLUMN,
+        genotype_resolver=resolver,
         preload_ram=preload_ram,
         input_dimensions=dims,
     )
@@ -207,6 +218,8 @@ def build_two_tower_datasets(
         target_cols=cfg.targets,
         multilabel_cols=multi_label_cols,
         encoders=train_dataset.target_encoder.encoders,
+        gene_col=GENE_COLUMN,
+        genotype_resolver=resolver,
         preload_ram=preload_ram,
         input_dimensions=dims,
     )
@@ -312,7 +325,9 @@ def build_gnn_model(
     geno_config = {
         "num_features": geno_dim,
         "edge_dim": dims["geno"]["edges"],
-        "global_dim": dims["geno"].get("global", 0),
+        # The geno tower's aux "global" branch is fed the graph-level PGx
+        # function vector (``geno_function``).
+        "global_dim": dims["geno"].get("function", 0),
     }
     try:
         model = create_gnn_model(

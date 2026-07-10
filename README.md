@@ -23,6 +23,32 @@ type. The active architecture is a **Two-Tower Graph Neural Network** built on
 
 ---
 
+## Project status & roadmap
+
+Pharmagen is evolving from a research prototype into maintainable, deployable
+software. Two tracks run in parallel:
+
+**v1 — research prototype (complete).**
+A hybrid neural network (Factorization Machines + Transformers with attention)
+trained on ClinPGx and dbSNP. It validated the core hypothesis and defined the
+problem — while also exposing evaluation pitfalls (data-handling assumptions
+that likely inflated early metrics), which directly motivate the rigorous,
+leakage-aware evaluation planned for v2.
+
+**v2 — current (Beta).** Two concurrent efforts:
+
+- **Scientific — graph architecture.** Migration to a Two-Tower **GATv2** GNN
+  (PyTorch Geometric): drug-molecule graphs (RDKit) and variant-topology graphs,
+  capturing structure the v1 feature engineering could not.
+- **Engineering — production hardening.** A full refactor to industry standards
+  the first version lacked: typed data models (Pydantic v2) at every boundary,
+  a FastAPI inference service, reproducible workflows, CI (ruff + pytest),
+  `uv`-managed dependencies, and a rigorous, leakage-aware evaluation protocol.
+  Turning a working experiment into software others can build on.
+
+> The v1 prototype proved the science; v2 is about making it robust,
+> reproducible, and deployable.
+
 ## Key features
 
 - **Two-Tower GATv2 GNN** — attention-based encoders over drug-molecule and

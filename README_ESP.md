@@ -25,6 +25,35 @@ de Grafos Two-Tower** basada en **GATv2** (PyTorch Geometric):
 
 ---
 
+## Estado del proyecto y hoja de ruta
+
+Pharmagen está evolucionando de prototipo de investigación a software
+mantenible y desplegable. Avanzan dos líneas en paralelo:
+
+**v1 — prototipo de investigación (completado).**
+Red neuronal híbrida (Factorization Machines + Transformers con mecanismo de
+atención) entrenada con ClinPGx y dbSNP. Validó la hipótesis central y definió
+el problema — y a la vez sacó a la luz problemas de evaluación (asunciones en el
+tratamiento de los datos que probablemente inflaron las primeras métricas), que
+motivan directamente el protocolo de evaluación riguroso y sin fugas previsto
+para la v2.
+
+**v2 — actual (Beta).** Dos frentes simultáneos:
+
+- **Científico — arquitectura de grafos.** Migración a una GNN Two-Tower
+  **GATv2** (PyTorch Geometric): grafos de moléculas de fármacos (RDKit) y grafos
+  de topología de variantes, capturando estructura que la ingeniería de
+  características de la v1 no podía representar.
+- **Ingeniería — endurecimiento a producción.** Refactorización completa hacia
+  los estándares de industria que la primera versión no tenía: modelos de datos
+  tipados (Pydantic v2) en cada frontera, un servicio de inferencia con FastAPI,
+  workflows reproducibles, CI (ruff + pytest), dependencias gestionadas con `uv`
+  y un protocolo de evaluación riguroso y sin fugas de datos. Convertir un
+  experimento funcional en software sobre el que otros pueden construir.
+
+> El prototipo v1 demostró la ciencia; la v2 se centra en hacerla robusta,
+> reproducible y desplegable.
+
 ## Características principales
 
 - **GNN Two-Tower con GATv2** — codificadores basados en atención sobre

@@ -107,10 +107,7 @@ class GraphTower(nn.Module):
 
         for conv, norm in zip(self.convs, self.norms):
             h = norm(x, batch)
-            if edge_attr is not None:
-                h = conv(h, edge_index, edge_attr=edge_attr)
-            else:
-                h = conv(h, edge_index)
+            h = conv(h, edge_index, edge_attr=edge_attr)
             h = F.elu(h)
             h = F.dropout(h, p=self.dropout, training=self.training)
             x = x + h  # identity residual: widths match by construction

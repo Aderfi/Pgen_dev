@@ -3,18 +3,17 @@ import torch
 from src.model.architectures.towers.graph_tower import GraphTower
 
 
-def _tiny_graph(feat_dim=6, edge_dim=None):
+def _tiny_graph(feat_dim=6):
     x = torch.randn(4, feat_dim)
     edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]])
     batch = torch.zeros(4, dtype=torch.long)
-    edge_attr = torch.randn(3, edge_dim) if edge_dim is not None else None
-    return x, edge_index, edge_attr, batch
+    return x, edge_index, batch
 
 
 def test_graph_tower_gine_output_shapes():
-    tower = GraphTower(6, 16, 8, conv_type="gine", num_layers=2, edge_dim=4)
-    x, edge_index, edge_attr, batch = _tiny_graph(edge_dim=4)
-    node_emb, graph_emb = tower(x, edge_index, edge_attr, batch)
+    tower = GraphTower(6, 16, 8, conv_type="gine", num_layers=2, edge_dim=None)
+    x, edge_index, batch = _tiny_graph()
+    node_emb, graph_emb = tower(x, edge_index, None, batch)
     assert node_emb.shape == (4, 8)
     assert graph_emb.shape == (1, 8)
 

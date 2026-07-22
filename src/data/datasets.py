@@ -251,6 +251,15 @@ class DoubleTowerDataset(Dataset):
         its precomputed ``global_feats`` descriptor, not an atom-level graph
         run through the drug tower — full two-level atom -> molecule ->
         patient batching is left for a later phase.
+
+        WARNING: the emitted ``PolyData`` is NOT yet consumable by
+        ``PharmagenTwoTower.forward`` under a realistic config: the descriptor
+        lives in ``x`` (not in a ``global_feats`` attribute), and ``x`` has the
+        molecule-descriptor width, not ``drug_in_features``. Wiring this through
+        the model requires the deferred two-level batching (or a
+        molecule-descriptor-only forward path). Until then this builds a
+        correctly *collatable* structure (the DDI-offset contract) but not a
+        model-ready batch. The polypharmacy switches stay OFF by default.
         """
         builder = self.pseudo_patient_builder
         assert builder is not None  # narrows for type checkers; guarded by caller

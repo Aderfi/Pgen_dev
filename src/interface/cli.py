@@ -59,8 +59,9 @@ def _select_model() -> str:
 
     ConsoleIO.print_divider()
     ConsoleIO.print_info("Available Models:")
-    for i, m in enumerate(models, 1):
-        print(f"  {i}. {m}")
+
+    print(f" {i}. {m}" for i, m in enumerate(models, 1))
+
     ConsoleIO.print_divider()
 
     model_idx = ConsoleIO.input_int("Select model", min_val=1, max_val=len(models))

@@ -8,7 +8,6 @@ tensorization).
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Set
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +22,8 @@ from src.data.graph_indexing import GraphIndexBuilder
 from src.data.library.geno_store import GenoLibrary
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Set
+
     from src.data.library.genotype_resolver import GenotypeResolver
 
 logger = logging.getLogger(__name__)

@@ -4,11 +4,13 @@ Handles metadata cleaning and efficient batching for PyG Data objects.
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch_geometric.data.batch import Batch
-from torch_geometric.data.data import Data
+
+if TYPE_CHECKING:
+    from torch_geometric.data.data import Data
 
 logger = logging.getLogger(__name__)
 

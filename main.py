@@ -76,6 +76,56 @@ logger = logging.getLogger("Pharmagen")
 
 
 def arguments_parser() -> argparse.ArgumentParser:
+
+    ARGS_DICT = {
+        "--mode": {
+            "type": str,
+            "choices": ["train", "predict", "menu"],
+            "default": "menu",
+            "help": "Execution mode:  train, predict, or interactive menu (default: menu)",
+        },
+        "--model": {
+            "type": str,
+            "default": "TwoTowerGAT",
+            "help": "Model name for training/prediction (default: TwoTowerGAT)",
+        },
+        "--input": {
+            "type": Path,
+            "default": Path("train_data/train_data.tsv"),
+            "help": "Input data file path (CSV/TSV) (default: train_data/train_data.tsv)",
+        },
+        "--epochs": {
+            "type": int,
+            "default": 100,
+            "metavar": "N",
+            "help": "Number of training epochs (default: 100)",
+        },
+        "--verbose": {
+            "action": "store_true",
+            "help": "Enable verbose output (INFO level logging)",
+        },
+        "--debug": {
+            "action": "store_true",
+            "help": "Enable debug output (DEBUG level logging)",
+        },
+        "--optuna": {
+            "action": "store_true",
+            "help": "Use Optuna for hyperparameter optimization (only in train mode)",
+        },
+        "--optuna-trials": {
+            "type": int,
+            "default": 100,
+            "metavar": "N",
+            "help": "Number of Optuna trials (default: 100)",
+        },
+        "--optuna-epochs": {
+            "type": int,
+            "default": 50,
+            "metavar": "N",
+            "help": "Number of epochs per Optuna trial (default: 50)",
+        },
+    }
+
     parser = argparse.ArgumentParser(
         description="Pharmagen CLI Manager",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -95,73 +145,8 @@ def arguments_parser() -> argparse.ArgumentParser:
             """,
     )
 
-    parser.add_argument(
-        "--mode",
-        "-m",
-        type=str,
-        choices=["train", "predict", "menu"],
-        default="menu",
-        help="Execution mode:  train, predict, or interactive menu (default: menu)",
-    )
-
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="TwoTowerGAT",
-        help="Model name for training/prediction (default: TwoTowerGAT)",
-    )
-
-    parser.add_argument(
-        "--input",
-        type=Path,
-        default=Path("train_data/train_data.tsv"),
-        help="Input data file path (CSV/TSV) (default: train_data/train_data.tsv)",
-    )
-
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=100,
-        metavar="N",
-        help="Number of training epochs (default: 100)",
-    )
-
-    parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose output (INFO level logging)",
-    )
-
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug output (DEBUG level logging)",
-    )
-
-    parser.add_argument(
-        "--optuna",
-        "-opt",
-        action="store_true",
-        help="Use Optuna for hyperparameter optimization (only in train mode)",
-    )
-
-    parser.add_argument(
-        "--optuna-trials",
-        type=int,
-        default=100,
-        metavar="N",
-        help="Number of Optuna trials (default: 100)",
-    )
-
-    parser.add_argument(
-        "--optuna-epochs",
-        type=int,
-        default=50,
-        metavar="N",
-        help="Number of epochs per Optuna trial (default: 50)",
-    )
-
+    for arg, params in ARGS_DICT.items():
+        parser.add_argument(arg, **params)
     return parser
 
 

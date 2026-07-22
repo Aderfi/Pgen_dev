@@ -1,8 +1,9 @@
-from typing import Any
-
-from torch import nn
+from typing import TYPE_CHECKING, Any
 
 from .gnn import PharmagenTwoTower
+
+if TYPE_CHECKING:
+    from torch import nn
 
 
 def create_gnn_model(

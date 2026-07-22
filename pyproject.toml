@@ -81,10 +81,9 @@ dependencies = [
     "joblib>=1.5.0",
     "tqdm",
     # Deep learning — CUDA 13.0 wheels routed via [tool.uv.sources]
-    "torch==2.11.0",
-    "torchvision==0.26.0",
-    "torchaudio==2.11.0",
-    "torch_geometric>=2.6.0",
+    "torch==2.12.1",
+    "torchvision==0.27.1",
+    "torch-geometric>=2.6.0",
     "pyg_lib",
     "torch_scatter",
     "torch_sparse",
@@ -101,6 +100,7 @@ dependencies = [
     "requests>=2.32.0",
     "matplotlib>=3.10.0",
     "admet-ai>=2.0.1",
+    "graphifyy>=0.9.3",
 ]
 
 [project.optional-dependencies]
@@ -127,20 +127,19 @@ Documentation = "https://github.com/Aderfi/Pharmagen_development/blob/main/READM
 # index keyed by the exact torch+CUDA build. Both indexes are `explicit`,
 # so they are only consulted for the packages mapped in [tool.uv.sources].
 [[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true
 
 [[tool.uv.index]]
 name = "pyg"
-url = "https://data.pyg.org/whl/torch-2.11.0+cu130.html"
+url = "https://data.pyg.org/whl/torch-2.12.0+cu132.html"
 format = "flat"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu130" }
-torchvision = { index = "pytorch-cu130" }
-torchaudio = { index = "pytorch-cu130" }
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
 pyg_lib = { index = "pyg" }
 torch_scatter = { index = "pyg" }
 torch_sparse = { index = "pyg" }

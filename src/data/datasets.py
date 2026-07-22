@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
+import torch
 from torch.utils.data import Dataset
 
 from src.config import get_settings
 from src.core import DataError
 from src.data.cache import GraphCache, GraphDims, make_empty_graph
+from src.data.collator import PolyData
 from src.data.encoders import TargetEncoder
 from src.data.graph_indexing import GraphIndexBuilder
 from src.data.library.geno_store import GenoLibrary
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Set
 
     from src.data.library.genotype_resolver import GenotypeResolver
+    from src.data.polypharmacy import PseudoPatientBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +113,18 @@ class DoubleTowerDataset(Dataset):
         input_dimensions: Legacy nested-dict dim spec; converts to ``GraphDims``.
         type_data: Unused, kept for back-compat.
         inference_mode: If True, preserves identifying metadata on returned graphs.
+        pseudo_patient_builder: Optional ``PseudoPatientBuilder``. When given,
+            ``__getitem__`` returns a molecule-level polypharmacy drug graph
+            (focal drug + kept DDI neighbours as a :class:`~src.data.collator.PolyData`)
+            instead of the single-molecule drug graph. When omitted (the
+            default), behaviour is unchanged — single-molecule path only.
+
+            NOTE: this emits one row per molecule using each molecule's
+            precomputed ``global_feats`` descriptor, not a full atom-level
+            encoding of every molecule. Wiring the true two-level
+            atom -> molecule -> patient batching (running the atom-level
+            drug-tower GNN per molecule, then this poly graph over the
+            resulting molecule embeddings) is deferred to a later phase.
     """
 
     def __init__(
@@ -127,6 +142,7 @@ class DoubleTowerDataset(Dataset):
         input_dimensions: dict[str, dict[str, int]] | None = None,
         type_data: str | None = None,  # noqa: ARG002 (legacy arg)
         inference_mode: bool = False,
+        pseudo_patient_builder: PseudoPatientBuilder | None = None,
     ) -> None:
         # 1. Frame
         if isinstance(df, pl.LazyFrame):
@@ -155,6 +171,7 @@ class DoubleTowerDataset(Dataset):
         self.target_cols = target_cols
         self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
         self.inference_mode = inference_mode
+        self.pseudo_patient_builder = pseudo_patient_builder
 
         # 2. Drug index + cache
         drug_index = GraphIndexBuilder.build_drug_index(drug_lib)
@@ -207,7 +224,11 @@ class DoubleTowerDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        drug = self.cache.get_drug(str(self.lookup_drugs[idx]))
+        drug_cid = str(self.lookup_drugs[idx])
+        if self.pseudo_patient_builder is not None:
+            drug = self._build_poly_drug_data(drug_cid)
+        else:
+            drug = self.cache.get_drug(drug_cid)
         gene = str(self.lookup_genes[idx])
         genotype = str(self.lookup_genotypes[idx])
         geno = self.resolver.resolve(gene, genotype)
@@ -217,6 +238,40 @@ class DoubleTowerDataset(Dataset):
         # batching; in inference mode it extracts them as ids first.
         targets = {col: self.targets[col][idx] for col in self.target_cols}
         return {"drug_data": drug, "geno_data": geno, "targets": targets}
+
+    def _build_poly_drug_data(self, focal_cid: str) -> PolyData:
+        """Build a molecule-level polypharmacy drug graph for one patient.
+
+        Delegates neighbour selection to ``self.pseudo_patient_builder`` and
+        packs the result into a :class:`PolyData` so
+        :class:`~src.data.collator.DoubleTowerCollater` offsets
+        ``ddi_edge_index``/``mol_to_patient`` correctly across a batch.
+
+        Deferred (see class docstring): each molecule contributes one row of
+        its precomputed ``global_feats`` descriptor, not an atom-level graph
+        run through the drug tower — full two-level atom -> molecule ->
+        patient batching is left for a later phase.
+        """
+        builder = self.pseudo_patient_builder
+        assert builder is not None  # narrows for type checkers; guarded by caller
+        sample = builder.build(focal_cid)
+        molecules = sample["molecules"]
+        mol_x = torch.stack(
+            [
+                m.global_feats.reshape(-1)
+                if getattr(m, "global_feats", None) is not None
+                else torch.zeros(self.dims.drug_global)
+                for m in molecules
+            ]
+        )
+        drug = PolyData(x=mol_x, edge_index=torch.empty((2, 0), dtype=torch.long))
+        drug.mol_to_patient = sample["mol_to_patient"]
+        drug.ddi_edge_index = sample["ddi_edge_index"]
+        drug.ddi_edge_attr = sample["ddi_edge_attr"]
+        drug.is_focal = sample["is_focal"]
+        if self.inference_mode:
+            drug.cid = focal_cid
+        return drug
 
     def get_cache_stats(self) -> dict[str, int | float]:
         """Cache hit/miss counters and rates (for logging / dashboards)."""

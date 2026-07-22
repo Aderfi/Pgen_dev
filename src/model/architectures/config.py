@@ -79,6 +79,11 @@ class PharmagenConfig(BaseModel):
     # --- Polypharmacy (patient-level drug-drug interaction) graph ---
     ddi_edge_dim: int | None = None
     polypharmacy_layers: int = 2
+    # Passthrough cap on co-medications sampled per patient; not consumed by
+    # the model yet -- reserved for the dataset-side neighbour sampling once
+    # `DoubleTowerDataset._build_poly_drug_data` is model-ready (see Task D4
+    # scope note in the task brief).
+    poly_max_neighbors: int = 8
 
     # --- Genotype tower ---
     geno_in_features: int = 0

@@ -43,6 +43,7 @@ from torch_geometric.nn import (
     GINEConv,
     global_add_pool,
 )
+from torch_geometric.utils import to_dense_batch
 
 from .fusion.cross_attention import CrossAttentionFusion
 from .heads.axis_heads import AxisHeads
@@ -144,6 +145,16 @@ class PharmagenTwoTower(nn.Module):
                 heads=cfg.heads,
                 dropout=cfg.dropout,
                 edge_dim=cfg.ddi_edge_dim,
+            )
+            # Focal-anchored readout: when the batch carries `is_focal`, the
+            # patient's drug-side vector is anchored on their focal drug (the
+            # one being predicted-for) instead of a plain pool over every
+            # co-medication. The attention query is the focal molecule's own
+            # embedding; keys/values are that patient's full molecule set, so
+            # the neighbours only contribute what is relevant to the focal
+            # drug specifically (e.g. a DDI-perpetrator neighbour).
+            self.focal_attn = nn.MultiheadAttention(
+                dim, cfg.heads, dropout=cfg.dropout, batch_first=True
             )
 
         # --- Genotype tower: GATv2 -----------------------------------------
@@ -283,22 +294,114 @@ class PharmagenTwoTower(nn.Module):
         src, dst = same.nonzero(as_tuple=True)
         return torch.stack([src, dst], dim=0)
 
-    # -- forward -----------------------------------------------------------
+    def _focal_anchored_readout(
+        self,
+        drug_nodes: Tensor,
+        mol_to_patient: Tensor,
+        is_focal: Tensor,
+        pooled_fallback: Tensor,
+        num_patients: int,
+    ) -> Tensor:
+        """Focal-anchored drug-side vector: focal node + attention over co-meds.
 
-    def forward(
+        For each patient with exactly one molecule flagged `is_focal == 1`,
+        returns ``focal_emb + focal_query_attention_pool`` (a residual over
+        the focal molecule's own post-poly-tower embedding). Patients with no
+        flagged focal molecule fall back to ``pooled_fallback`` -- the same
+        add+mean+max pool ``GraphTower`` already produces, i.e. the
+        pre-focal-readout behaviour for that patient.
+
+        Args:
+            drug_nodes: [num_molecules, dim] post-``poly_tower`` node embeddings.
+            mol_to_patient: [num_molecules] molecule -> patient index.
+            is_focal: [num_molecules] 1 for the focal molecule of its patient,
+                0 otherwise. Assumes at most one focal molecule per patient
+                (a duplicate silently keeps the last one encountered).
+            pooled_fallback: [num_patients, dim] pre-computed pooled
+                embedding, reused verbatim for patients with no focal flag.
+            num_patients: Number of patients in the batch.
+        """
+        is_focal = is_focal.reshape(-1).bool()
+        dim = drug_nodes.size(-1)
+
+        focal_emb = torch.zeros(
+            num_patients, dim, device=drug_nodes.device, dtype=drug_nodes.dtype
+        )
+        has_focal = torch.zeros(
+            num_patients, dtype=torch.bool, device=drug_nodes.device
+        )
+        if is_focal.any():
+            focal_patients = mol_to_patient[is_focal]
+            focal_emb[focal_patients] = drug_nodes[is_focal]
+            has_focal[focal_patients] = True
+
+        dense, mask = to_dense_batch(
+            drug_nodes, mol_to_patient, batch_size=num_patients
+        )
+        key_padding_mask = ~mask
+        # A fully padded row (patient with zero molecules) would make softmax
+        # emit NaN; such patients should never reach the model, but stay safe.
+        key_padding_mask[key_padding_mask.all(dim=1), 0] = False
+
+        pooled_attn, _ = self.focal_attn(
+            query=focal_emb.unsqueeze(1),
+            key=dense,
+            value=dense,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )
+        pooled_attn = pooled_attn.squeeze(1)
+
+        focal_anchored = focal_emb + pooled_attn
+        return torch.where(has_focal.unsqueeze(-1), focal_anchored, pooled_fallback)
+
+    def _polypharmacy_forward(
         self,
         drug_data: Data,
-        geno_data: Data,
-        return_attention: bool = False,
-    ) -> dict[str, Tensor]:
-        """Multi-task forward pass.
+        drug_nodes: Tensor,
+        mol_to_patient: Tensor,
+        num_patients: int,
+    ) -> tuple[Tensor, Tensor]:
+        """Run the polypharmacy (DDI) tower and the focal-anchored readout.
 
-        Returns a dict of task-name -> logits/predictions. When
-        ``return_attention`` is set, the drug x gene attention matrix is added
-        under the key ``"_attention"`` for interpretability and audit.
+        Returns ``(drug_nodes, drug_graph_emb)``: node embeddings after the
+        DDI message passing, and the patient-level drug vector -- focal-
+        anchored when `drug_data.is_focal` is present, otherwise the plain
+        add+mean+max pool `GraphTower` produces (unchanged pre-D4 behaviour).
         """
-        cfg = self.config
+        ddi_edge_index = getattr(drug_data, "ddi_edge_index", None)
+        ddi_edge_attr = getattr(drug_data, "ddi_edge_attr", None)
+        if ddi_edge_index is None:
+            if self.config.ddi_edge_dim is not None:
+                raise ValueError(
+                    "config.ddi_edge_dim is set but drug_data.ddi_edge_index "
+                    "is missing; cannot fall back to a complete graph with "
+                    "typed edges."
+                )
+            ddi_edge_index = self._complete_intra_patient_edges(mol_to_patient)
+            ddi_edge_attr = None
 
+        drug_nodes, drug_graph_emb = self.poly_tower(
+            x=drug_nodes,
+            edge_index=ddi_edge_index,
+            edge_attr=ddi_edge_attr,
+            batch=mol_to_patient,
+        )
+
+        is_focal = getattr(drug_data, "is_focal", None)
+        if is_focal is not None:
+            drug_graph_emb = self._focal_anchored_readout(
+                drug_nodes=drug_nodes,
+                mol_to_patient=mol_to_patient,
+                is_focal=is_focal,
+                pooled_fallback=drug_graph_emb,
+                num_patients=num_patients,
+            )
+        return drug_nodes, drug_graph_emb
+
+    @staticmethod
+    def _validate_batch_inputs(drug_data: Data, geno_data: Data) -> None:
+        """Fail fast on malformed batches (missing x/edge_index/batch)."""
         for name, data in (("drug_data", drug_data), ("geno_data", geno_data)):
             if (
                 getattr(data, "x", None) is None
@@ -312,11 +415,11 @@ class PharmagenTwoTower(nn.Module):
                     f"{name}.batch is None: pass a PyG Batch, not a single Data."
                 )
 
-        num_patients = int(geno_data.batch.max().item()) + 1
-
-        # ---------------- Drug side: molecule level ----------------
+    def _resolve_mol_to_patient(
+        self, drug_data: Data, num_molecules: int, num_patients: int
+    ) -> Tensor:
+        """Return the molecule -> patient index, defaulting to 1-per-patient."""
         mol_to_patient: Tensor | None = getattr(drug_data, "mol_to_patient", None)
-        num_molecules = int(drug_data.batch.max().item()) + 1
         if mol_to_patient is None:
             if num_molecules != num_patients:
                 raise ValueError(
@@ -325,8 +428,11 @@ class PharmagenTwoTower(nn.Module):
                     f"patients ({num_patients})."
                 )
             mol_to_patient = torch.arange(num_molecules, device=drug_data.x.device)
-        mol_to_patient = mol_to_patient.long()
+        return mol_to_patient.long()
 
+    def _molecule_forward(self, drug_data: Data, num_molecules: int) -> Tensor:
+        """Fuse the active molecule-level branches (GNN + descriptor MLPs)."""
+        cfg = self.config
         branches: list[Tensor] = []
         if cfg.use_mol_gnn:
             _, mol_emb = self.drug_tower(
@@ -364,28 +470,42 @@ class PharmagenTwoTower(nn.Module):
                 )
             )
 
-        drug_nodes = self.drug_fuse(
-            cat(branches, dim=1) if len(branches) > 1 else branches[0]
+        fused = cat(branches, dim=1) if len(branches) > 1 else branches[0]
+        return self.drug_fuse(fused)
+
+    # -- forward -----------------------------------------------------------
+
+    def forward(
+        self,
+        drug_data: Data,
+        geno_data: Data,
+        return_attention: bool = False,
+    ) -> dict[str, Tensor]:
+        """Multi-task forward pass.
+
+        Returns a dict of task-name -> logits/predictions. When
+        ``return_attention`` is set, the drug x gene attention matrix is added
+        under the key ``"_attention"`` for interpretability and audit.
+        """
+        cfg = self.config
+        self._validate_batch_inputs(drug_data, geno_data)
+
+        num_patients = int(geno_data.batch.max().item()) + 1
+
+        # ---------------- Drug side: molecule level ----------------
+        num_molecules = int(drug_data.batch.max().item()) + 1
+        mol_to_patient = self._resolve_mol_to_patient(
+            drug_data, num_molecules, num_patients
         )
+        drug_nodes = self._molecule_forward(drug_data, num_molecules)
 
         # ---------------- Drug side: polypharmacy level ----------------
         if cfg.use_polypharmacy:
-            ddi_edge_index = getattr(drug_data, "ddi_edge_index", None)
-            ddi_edge_attr = getattr(drug_data, "ddi_edge_attr", None)
-            if ddi_edge_index is None:
-                if cfg.ddi_edge_dim is not None:
-                    raise ValueError(
-                        "config.ddi_edge_dim is set but drug_data.ddi_edge_index "
-                        "is missing; cannot fall back to a complete graph with "
-                        "typed edges."
-                    )
-                ddi_edge_index = self._complete_intra_patient_edges(mol_to_patient)
-                ddi_edge_attr = None
-            drug_nodes, drug_graph_emb = self.poly_tower(
-                x=drug_nodes,
-                edge_index=ddi_edge_index,
-                edge_attr=ddi_edge_attr,
-                batch=mol_to_patient,
+            drug_nodes, drug_graph_emb = self._polypharmacy_forward(
+                drug_data=drug_data,
+                drug_nodes=drug_nodes,
+                mol_to_patient=mol_to_patient,
+                num_patients=num_patients,
             )
         else:
             drug_graph_emb = global_add_pool(

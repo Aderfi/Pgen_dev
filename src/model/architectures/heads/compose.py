@@ -27,22 +27,12 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor, nn
 
+from src.model.architectures.heads.axis_heads import is_single_label
+
 if TYPE_CHECKING:
     from src.model.architectures.config import AxisSpec
 
 __all__ = ["ComposeHead"]
-
-
-def _is_single_label(spec: AxisSpec) -> bool:
-    """Return True if `spec` represents one categorical/ordinal choice.
-
-    Mirrors the predicate in
-    :mod:`src.model.architectures.heads.axis_heads`; kept in sync manually
-    since the original is a module-private helper.
-    """
-    if spec.kind in ("multiclass", "ordinal"):
-        return True
-    return spec.kind == "binary" and spec.dim == 1
 
 
 class ComposeHead(nn.Module):
@@ -61,7 +51,7 @@ class ComposeHead(nn.Module):
         # concatenate axis embeddings in this order before compose_mlp, so a
         # confident soft prediction lines up with the matching hard tuple.
         self._single_label_axes: list[str] = [
-            name for name, spec in axes.items() if _is_single_label(spec)
+            name for name, spec in axes.items() if is_single_label(spec)
         ]
 
         in_dim = sum(axes[name].embedding_dim for name in self._single_label_axes)

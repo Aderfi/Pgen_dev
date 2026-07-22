@@ -23,11 +23,17 @@ from torch import Tensor, nn
 if TYPE_CHECKING:
     from src.model.architectures.config import AxisSpec
 
-__all__ = ["AxisHeads"]
+__all__ = ["AxisHeads", "is_single_label"]
 
 
-def _is_single_label(spec: AxisSpec) -> bool:
-    """Return True if `spec` represents one categorical/ordinal choice."""
+def is_single_label(spec: AxisSpec) -> bool:
+    """Return True if `spec` represents one categorical/ordinal choice.
+
+    This predicate is the single source of truth for which axes are
+    "composable" (get a class embedding and participate in the composed label
+    vector). Both :class:`AxisHeads` and ``ComposeHead`` must agree on it, so
+    it lives here and is imported rather than duplicated.
+    """
     if spec.kind in ("multiclass", "ordinal"):
         return True
     return spec.kind == "binary" and spec.dim == 1
@@ -45,7 +51,7 @@ class AxisHeads(nn.Module):
         super().__init__()
         self.axes = axes
         self._single_label_axes: list[str] = [
-            name for name, spec in axes.items() if _is_single_label(spec)
+            name for name, spec in axes.items() if is_single_label(spec)
         ]
 
         self.heads = nn.ModuleDict(

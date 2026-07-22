@@ -128,3 +128,27 @@ def test_unknown_focal_cid_still_returns_focal_only_sample(tmp_path):
     assert len(sample["molecules"]) == 1
     assert sample["is_focal"].tolist() == [1]
     assert sample["ddi_edge_index"].shape == (2, 0)
+
+
+def test_self_interaction_row_does_not_duplicate_focal(tmp_path):
+    """A self-loop row (cid_a == cid_b) in the DDI export must not add the
+    focal drug as its own neighbour."""
+    csv = tmp_path / "edges.csv"
+    csv.write_text("cid_a,cid_b,category,severity\n1,1,PK,3.0\n1,2,PD,1.0\n")
+    out = tmp_path / "ddi_graph.pt"
+    build_ddi_artifact(csv, out)
+    ddi = DDIGraph.load(out)
+
+    drug_index = {}
+    for cid in ("1", "2"):
+        p = tmp_path / f"{cid}.pt"
+        torch.save(_tiny_drug_graph(cid), p)
+        drug_index[cid] = p
+    cache = GraphCache(drug_index=drug_index, inference_mode=True)
+
+    sample = PseudoPatientBuilder(ddi, cache, max_neighbors=8).build("1")
+
+    # Only cid 2 is a real neighbour; the self-loop is filtered out.
+    assert len(sample["molecules"]) == 2
+    assert sample["is_focal"].tolist() == [1, 0]
+    assert int(sample["ddi_edge_index"].max()) == 1  # local indices 0 and 1 only

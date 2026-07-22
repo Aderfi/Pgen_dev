@@ -57,6 +57,14 @@ class PseudoPatientBuilder:
               row-for-row with ``ddi_edge_index`` columns.
             - ``is_focal``: ``Tensor[long]``, 1 at index 0, 0 elsewhere.
         """
+        if focal_cid not in self.cache.drug_index:
+            # A resolvable focal molecule is the whole point of the sample; a
+            # placeholder still trains but silently on no chemistry, so warn.
+            logger.warning(
+                "Focal drug %s has no molecular graph in cache; using a "
+                "placeholder graph.",
+                focal_cid,
+            )
         molecules: list[Data] = [self.cache.get_drug(focal_cid)]
         is_focal: list[int] = [1]
 
@@ -64,9 +72,14 @@ class PseudoPatientBuilder:
             int(focal_cid), k=self.max_neighbors
         )
 
+        focal_int = int(focal_cid)
         kept_cids: list[int] = []
         kept_rows: list[torch.Tensor] = []
         for cid, row in zip(neigh_cids, neigh_attr, strict=True):
+            if cid == focal_int:
+                # A self-interaction row in the DDI export must not duplicate the
+                # focal drug as its own neighbour.
+                continue
             if str(cid) in self.cache.drug_index:
                 kept_cids.append(cid)
                 kept_rows.append(row)

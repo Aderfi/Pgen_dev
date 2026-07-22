@@ -38,8 +38,9 @@ def create_gnn_model(
         dropout=params["dropout_rate"],
         use_polypharmacy=False,
         use_cross_attention=False,
-        targets={
-            name: TaskSpec(dim=d, kind="multiclass") for name, d in target_dims.items()
+        axes={
+            name: TaskSpec(name=name, dim=d, kind="multiclass")
+            for name, d in target_dims.items()
         },
     )
     return PharmagenTwoTower(cfg)

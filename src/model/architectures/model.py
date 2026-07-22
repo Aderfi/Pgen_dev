@@ -84,8 +84,8 @@ class PharmagenTwoTower(nn.Module):
         self.config = config
         cfg = config
 
-        if not cfg.targets:
-            raise ValueError("config.targets is empty: the model has no heads.")
+        if not cfg.axes:
+            raise ValueError("config.axes is empty: the model has no heads.")
 
         dim = cfg.embedding_dim
 
@@ -192,7 +192,7 @@ class PharmagenTwoTower(nn.Module):
         head_in = combined_dim // 2
 
         self.heads = nn.ModuleDict()
-        for name, spec in cfg.targets.items():
+        for name, spec in cfg.axes.items():
             if not spec.enabled:
                 continue
             self.heads[name] = nn.Sequential(

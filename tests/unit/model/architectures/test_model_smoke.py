@@ -45,7 +45,7 @@ def _cfg() -> PharmagenConfig:
         dropout=0.0,
         use_polypharmacy=False,
         use_cross_attention=False,
-        targets={"outcome": TaskSpec(dim=1, kind="binary")},
+        axes={"outcome": TaskSpec(dim=1, kind="binary")},
     )
 
 

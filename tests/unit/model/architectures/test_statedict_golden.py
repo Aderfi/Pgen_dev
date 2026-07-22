@@ -15,7 +15,7 @@ def _cfg():
         dropout=0.0,
         use_polypharmacy=False,
         use_cross_attention=False,
-        targets={"pheno": TaskSpec(dim=3, kind="multiclass")},
+        axes={"pheno": TaskSpec(dim=3, kind="multiclass")},
     )
 
 

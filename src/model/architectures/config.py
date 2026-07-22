@@ -1,30 +1,28 @@
-"""Configuration dataclasses for :class:`PharmagenTwoTower`."""
+"""Configuration models for :class:`PharmagenTwoTower`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
+from pydantic import BaseModel, Field, field_validator
 
 ConvType = Literal["gine", "gatv2"]
-TaskKind = Literal["binary", "multiclass", "regression"]
+TaskKind = Literal["binary", "multiclass", "regression", "ordinal"]
 
 
 # ---------------------------------------------------------------------------
-# Task specification
+# Axis specification
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class TaskSpec:
+class AxisSpec(BaseModel):
     """Declarative description of one prediction head.
 
     Args:
+        name: Human-readable identifier for the axis/head.
         dim: Output dimensionality (1 for binary / regression, C for multiclass).
         kind: Determines the loss and the calibration strategy.
+        embedding_dim: Size of any auxiliary embedding associated with this axis.
         pos_weight: Positive-class weight for binary tasks. Set this to
             ``n_negative / n_positive``; with adverse-event rates below 1% an
             unweighted BCE collapses to the majority class.
@@ -34,12 +32,26 @@ class TaskSpec:
         enabled: Allows switching a head off without changing the config shape.
     """
 
+    name: str = ""
     dim: int
     kind: TaskKind = "binary"
+    embedding_dim: int = 32
     pos_weight: float | None = None
     focal_gamma: float = 0.0
-    class_weights: Sequence[float] | None = None
+    class_weights: list[float] | None = None
     enabled: bool = True
+
+    @field_validator("dim")
+    @classmethod
+    def _dim_at_least_one(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("dim must be >= 1")
+        return value
+
+
+# Backward-compatible alias; kept for one release so `losses`/`calibration`
+# modules that import `TaskSpec` keep working unchanged.
+TaskSpec = AxisSpec
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +59,7 @@ class TaskSpec:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class PharmagenConfig:
+class PharmagenConfig(BaseModel):
     """Configuration for :class:`PharmagenTwoTower`.
 
     The ``use_*`` flags exist so that ablations are a config change rather than a
@@ -90,8 +101,17 @@ class PharmagenConfig:
     use_polypharmacy: bool = True
     use_cross_attention: bool = True
 
-    # --- Tasks ---
-    targets: dict[str, TaskSpec] = field(default_factory=dict)
+    # --- Axes (prediction heads) ---
+    axes: dict[str, AxisSpec] = Field(default_factory=dict)
+
+    @field_validator("axes")
+    @classmethod
+    def _axes_not_empty(cls, value: dict[str, AxisSpec]) -> dict[str, AxisSpec]:
+        if not value:
+            raise ValueError(
+                "axes must not be empty: the model needs at least one head."
+            )
+        return value
 
 
-__all__ = ["ConvType", "TaskKind", "TaskSpec", "PharmagenConfig"]
+__all__ = ["ConvType", "TaskKind", "TaskSpec", "AxisSpec", "PharmagenConfig"]

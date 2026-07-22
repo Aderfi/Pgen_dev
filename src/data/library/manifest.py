@@ -11,7 +11,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Iterable
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field

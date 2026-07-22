@@ -26,7 +26,8 @@ from src.model.engine.base import (
     resolve_device,
     stratified_split,
 )
-from src.model.factories import LossFactory, OptimizerFactory
+from src.model.factories import OptimizerFactory
+from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.standard import StandardTrainer
 
 if TYPE_CHECKING:
@@ -127,7 +128,7 @@ def train_pipeline(
         switches=switches,
     )
 
-    trainer = _setup_trainer(model, cfg, device, model_name)
+    trainer = _setup_trainer(model, cfg, device, model_name, axes)
     _execute_training(trainer, train_loader, val_loader, epochs, patience)
 
 
@@ -222,12 +223,12 @@ def _setup_trainer(
     cfg,
     device: torch.device,
     model_name: str,
+    axes: dict[str, AxisSpec],
 ) -> StandardTrainer:
-    uncertainty_net = LossFactory.create_uncertainty_wrapper(
-        tasks=cfg.targets, device=device
-    )
+    multitask_loss = MultiTaskLoss(axes).to(device)
+    compose_loss = CompositionalLabelLoss()
     optimizer = OptimizerFactory.create(
-        model=model, params=cfg.params, uncertainty_module=uncertainty_net
+        model=model, params=cfg.params, uncertainty_module=multitask_loss
     )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=8, factor=0.5
@@ -240,7 +241,9 @@ def _setup_trainer(
         target_cols=cfg.targets,
         multi_label_cols=get_settings().multi_label_set,
         params=cfg.params,
-        uncertainty_module=uncertainty_net,
+        multitask_loss=multitask_loss,
+        compose_loss=compose_loss,
+        compose_weight=cfg.params.get("compose_loss_weight", 0.5),
         checkpoint_name=model_name,
     )
     logger.info("Trainer initialized")

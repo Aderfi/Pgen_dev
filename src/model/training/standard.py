@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping, MutableSequence, Set
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import nn
@@ -23,8 +23,10 @@ from tqdm.auto import tqdm
 
 from src.config import get_settings
 from src.model.checkpoint import CheckpointManager
-from src.model.losses import MultiTaskUncertaintyLoss
 from src.model.training.loop import TrainingLoop
+
+if TYPE_CHECKING:
+    from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,9 @@ class StandardTrainer(TrainingLoop):
         target_cols: MutableSequence[str],
         multi_label_cols: Set[str],
         params: Mapping[str, Any],
-        uncertainty_module: MultiTaskUncertaintyLoss | None = None,
+        multitask_loss: MultiTaskLoss,
+        compose_loss: CompositionalLabelLoss | None = None,
+        compose_weight: float = 0.5,
         *,
         checkpoint_name: str = "training_session",
         keep_last_n: int = 3,
@@ -54,7 +58,9 @@ class StandardTrainer(TrainingLoop):
             target_cols,
             multi_label_cols,
             params,
-            uncertainty_module,
+            multitask_loss,
+            compose_loss,
+            compose_weight,
         )
         get_settings().paths.models.mkdir(parents=True, exist_ok=True)
         self.checkpoint_manager = CheckpointManager(
@@ -118,7 +124,7 @@ class StandardTrainer(TrainingLoop):
                     scheduler=self.scheduler,
                     epoch=epoch,
                     metrics={"val_loss": v_loss, "train_loss": train_loss},
-                    uncertainty_module=self.uncertainty_module,
+                    uncertainty_module=self.multitask_loss,
                     is_best=True,
                 )
                 logger.debug(
@@ -140,7 +146,7 @@ class StandardTrainer(TrainingLoop):
             model=self.model,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
-            uncertainty_module=self.uncertainty_module,
+            uncertainty_module=self.multitask_loss,
         )
         logger.info(
             "Loaded best checkpoint from epoch %d.", resume_info["start_epoch"] - 1

@@ -36,7 +36,8 @@ from src.model.engine.base import (
     resolve_device,
     stratified_split,
 )
-from src.model.factories import LossFactory, OptimizerFactory
+from src.model.factories import OptimizerFactory
+from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.optuna_trainer import OptunaTrialTrainer
 
 logger = logging.getLogger(__name__)
@@ -170,11 +171,10 @@ class PGenTuner:
             device=self.device,
         )
 
-        uncertainty_net = LossFactory.create_uncertainty_wrapper(
-            tasks=self.cfg.targets, device=self.device
-        )
+        multitask_loss = MultiTaskLoss(self.axes).to(self.device)
+        compose_loss = CompositionalLabelLoss()
         optimizer = OptimizerFactory.create(
-            model=model, params=params, uncertainty_module=uncertainty_net
+            model=model, params=params, uncertainty_module=multitask_loss
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=5
@@ -187,7 +187,9 @@ class PGenTuner:
             target_cols=self.cfg.targets,
             multi_label_cols=get_settings().multi_label_set,
             params=params,
-            uncertainty_module=uncertainty_net,
+            multitask_loss=multitask_loss,
+            compose_loss=compose_loss,
+            compose_weight=params.get("compose_loss_weight", 0.5),
         )
 
     def objective(self, trial: optuna.Trial) -> float:

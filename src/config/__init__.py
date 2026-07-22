@@ -9,6 +9,7 @@ re-exports the same data as flat constants (DIRS, SEED, …). New code should
 not depend on it.
 """
 
+from src.config.axes import AxesConfig, AxisOverride, get_axes_config
 from src.config.models import (
     CategoricalSpec,
     FloatSpec,
@@ -28,6 +29,8 @@ from src.config.settings import (
 )
 
 __all__ = [
+    "AxesConfig",
+    "AxisOverride",
     "CategoricalSpec",
     "FloatSpec",
     "IntSpec",
@@ -39,6 +42,7 @@ __all__ = [
     "Settings",
     "configure_logging_level",
     "get_available_models",
+    "get_axes_config",
     "get_model_config",
     "get_settings",
 ]

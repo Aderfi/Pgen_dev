@@ -35,7 +35,14 @@ fm_dropout = 0.1
 fm_hidden_layers = 0
 fm_hidden_dim = 256
 
-
-
-
+#==== Per-axis overrides (multi-task head config) ===============
+# Uncomment and add a [axes.<axis_name>] table per prediction target to
+# override its inferred defaults. All fields are optional.
+# [axes.direction_of_effect]
+# kind = "ordinal"
+# pos_weight = 1.5
+# focal_gamma = 2.0
+# class_weights = [1.0, 2.0, 1.0]
+# embedding_dim = 64
+# enabled = true
 

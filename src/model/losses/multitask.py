@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from src.model.architectures.gnn import TaskSpec  # relocated in A5
+from src.model.architectures.config import TaskSpec
 
 from .focal import focal_bce_with_logits
 

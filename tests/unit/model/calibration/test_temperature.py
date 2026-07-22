@@ -1,6 +1,6 @@
 import torch
 
-from src.model.architectures.gnn import TaskSpec
+from src.model.architectures.config import TaskSpec
 from src.model.calibration import TemperatureScaler
 
 

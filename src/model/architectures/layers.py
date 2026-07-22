@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
-from .gnn import PharmagenTwoTower
+from .model import PharmagenTwoTower
 
 if TYPE_CHECKING:
     from torch import nn

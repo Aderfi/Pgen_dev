@@ -1,6 +1,6 @@
 import torch
 
-from src.model.architectures.gnn import TaskSpec  # relocated in A5
+from src.model.architectures.config import TaskSpec
 from src.model.losses import MultiTaskLoss, focal_bce_with_logits
 
 

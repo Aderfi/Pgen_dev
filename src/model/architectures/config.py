@@ -104,6 +104,10 @@ class PharmagenConfig(BaseModel):
     # --- Axes (prediction heads) ---
     axes: dict[str, AxisSpec] = Field(default_factory=dict)
 
+    # --- Factorized-axes composition (see heads/axis_heads.py + heads/compose.py) ---
+    label_out_dim: int = 128
+    use_compositional_output: bool = True
+
     @field_validator("axes")
     @classmethod
     def _axes_not_empty(cls, value: dict[str, AxisSpec]) -> dict[str, AxisSpec]:

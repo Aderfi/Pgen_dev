@@ -56,7 +56,7 @@ def test_forward_pass_produces_expected_output_shape():
 
     outputs = model(drug_batch, geno_batch)
 
-    assert set(outputs) == {"outcome"}
+    assert set(outputs) == {"outcome", "_z"}
     assert outputs["outcome"].shape == (1, 1)
 
 

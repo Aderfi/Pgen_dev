@@ -45,6 +45,8 @@ from torch_geometric.nn import (
 )
 
 from .fusion.cross_attention import CrossAttentionFusion
+from .heads.axis_heads import AxisHeads
+from .heads.compose import ComposeHead
 from .towers.blocks import branch_mlp
 from .towers.graph_tower import GraphTower
 
@@ -191,16 +193,13 @@ class PharmagenTwoTower(nn.Module):
         )
         head_in = combined_dim // 2
 
-        self.heads = nn.ModuleDict()
-        for name, spec in cfg.axes.items():
-            if not spec.enabled:
-                continue
-            self.heads[name] = nn.Sequential(
-                nn.Linear(head_in, head_in // 2),
-                nn.ELU(),
-                nn.Dropout(cfg.dropout),
-                nn.Linear(head_in // 2, spec.dim),
-            )
+        enabled_axes = {name: spec for name, spec in cfg.axes.items() if spec.enabled}
+        self.axis_heads = AxisHeads(in_dim=head_in, axes=enabled_axes)
+        self.compose = (
+            ComposeHead(axes=enabled_axes, out_dim=cfg.label_out_dim)
+            if cfg.use_compositional_output
+            else None
+        )
 
         self._init_own_weights()
 
@@ -429,9 +428,19 @@ class PharmagenTwoTower(nn.Module):
         combined = cat([d, g, d * g, (d - g).abs()], dim=1)
         interacted = self.interaction_mlp(combined)
 
-        outputs: dict[str, Tensor] = {
-            name: head(interacted) for name, head in self.heads.items()
-        }
+        return self._build_outputs(interacted, attention, return_attention)
+
+    def _build_outputs(
+        self,
+        interacted: Tensor,
+        attention: Tensor | None,
+        return_attention: bool,
+    ) -> dict[str, Tensor]:
+        """Run the per-axis heads (+ optional composition/attention) on `interacted`."""
+        logits = self.axis_heads(interacted)
+        outputs: dict[str, Tensor] = dict(logits)
+        if self.compose is not None:
+            outputs["_z"] = self.compose(logits, self.axis_heads.axis_embeddings)
         if return_attention and attention is not None:
             outputs["_attention"] = attention
         return outputs

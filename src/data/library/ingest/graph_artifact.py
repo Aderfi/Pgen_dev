@@ -70,12 +70,33 @@ def ddi_edge_dim() -> int:
 DDI_EDGE_DIM: int = ddi_edge_dim()
 
 
+_FALLBACK_CATEGORY = "unknown"
+
+
 def _encode_row(category: str, severity: float, vocab: tuple[str, ...]) -> list[float]:
-    """One-hot(category over vocab) ++ [severity]. Unknown categories map to
-    an all-zero one-hot segment (severity is still preserved)."""
-    one_hot = [1.0 if c == category else 0.0 for c in vocab]
+    """One-hot(category over vocab) ++ [severity].
+
+    An out-of-vocab category is routed to the frozen ``"unknown"`` bucket (which
+    exists for exactly this) rather than an all-zero segment, so KG-export drift
+    stays distinguishable from a masked/padding row and the one-hot is never
+    silently wrong.
+    """
+    resolved = category
     if category not in vocab:
-        logger.warning("DDI category %r not in frozen vocab %s", category, vocab)
+        if _FALLBACK_CATEGORY not in vocab:
+            msg = (
+                f"DDI category {category!r} not in frozen vocab {vocab} and no "
+                f"{_FALLBACK_CATEGORY!r} fallback bucket exists"
+            )
+            raise ValueError(msg)
+        logger.warning(
+            "DDI category %r not in frozen vocab %s; mapping to %r",
+            category,
+            vocab,
+            _FALLBACK_CATEGORY,
+        )
+        resolved = _FALLBACK_CATEGORY
+    one_hot = [1.0 if c == resolved else 0.0 for c in vocab]
     return [*one_hot, float(severity)]
 
 

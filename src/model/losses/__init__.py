@@ -5,6 +5,7 @@ two-tower GNN loss (``multitask.py`` / ``focal.py``) so existing importers
 keep working while new code adopts the new-model API.
 """
 
+from .compositional import CompositionalLabelLoss
 from .focal import focal_bce_with_logits
 from .legacy import (
     AdaptiveFocalLoss,
@@ -18,6 +19,7 @@ from .multitask import MultiTaskLoss
 __all__ = [
     "AdaptiveFocalLoss",
     "AsymmetricLoss",
+    "CompositionalLabelLoss",
     "FocalLoss",
     "MultiTaskLoss",
     "MultiTaskUncertaintyLoss",

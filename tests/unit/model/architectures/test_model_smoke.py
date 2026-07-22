@@ -56,7 +56,9 @@ def test_forward_pass_produces_expected_output_shape():
 
     outputs = model(drug_batch, geno_batch)
 
-    assert set(outputs) == {"outcome", "_z"}
+    # `outcome` is a binary axis (not composable), so with no composable axis
+    # the compositional "_z" output is disabled — only the per-axis logit.
+    assert set(outputs) == {"outcome"}
     assert outputs["outcome"].shape == (1, 1)
 
 

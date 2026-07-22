@@ -27,16 +27,22 @@ __all__ = ["AxisHeads", "is_single_label"]
 
 
 def is_single_label(spec: AxisSpec) -> bool:
-    """Return True if `spec` represents one categorical/ordinal choice.
+    """Return True if `spec` is a *composable* multi-way categorical axis.
 
-    This predicate is the single source of truth for which axes are
-    "composable" (get a class embedding and participate in the composed label
-    vector). Both :class:`AxisHeads` and ``ComposeHead`` must agree on it, so
-    it lives here and is imported rather than duplicated.
+    This predicate is the single source of truth for which axes get a class
+    embedding and participate in the composed label vector. Both
+    :class:`AxisHeads` and ``ComposeHead`` must agree on it, so it lives here
+    and is imported rather than duplicated.
+
+    Only ``multiclass`` and ``ordinal`` axes qualify: their target is a class
+    index in ``[0, dim)`` that indexes an ``nn.Embedding(dim, ...)`` cleanly.
+    A ``binary`` axis (a single sigmoid logit, ``dim == 1``, target in
+    ``{0, 1}``) is intentionally excluded — its two states do not map onto a
+    one-row embedding, and softmax over a single logit is degenerate. Binary
+    axes still get their own prediction head and axis loss; they simply do not
+    contribute to the composed label embedding.
     """
-    if spec.kind in ("multiclass", "ordinal"):
-        return True
-    return spec.kind == "binary" and spec.dim == 1
+    return spec.kind in ("multiclass", "ordinal")
 
 
 class AxisHeads(nn.Module):

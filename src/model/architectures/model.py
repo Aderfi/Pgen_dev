@@ -195,9 +195,12 @@ class PharmagenTwoTower(nn.Module):
 
         enabled_axes = {name: spec for name, spec in cfg.axes.items() if spec.enabled}
         self.axis_heads = AxisHeads(in_dim=head_in, axes=enabled_axes)
+        # Compositional output needs at least one composable (multiclass/ordinal)
+        # axis to embed; with none it is silently disabled so the model still
+        # produces per-axis logits and no "_z".
         self.compose = (
             ComposeHead(axes=enabled_axes, out_dim=cfg.label_out_dim)
-            if cfg.use_compositional_output
+            if cfg.use_compositional_output and self.axis_heads.single_label_axes()
             else None
         )
 

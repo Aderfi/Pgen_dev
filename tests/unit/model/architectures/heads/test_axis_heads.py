@@ -30,3 +30,16 @@ def test_multi_binary_axis_excluded_from_embeddings():
     assert "adr" not in heads.axis_embeddings
     assert "adr" not in heads.single_label_axes()
     assert "pheno" in heads.axis_embeddings
+
+
+def test_binary_dim1_axis_is_not_composable():
+    """A binary single-logit axis (dim==1) keeps a head but is NOT composable:
+    its 0/1 target cannot index a one-row embedding."""
+    axes = {
+        "pheno": AxisSpec(name="pheno", dim=3, kind="multiclass", embedding_dim=8),
+        "assoc": AxisSpec(name="assoc", dim=1, kind="binary", embedding_dim=8),
+    }
+    heads = AxisHeads(in_dim=16, axes=axes)
+    assert heads(torch.randn(2, 16))["assoc"].shape == (2, 1)  # head exists
+    assert "assoc" not in heads.axis_embeddings  # but not composable
+    assert "assoc" not in heads.single_label_axes()

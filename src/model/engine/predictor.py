@@ -37,6 +37,7 @@ from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
 from src.model.architectures.assembly import infer_axis_specs
 from src.model.architectures.config import AxisSpec
+from src.model.architectures.heads.label_table import CompositionalLabelTable
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
     GENE_COLUMN,
@@ -104,6 +105,28 @@ class PGenPredictor:
 
         self.model = self._load_model()
         self.model.eval()
+
+        self._composable_axes: list[str] = self.model.axis_heads.single_label_axes()
+        self.label_table = self._build_label_table(bundle)
+
+    def _build_label_table(
+        self, bundle: dict[str, Any]
+    ) -> CompositionalLabelTable | None:
+        """Rebuild the compositional label table persisted at training time.
+
+        Returns None when the model has no compose head, or the bundle
+        carries no (or an empty) label table — decoding then falls back to
+        the plain per-axis behavior.
+        """
+        label_table_data = bundle.get("label_table") or {}
+        tuples = label_table_data.get("tuples")
+        if not tuples or self.model.compose is None:
+            return None
+
+        labels = label_table_data.get("labels", [])
+        table = CompositionalLabelTable([tuple(t) for t in tuples], labels)
+        table.build(self.model.compose, self.model.axis_heads.axis_embeddings)
+        return table
 
     # ----- artifact loading ------------------------------------------------ #
 
@@ -296,13 +319,20 @@ class PGenPredictor:
         loader: DataLoader,
     ) -> dict[str, torch.Tensor]:
         per_target: dict[str, list[torch.Tensor]] = {t: [] for t in self.target_cols}
+        z_chunks: list[torch.Tensor] = []
         for batch in loader:
             drug_batch = batch["drug_batch"].to(self.device)
             geno_batch = batch["geno_batch"].to(self.device)
             outputs = self.model(drug_batch, geno_batch)
             for t in self.target_cols:
                 per_target[t].append(outputs[t].cpu())
-        return {t: torch.cat(per_target[t], dim=0) for t in self.target_cols}
+            if "_z" in outputs:
+                z_chunks.append(outputs["_z"].cpu())
+
+        result = {t: torch.cat(per_target[t], dim=0) for t in self.target_cols}
+        if z_chunks:
+            result["_z"] = torch.cat(z_chunks, dim=0)
+        return result
 
     def _decode_logits(self, logits: dict[str, torch.Tensor]) -> list[dict[str, Any]]:
         if not logits:
@@ -327,10 +357,42 @@ class PGenPredictor:
                     for label in labels
                 ]
 
-        return [
+        results = [
             {col: decoded[col][i] for col in self.target_cols}
             for i in range(batch_size)
         ]
+
+        z = logits.get("_z")
+        if self.label_table is not None and z is not None:
+            self._attach_composed_labels(results, logits, z)
+
+        return results
+
+    def _attach_composed_labels(
+        self,
+        results: list[dict[str, Any]],
+        logits: dict[str, torch.Tensor],
+        z: torch.Tensor,
+    ) -> None:
+        """Augment each result dict with the compositional-table decode.
+
+        Adds ``composed_label`` (top-1), ``composed_topk`` (label, score
+        pairs), and ``composed_agreement`` (whether the nearest table row's
+        tuple matches the per-axis argmax) — additive, never replaces the
+        existing per-axis decode.
+        """
+        assert self.label_table is not None
+        top_k = self.label_table.decode(z, top_k=3)
+        argmax_tuple = torch.stack(
+            [logits[axis].argmax(dim=-1) for axis in self._composable_axes], dim=1
+        )
+        agreement = self.label_table.agreement(z, argmax_tuple)
+
+        for i, result in enumerate(results):
+            topk_i = top_k[i]
+            result["composed_label"] = topk_i[0][0] if topk_i else None
+            result["composed_topk"] = [(label, float(score)) for label, score in topk_i]
+            result["composed_agreement"] = bool(agreement[i].item())
 
     # ----- public API ------------------------------------------------------ #
 

@@ -31,6 +31,7 @@ from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.standard import StandardTrainer
 
 if TYPE_CHECKING:
+    from src.data.datasets import DoubleTowerDataset
     from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,10 @@ def train_pipeline(
     logger.info("Model parameters: %d", num_params)
     ConsoleIO.print_success(f"Model created: {num_params:,} parameters")
 
+    composable = model.axis_heads.single_label_axes()
+    label_tuples, label_names = _build_label_table(train_dataset, composable)
+    logger.info("Compositional label table: %d unique tuples", len(label_tuples))
+
     _persist_training_artifacts(
         model_name=model_name,
         encoders=train_dataset.target_encoder.encoders,
@@ -126,6 +131,10 @@ def train_pipeline(
         axes=axes,
         dims=dims,
         switches=switches,
+        label_table={
+            "tuples": [list(t) for t in label_tuples],
+            "labels": label_names,
+        },
     )
 
     trainer = _setup_trainer(model, cfg, device, model_name, axes)
@@ -161,6 +170,51 @@ def _log_memory_stats(stage: str) -> None:
     )
 
 
+def _build_label_table(
+    train_dataset: DoubleTowerDataset, composable: list[str]
+) -> tuple[list[tuple[int, ...]], list[str]]:
+    """Collect the unique training tuples over the composable axes.
+
+    For each distinct combination of class indices observed across
+    ``composable`` axes in ``train_dataset.targets``, builds a stable,
+    human-readable label by inverse-transforming each axis' class index
+    through its fitted encoder and joining as ``"axis=value|axis2=value2"``.
+
+    Args:
+        train_dataset: Training dataset exposing ``.targets`` (dict of
+            axis name -> ``[N]`` long tensor of class indices) and
+            ``.target_encoder.encoders`` (dict of axis name -> fitted
+            ``LabelEncoder``).
+        composable: Composable axis names, in the model's axis order
+            (``model.axis_heads.single_label_axes()``).
+
+    Returns:
+        ``(tuples, labels)`` — parallel lists, empty when ``composable`` is
+        empty.
+    """
+    if not composable:
+        return [], []
+
+    encoders = train_dataset.target_encoder.encoders
+    targets = train_dataset.targets
+    n_rows = len(targets[composable[0]])
+
+    seen: dict[tuple[int, ...], None] = {}
+    for i in range(n_rows):
+        row = tuple(int(targets[axis][i]) for axis in composable)
+        seen.setdefault(row, None)
+
+    tuples = list(seen.keys())
+    labels = [
+        "|".join(
+            f"{axis}={encoders[axis].inverse_transform([idx])[0]}"
+            for axis, idx in zip(composable, row)
+        )
+        for row in tuples
+    ]
+    return tuples, labels
+
+
 def _persist_training_artifacts(
     *,
     model_name: str,
@@ -170,17 +224,19 @@ def _persist_training_artifacts(
     axes: dict[str, AxisSpec],
     dims: dict[str, dict[str, int]],
     switches: dict[str, bool],
+    label_table: dict[str, list] | None = None,
 ) -> None:
     """Persist what the inference path needs to reconstruct the same model.
 
     Bundles the fitted target encoders, the per-tower feature widths actually
     inferred from the training graphs, the per-axis prediction-head specs,
-    the auxiliary/edge dims, and the structural ablation switches — schema
-    v2 (see ``src/model/engine/predictor.py::PGenPredictor._load_training_artifacts``
+    the auxiliary/edge dims, the compositional label table, and the
+    structural ablation switches — schema v2 (see
+    ``src/model/engine/predictor.py::PGenPredictor._load_training_artifacts``
     for the reader, which also accepts the legacy v1/plain-dict formats).
 
-    ``label_table`` is a placeholder — ``{"tuples": [], "labels": []}`` —
-    populated in Phase C.
+    ``label_table`` defaults to the empty placeholder
+    ``{"tuples": [], "labels": []}`` when omitted (e.g. no composable axes).
     """
     enc_dir = get_settings().paths.encoders
     enc_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +258,7 @@ def _persist_training_artifacts(
             "geno_global": geno_dims.get("function", 0),
         },
         "axis_specs": {name: spec.model_dump() for name, spec in axes.items()},
-        "label_table": {"tuples": [], "labels": []},
+        "label_table": label_table or {"tuples": [], "labels": []},
         "switches": switches,
         "schema_version": 2,
     }

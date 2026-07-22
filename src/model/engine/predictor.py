@@ -93,6 +93,10 @@ class PGenPredictor:
         self.encoders = encoders
         self._saved_drug_dim = bundle.get("drug_dim")
         self._saved_geno_dim = bundle.get("geno_dim")
+        # Reconstruct the exact architecture the checkpoint was trained under:
+        # the persisted switches decide whether poly / cross-attention submodules
+        # exist, so a strict state_dict load matches.
+        self._switches = bundle.get("switches")
         self._axis_specs: dict[str, AxisSpec] | None = None
         if bundle.get("schema_version") == 2 and bundle.get("axis_specs"):
             self._axis_specs = {
@@ -221,6 +225,7 @@ class PGenPredictor:
             axes=axes,
             params=self.params,
             device=self.device,
+            switches=self._switches,
         )
 
         manager = CheckpointManager(model_name=self.model_name)

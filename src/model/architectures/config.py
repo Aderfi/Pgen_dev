@@ -103,8 +103,8 @@ class PharmagenConfig(BaseModel):
 
     # --- Ablation / structural switches ---
     use_mol_gnn: bool = True
-    use_polypharmacy: bool = True
-    use_cross_attention: bool = True
+    use_polypharmacy: bool = False
+    use_cross_attention: bool = False
 
     # --- Axes (prediction heads) ---
     axes: dict[str, AxisSpec] = Field(default_factory=dict)

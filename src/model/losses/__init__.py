@@ -1,28 +1,20 @@
 """Loss functions for Pharmagen training.
 
-Re-exports the legacy DeepFM-era losses (``legacy.py``) alongside the new
-two-tower GNN loss (``multitask.py`` / ``focal.py``) so existing importers
-keep working while new code adopts the new-model API.
+The current two-tower GNN model trains with ``MultiTaskLoss`` (learned
+per-task uncertainty weighting over ``focal_bce_with_logits`` / cross-entropy
+/ smooth-L1 per axis kind) and ``CompositionalLabelLoss`` (the composed-label
+embedding loss). The legacy DeepFM-era loss classes (``FocalLoss``,
+``AdaptiveFocalLoss``, ``AsymmetricLoss``, ``PolyLoss``,
+``MultiTaskUncertaintyLoss``) have been removed — they had no importers left
+outside this package.
 """
 
 from .compositional import CompositionalLabelLoss
 from .focal import focal_bce_with_logits
-from .legacy import (
-    AdaptiveFocalLoss,
-    AsymmetricLoss,
-    FocalLoss,
-    MultiTaskUncertaintyLoss,
-    PolyLoss,
-)
 from .multitask import MultiTaskLoss
 
 __all__ = [
-    "AdaptiveFocalLoss",
-    "AsymmetricLoss",
     "CompositionalLabelLoss",
-    "FocalLoss",
     "MultiTaskLoss",
-    "MultiTaskUncertaintyLoss",
-    "PolyLoss",
     "focal_bce_with_logits",
 ]

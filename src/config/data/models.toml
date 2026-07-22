@@ -74,10 +74,12 @@ weight_decay = ["log", 1e-5, 1e-4]
 batch_size = ["categorical", 64, 128]
 
 # --- Loss hyperparameters ---
-# Critical when using FocalLoss or AsymmetricLoss (see losses.py).
+# Legacy search-space keys, unused by the current MultiTaskLoss (which reads
+# per-axis focal_gamma from AxisSpec instead — see src/config/axes.py). Kept
+# here only for optuna-history compatibility.
 # gamma: how strongly hard examples are penalized.
 gamma = ["float", 2.0, 3.5]
-# asl_clip: AsymmetricLoss easy-negative clipping factor.
+# asl_clip: legacy AsymmetricLoss easy-negative clipping factor.
 asl_clip = ["float", 0.1, 0.25]
 
 [TwoTowerGAT.params]

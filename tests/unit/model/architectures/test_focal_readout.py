@@ -185,3 +185,23 @@ def test_switches_off_ignores_is_focal_if_present():
     out_with = model(drug_batch_with_focal, geno_batch)
 
     assert torch.allclose(out_without["_z"], out_with["_z"])
+
+
+def test_focal_marker_enters_message_passing():
+    """The learned focal marker is added to focal node features BEFORE the DDI
+    tower, so a non-zero marker changes the output even with `is_focal` fixed —
+    proving the marker affects message passing, not only the readout."""
+    torch.manual_seed(0)
+    model = PharmagenTwoTower(_poly_cfg())
+    model.eval()
+    drug_batch = _poly_drug_batch()
+    geno_batch = _geno_batch()
+
+    with torch.no_grad():
+        model.focal_marker.zero_()
+        z_zero = model(drug_batch, geno_batch)["_z"]
+        # A non-zero marker perturbs the focal nodes fed into the poly tower.
+        model.focal_marker.fill_(5.0)
+        z_marked = model(drug_batch, geno_batch)["_z"]
+
+    assert not torch.allclose(z_zero, z_marked)

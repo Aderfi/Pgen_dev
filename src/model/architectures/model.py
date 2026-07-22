@@ -76,6 +76,9 @@ class PharmagenTwoTower(nn.Module):
         ddi_edge_attr  : [E, ddi_edge_dim]  optional interaction-type features.
         global_feats   : [num_molecules, drug_global_dim]
         admet_feats    : [num_molecules, drug_admet_dim]
+        is_focal       : [num_molecules]  1 for each patient's focal drug, 0
+            for co-medication context. When present (polypharmacy), it marks
+            the focal node for the DDI tower and anchors the drug-side readout.
 
     ``geno_data`` (PyG ``Batch`` of genotype graphs, one per patient):
         x, edge_index, edge_attr, batch  -- variants/genes -> patients
@@ -156,6 +159,11 @@ class PharmagenTwoTower(nn.Module):
             self.focal_attn = nn.MultiheadAttention(
                 dim, cfg.heads, dropout=cfg.dropout, batch_first=True
             )
+            # A learned marker added to a molecule's node features when it is
+            # the focal drug, so the GATv2 message passing itself can tell the
+            # focal drug apart from its co-medication context (not only the
+            # readout). Zero-initialised: no effect until training moves it.
+            self.focal_marker = nn.Parameter(torch.zeros(dim))
 
         # --- Genotype tower: GATv2 -----------------------------------------
         # Gene/variant graphs carry noisy, partly spurious edges (pathway and
@@ -381,6 +389,15 @@ class PharmagenTwoTower(nn.Module):
             ddi_edge_index = self._complete_intra_patient_edges(mol_to_patient)
             ddi_edge_attr = None
 
+        # Mark the focal molecules in the node features so the DDI message
+        # passing (not just the readout) can distinguish focal from context.
+        is_focal = getattr(drug_data, "is_focal", None)
+        if is_focal is not None:
+            drug_nodes = (
+                drug_nodes
+                + is_focal.reshape(-1, 1).to(drug_nodes.dtype) * self.focal_marker
+            )
+
         drug_nodes, drug_graph_emb = self.poly_tower(
             x=drug_nodes,
             edge_index=ddi_edge_index,
@@ -388,7 +405,6 @@ class PharmagenTwoTower(nn.Module):
             batch=mol_to_patient,
         )
 
-        is_focal = getattr(drug_data, "is_focal", None)
         if is_focal is not None:
             drug_graph_emb = self._focal_anchored_readout(
                 drug_nodes=drug_nodes,

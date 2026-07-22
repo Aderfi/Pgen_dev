@@ -24,13 +24,14 @@ if TYPE_CHECKING:
 def _binary_pos_weight(labels: Tensor) -> float | None:
     """Return ``n_negative / n_positive`` for a 0/1-encoded axis.
 
-    Returns ``None`` when there are no positive examples in ``labels`` (the
-    ratio would be undefined / infinite), leaving the caller's default in
-    place.
+    Returns ``None`` when the axis is degenerate — no positive examples (the
+    ratio would be infinite) or no negative examples (a ``0.0`` weight would
+    zero out every positive sample's loss) — leaving the caller's default in
+    place rather than injecting a meaningless weight.
     """
     n_pos = int((labels == 1).sum().item())
     n_neg = int((labels == 0).sum().item())
-    if n_pos == 0:
+    if n_pos == 0 or n_neg == 0:
         return None
     return n_neg / n_pos
 
@@ -43,7 +44,10 @@ def _apply_override(spec: AxisSpec, overrides: AxesConfig) -> AxisSpec:
     update = override.model_dump(exclude_none=True)
     if not update:
         return spec
-    return spec.model_copy(update=update)
+    # Re-validate the merged spec: model_copy(update=...) bypasses Pydantic
+    # validation, so a typo'd override (e.g. an invalid ``kind`` in TOML) must
+    # fail here rather than surface later wherever code branches on the field.
+    return AxisSpec.model_validate(spec.model_dump() | update)
 
 
 def infer_axis_specs(

@@ -7,6 +7,7 @@ from __future__ import annotations
 import gc
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import joblib
 import torch
@@ -27,6 +28,9 @@ from src.model.engine.base import (
 )
 from src.model.factories import LossFactory, OptimizerFactory
 from src.model.training.standard import StandardTrainer
+
+if TYPE_CHECKING:
+    from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,11 @@ def train_pipeline(
         train_dataset, val_dataset, batch_size
     )
 
+    switches = {
+        "use_polypharmacy": bool(cfg.extras.get("use_polypharmacy", False)),
+        "use_cross_attention": bool(cfg.extras.get("use_cross_attention", False)),
+    }
+
     model = build_gnn_model(
         model_name=model_name,
         dims=dims,
@@ -102,6 +111,7 @@ def train_pipeline(
         axes=axes,
         params=cfg.params,
         device=device,
+        switches=switches,
     )
     num_params = sum(p.numel() for p in model.parameters())
     logger.info("Model parameters: %d", num_params)
@@ -112,6 +122,9 @@ def train_pipeline(
         encoders=train_dataset.target_encoder.encoders,
         drug_dim=drug_dim,
         geno_dim=geno_dim,
+        axes=axes,
+        dims=dims,
+        switches=switches,
     )
 
     trainer = _setup_trainer(model, cfg, device, model_name)
@@ -153,29 +166,53 @@ def _persist_training_artifacts(
     encoders: dict,
     drug_dim: int,
     geno_dim: int,
+    axes: dict[str, AxisSpec],
+    dims: dict[str, dict[str, int]],
+    switches: dict[str, bool],
 ) -> None:
     """Persist what the inference path needs to reconstruct the same model.
 
-    Bundles the fitted target encoders together with the per-tower feature
-    widths that were actually inferred from the training graphs. Predictor
-    needs both: encoders to decode logits and the dims to build a model
-    whose ``in_features`` match the saved ``state_dict``.
+    Bundles the fitted target encoders, the per-tower feature widths actually
+    inferred from the training graphs, the per-axis prediction-head specs,
+    the auxiliary/edge dims, and the structural ablation switches — schema
+    v2 (see ``src/model/engine/predictor.py::PGenPredictor._load_training_artifacts``
+    for the reader, which also accepts the legacy v1/plain-dict formats).
+
+    ``label_table`` is a placeholder — ``{"tuples": [], "labels": []}`` —
+    populated in Phase C.
     """
     enc_dir = get_settings().paths.encoders
     enc_dir.mkdir(parents=True, exist_ok=True)
     enc_path = enc_dir / f"encoders_{model_name}.pkl"
+    drug_dims = dims.get("drugs", {})
+    geno_dims = dims.get("geno", {})
     bundle = {
         "encoders": encoders,
         "drug_dim": int(drug_dim),
         "geno_dim": int(geno_dim),
-        "schema_version": 1,
+        "edge_dims": {
+            "drug_edge": drug_dims.get("edges", 0),
+            "ddi_edge": drug_dims.get("ddi", 0),
+            "geno_edge": geno_dims.get("edges", 0),
+        },
+        "aux_dims": {
+            "drug_global": drug_dims.get("global", 0),
+            "drug_admet": drug_dims.get("admet", 0),
+            "geno_global": geno_dims.get("function", 0),
+        },
+        "axis_specs": {name: spec.model_dump() for name, spec in axes.items()},
+        "label_table": {"tuples": [], "labels": []},
+        "switches": switches,
+        "schema_version": 2,
     }
     joblib.dump(bundle, enc_path)
     logger.info(
-        "Persisted training artifacts (encoders=%d, drug_dim=%d, geno_dim=%d) to %s",
+        "Persisted training artifacts v2 (encoders=%d, drug_dim=%d, geno_dim=%d, "
+        "axes=%d) to %s",
         len(encoders),
         drug_dim,
         geno_dim,
+        len(axes),
         enc_path,
     )
 

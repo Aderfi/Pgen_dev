@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any
 import joblib
 import polars as pl
 import torch
-from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 from torch.utils.data import DataLoader
 
 from src.config import get_axes_config, get_model_config, get_settings
@@ -37,6 +36,7 @@ from src.data.encoders import UNKNOWN_CATEGORY_LABEL
 from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
 from src.model.architectures.assembly import infer_axis_specs
+from src.model.architectures.config import AxisSpec
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
     GENE_COLUMN,
@@ -79,9 +79,25 @@ class PGenPredictor:
         self.multi_label_cols = get_settings().multi_label_set
 
         self.dims = extract_tower_dims(self.cfg)
-        self.encoders, self._saved_drug_dim, self._saved_geno_dim = (
-            self._load_training_artifacts()
-        )
+
+        enc_path = get_settings().paths.encoders / f"encoders_{model_name}.pkl"
+        bundle = self._load_training_artifacts(enc_path)
+
+        encoders = bundle["encoders"]
+        for col in self.target_cols:
+            if col not in encoders:
+                raise EncoderError(
+                    f"Encoder for target {col!r} missing from {enc_path}"
+                )
+        self.encoders = encoders
+        self._saved_drug_dim = bundle.get("drug_dim")
+        self._saved_geno_dim = bundle.get("geno_dim")
+        self._axis_specs: dict[str, AxisSpec] | None = None
+        if bundle.get("schema_version") == 2 and bundle.get("axis_specs"):
+            self._axis_specs = {
+                name: AxisSpec(**spec) for name, spec in bundle["axis_specs"].items()
+            }
+
         self.cleaner = PharmacogenomicCleaner(multi_label_cols=self.multi_label_cols)
         self._resolver: GenotypeResolver | None = None
         self.collater = DoubleTowerCollater(inference_mode=True)
@@ -91,61 +107,63 @@ class PGenPredictor:
 
     # ----- artifact loading ------------------------------------------------ #
 
-    def _load_training_artifacts(
-        self,
-    ) -> tuple[dict[str, LabelEncoder | MultiLabelBinarizer], int | None, int | None]:
-        """Load the encoder bundle persisted by the training pipeline.
+    @staticmethod
+    def _load_training_artifacts(path: Path) -> dict[str, Any]:
+        """Load and normalize the encoder bundle persisted by the training pipeline.
 
-        Supports two on-disk formats:
+        Supports three on-disk formats, always returned as a single dict with
+        at least ``encoders`` and ``schema_version`` keys:
 
-        1. **Current bundle** — a dict with keys ``encoders``, ``drug_dim``,
-           ``geno_dim``, ``schema_version`` (saved by
-           ``_persist_training_artifacts`` in ``src/pipeline.py``).
-        2. **Legacy plain dict** — ``{target_col: encoder}`` written by older
-           pipelines. The dims are then inferred from ``cfg.extras``, which
-           is fragile but preserves backward compatibility.
+        1. **Schema v2** — the full bundle written by
+           ``_persist_training_artifacts`` in ``src/pipeline.py``: ``encoders``,
+           ``drug_dim``, ``geno_dim``, ``edge_dims``, ``aux_dims``,
+           ``axis_specs``, ``label_table``, ``switches``, ``schema_version=2``.
+           Returned as-is.
+        2. **Schema v1** — the older bundle with just ``encoders``,
+           ``drug_dim``, ``geno_dim``, ``schema_version=1``. Returned as-is
+           (``schema_version`` normalized to ``1`` if missing/other).
+        3. **Legacy plain dict** — ``{target_col: encoder}`` written by even
+           older pipelines, with no ``schema_version`` at all. Wrapped as
+           ``{"encoders": payload, "schema_version": 1}`` with a warning;
+           dims are then inferred from ``cfg.extras`` by the caller, which is
+           fragile but preserves backward compatibility.
         """
-        enc_path = get_settings().paths.encoders / f"encoders_{self.model_name}.pkl"
-        if not enc_path.exists():
-            raise FileNotFoundError(f"Encoders file not found: {enc_path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Encoders file not found: {path}")
 
-        payload = joblib.load(enc_path)
+        # joblib.load unpickles a local artifact written by this project's own
+        # `pipeline._persist_training_artifacts` — not attacker-controlled
+        # input, so the arbitrary-code-execution risk of pickle does not
+        # apply here (same trust boundary as the rest of the checkpoint I/O).
+        payload = joblib.load(path)
         if not isinstance(payload, dict):
             raise EncoderError(
-                f"Encoder artifact at {enc_path} is not a dict "
+                f"Encoder artifact at {path} is not a dict "
                 f"(got {type(payload).__name__})"
             )
 
         if "encoders" in payload and isinstance(payload["encoders"], dict):
-            encoders = payload["encoders"]
-            drug_dim = payload.get("drug_dim")
-            geno_dim = payload.get("geno_dim")
-        else:
-            logger.warning(
-                "Loading legacy encoders pickle at %s — drug_dim / geno_dim will "
-                "fall back to cfg.extras defaults; retrain to refresh the bundle.",
-                enc_path,
-            )
-            encoders = payload
-            drug_dim = None
-            geno_dim = None
+            bundle = dict(payload)
+            if bundle.get("schema_version") not in (1, 2):
+                bundle["schema_version"] = 1
+            return bundle
 
-        for col in self.target_cols:
-            if col not in encoders:
-                raise EncoderError(
-                    f"Encoder for target {col!r} missing from {enc_path}"
-                )
-
-        return encoders, drug_dim, geno_dim
+        logger.warning(
+            "Loading legacy encoders pickle at %s — drug_dim / geno_dim will "
+            "fall back to cfg.extras defaults; retrain to refresh the bundle.",
+            path,
+        )
+        return {"encoders": payload, "schema_version": 1}
 
     def _infer_axes(self):
         """Rebuild the per-axis specs from the loaded encoders.
 
-        There are no training labels available at inference time, so
-        ``train_targets`` is passed empty — ``infer_axis_specs`` tolerates
-        this by leaving ``pos_weight`` at ``None`` for binary axes, which is
-        fine here since the specs are only used to reconstruct the model
-        architecture, not to compute a loss.
+        Fallback used when the bundle is v1/legacy and carries no persisted
+        ``axis_specs``. There are no training labels available at inference
+        time, so ``train_targets`` is passed empty — ``infer_axis_specs``
+        tolerates this by leaving ``pos_weight`` at ``None`` for binary axes,
+        which is fine here since the specs are only used to reconstruct the
+        model architecture, not to compute a loss.
         """
         return infer_axis_specs(
             self.encoders,
@@ -153,6 +171,12 @@ class PGenPredictor:
             set(self.multi_label_cols),
             get_axes_config(),
         )
+
+    def _resolve_axes(self) -> dict[str, AxisSpec]:
+        """Prefer the axis specs persisted at training time (schema v2)."""
+        if self._axis_specs is not None:
+            return self._axis_specs
+        return self._infer_axes()
 
     def _resolve_tower_dim(self, saved: int | None, fallback_key: str) -> int:
         """Prefer the dim persisted at training time; fall back to cfg.extras."""
@@ -162,7 +186,7 @@ class PGenPredictor:
 
     def _load_model(self):
         """Instantiate the architecture and load the best checkpoint."""
-        axes = self._infer_axes()
+        axes = self._resolve_axes()
         drug_dim = self._resolve_tower_dim(self._saved_drug_dim, "drugs")
         geno_dim = self._resolve_tower_dim(self._saved_geno_dim, "geno")
 

@@ -13,15 +13,17 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Mapping, MutableSequence, Set
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from optuna import Trial, TrialPruned
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.model.losses import MultiTaskUncertaintyLoss
 from src.model.training.loop import TrainingLoop
+
+if TYPE_CHECKING:
+    from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,9 @@ class OptunaTrialTrainer(TrainingLoop):
         target_cols: MutableSequence[str],
         multi_label_cols: Set[str],
         params: Mapping[str, Any],
-        uncertainty_module: MultiTaskUncertaintyLoss | None = None,
+        multitask_loss: MultiTaskLoss,
+        compose_loss: CompositionalLabelLoss | None = None,
+        compose_weight: float = 0.5,
     ) -> None:
         super().__init__(
             model,
@@ -48,7 +52,9 @@ class OptunaTrialTrainer(TrainingLoop):
             target_cols,
             multi_label_cols,
             params,
-            uncertainty_module,
+            multitask_loss,
+            compose_loss,
+            compose_weight,
         )
         # No checkpoint manager — the tuner persists best trials separately.
 

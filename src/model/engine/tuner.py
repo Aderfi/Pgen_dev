@@ -22,20 +22,22 @@ from optuna.samplers import RandomSampler, TPESampler
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from src.config import get_model_config, get_settings
+from src.config import get_axes_config, get_model_config, get_settings
 from src.core import ConfigurationError, ConfigValidator
 from src.data.collator import DoubleTowerCollater
 from src.interface.ui import ConsoleIO
+from src.model.architectures.assembly import infer_axis_specs
 from src.model.engine.base import (
     build_gnn_model,
     build_two_tower_datasets,
     extract_tower_dims,
-    infer_dataset_dimensions,
+    infer_dimensions,
     load_and_clean_data,
     resolve_device,
     stratified_split,
 )
-from src.model.factories import LossFactory, OptimizerFactory
+from src.model.factories import OptimizerFactory
+from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.optuna_trainer import OptunaTrialTrainer
 
 logger = logging.getLogger(__name__)
@@ -114,12 +116,17 @@ class PGenTuner:
         self.train_dataset, self.val_dataset = build_two_tower_datasets(
             train_df, val_df, self.cfg, self.dims, preload_ram=False
         )
-        self.drug_dim, self.geno_dim, self.target_dims = infer_dataset_dimensions(
-            self.train_dataset, self.cfg
+        self.drug_dim, self.geno_dim = infer_dimensions(self.train_dataset, self.cfg)
+        self.axes = infer_axis_specs(
+            self.train_dataset.target_encoder.encoders,
+            self.train_dataset.targets,
+            set(get_settings().multi_label_set),
+            get_axes_config(),
         )
         logger.info(
             "Inferred dimensions: drug=%d, geno=%d", self.drug_dim, self.geno_dim
         )
+        logger.info("Inferred axes: %s", list(self.axes.keys()))
 
         del full_df, train_df, val_df
         gc.collect()
@@ -159,16 +166,15 @@ class PGenTuner:
             dims=self.dims,
             drug_dim=self.drug_dim,
             geno_dim=self.geno_dim,
-            target_dims=self.target_dims,
+            axes=self.axes,
             params=params,
             device=self.device,
         )
 
-        uncertainty_net = LossFactory.create_uncertainty_wrapper(
-            tasks=self.cfg.targets, device=self.device
-        )
+        multitask_loss = MultiTaskLoss(self.axes).to(self.device)
+        compose_loss = CompositionalLabelLoss()
         optimizer = OptimizerFactory.create(
-            model=model, params=params, uncertainty_module=uncertainty_net
+            model=model, params=params, uncertainty_module=multitask_loss
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.5, patience=5
@@ -181,7 +187,9 @@ class PGenTuner:
             target_cols=self.cfg.targets,
             multi_label_cols=get_settings().multi_label_set,
             params=params,
-            uncertainty_module=uncertainty_net,
+            multitask_loss=multitask_loss,
+            compose_loss=compose_loss,
+            compose_weight=params.get("compose_loss_weight", 0.5),
         )
 
     def objective(self, trial: optuna.Trial) -> float:

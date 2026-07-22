@@ -4,15 +4,67 @@ Handles metadata cleaning and efficient batching for PyG Data objects.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 from torch_geometric.data.batch import Batch
-
-if TYPE_CHECKING:
-    from torch_geometric.data.data import Data
+from torch_geometric.data.data import Data
 
 logger = logging.getLogger(__name__)
+
+
+class PolyData(Data):
+    """``Data`` subclass for molecule-level polypharmacy drug graphs.
+
+    A polypharmacy sample packs every molecule of one patient (focal drug +
+    kept DDI neighbours) into a single graph: ``x`` is molecule-level
+    (one row per molecule), ``mol_to_patient`` maps each molecule to its
+    patient, and ``ddi_edge_index`` holds molecule-local DDI edges.
+
+    Vanilla PyG's default ``__inc__`` already offsets any key containing
+    ``"index"`` (so plain ``ddi_edge_index`` happens to get offset by
+    ``num_nodes`` for free) but does nothing for ``mol_to_patient`` — it
+    would just be concatenated verbatim, leaving every patient at index 0.
+    This subclass makes both offsets explicit and intentional rather than
+    relying on substring-matching in PyG's default implementation:
+
+    - ``ddi_edge_index`` is offset by the running molecule count (batch's
+      cumulative ``num_nodes``) and concatenated along dim 1.
+    - ``mol_to_patient`` is offset by the running patient count so that
+      batching two 1-patient samples yields ``[0, 0, 1, 1]`` instead of
+      ``[0, 0, 0, 0]``.
+    - ``is_focal`` needs no offset (plain per-molecule flag) and is left to
+      PyG's default (dim-0 concatenation, zero increment).
+    """
+
+    def __inc__(self, key: str, value: Any, *args: Any, **kwargs: Any) -> Any:
+        if key == "ddi_edge_index":
+            return self.num_nodes
+        if key == "mol_to_patient":
+            return int(value.max()) + 1 if value.numel() else 1
+        return super().__inc__(key, value, *args, **kwargs)
+
+    def __cat_dim__(self, key: str, value: Any, *args: Any, **kwargs: Any) -> Any:
+        if key == "ddi_edge_index":
+            return 1
+        return super().__cat_dim__(key, value, *args, **kwargs)
+
+
+def _as_poly_data(data: Data) -> None:
+    """Re-stamp ``data`` in-place to :class:`PolyData` when it carries
+    polypharmacy attrs (``mol_to_patient``).
+
+    ``Data.__setattr__`` redirects plain attribute assignment (including
+    ``__class__``) into its internal storage dict, so a normal
+    ``data.__class__ = PolyData`` is silently swallowed and never changes
+    the real Python class. ``object.__setattr__`` bypasses that override
+    and performs the actual class reassignment, which is what lets
+    ``Batch.from_data_list`` dispatch to ``PolyData.__inc__``/
+    ``__cat_dim__`` for samples built as plain ``Data`` (e.g. by callers
+    that don't construct ``PolyData`` directly).
+    """
+    if hasattr(data, "mol_to_patient") and not isinstance(data, PolyData):
+        object.__setattr__(data, "__class__", PolyData)
 
 
 class DoubleTowerCollater:
@@ -118,6 +170,13 @@ class DoubleTowerCollater:
         # 3. Clean metadata
         self._sanitize_graphs(drug_graphs)
         self._sanitize_graphs(geno_graphs)
+
+        # 3b. Polypharmacy samples (carrying mol_to_patient / ddi_edge_index)
+        # need PolyData's __inc__/__cat_dim__ overrides for correct batch-wide
+        # offsetting; re-stamp in-place so Batch.from_data_list dispatches to
+        # them even when the sample was built as a plain Data object.
+        for drug in drug_graphs:
+            _as_poly_data(drug)
 
         # 4. Batch graphs
         try:

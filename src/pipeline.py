@@ -7,25 +7,32 @@ from __future__ import annotations
 import gc
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import joblib
 import torch
 
-from src.config import get_model_config, get_settings
+from src.config import get_axes_config, get_model_config, get_settings
 from src.core import ConfigurationError
 from src.interface.ui import ConsoleIO
+from src.model.architectures.assembly import infer_axis_specs
 from src.model.engine.base import (
     build_gnn_model,
     build_train_val_loaders,
     build_two_tower_datasets,
     extract_tower_dims,
-    infer_dataset_dimensions,
+    infer_dimensions,
     load_and_clean_data,
     resolve_device,
     stratified_split,
 )
-from src.model.factories import LossFactory, OptimizerFactory
+from src.model.factories import OptimizerFactory
+from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.standard import StandardTrainer
+
+if TYPE_CHECKING:
+    from src.data.datasets import DoubleTowerDataset
+    from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)
 
@@ -78,35 +85,59 @@ def train_pipeline(
     ConsoleIO.print_info(f"Train: {len(train_df)} | Val: {len(val_df)}")
 
     train_dataset, val_dataset = build_two_tower_datasets(train_df, val_df, cfg, dims)
-    drug_dim, geno_dim, target_dims = infer_dataset_dimensions(train_dataset, cfg)
+    drug_dim, geno_dim = infer_dimensions(train_dataset, cfg)
     logger.info("Inferred dimensions: Drug=%d, Geno=%d", drug_dim, geno_dim)
-    logger.info("Target dimensions: %s", target_dims)
+
+    axes = infer_axis_specs(
+        train_dataset.target_encoder.encoders,
+        train_dataset.targets,
+        set(get_settings().multi_label_set),
+        get_axes_config(),
+    )
+    logger.info("Inferred axes: %s", list(axes.keys()))
 
     train_loader, val_loader = build_train_val_loaders(
         train_dataset, val_dataset, batch_size
     )
+
+    switches = {
+        "use_polypharmacy": bool(cfg.extras.get("use_polypharmacy", False)),
+        "use_cross_attention": bool(cfg.extras.get("use_cross_attention", False)),
+    }
 
     model = build_gnn_model(
         model_name=model_name,
         dims=dims,
         drug_dim=drug_dim,
         geno_dim=geno_dim,
-        target_dims=target_dims,
+        axes=axes,
         params=cfg.params,
         device=device,
+        switches=switches,
     )
     num_params = sum(p.numel() for p in model.parameters())
     logger.info("Model parameters: %d", num_params)
     ConsoleIO.print_success(f"Model created: {num_params:,} parameters")
+
+    composable = model.axis_heads.single_label_axes()
+    label_tuples, label_names = _build_label_table(train_dataset, composable)
+    logger.info("Compositional label table: %d unique tuples", len(label_tuples))
 
     _persist_training_artifacts(
         model_name=model_name,
         encoders=train_dataset.target_encoder.encoders,
         drug_dim=drug_dim,
         geno_dim=geno_dim,
+        axes=axes,
+        dims=dims,
+        switches=switches,
+        label_table={
+            "tuples": [list(t) for t in label_tuples],
+            "labels": label_names,
+        },
     )
 
-    trainer = _setup_trainer(model, cfg, device, model_name)
+    trainer = _setup_trainer(model, cfg, device, model_name, axes)
     _execute_training(trainer, train_loader, val_loader, epochs, patience)
 
 
@@ -139,35 +170,106 @@ def _log_memory_stats(stage: str) -> None:
     )
 
 
+def _build_label_table(
+    train_dataset: DoubleTowerDataset, composable: list[str]
+) -> tuple[list[tuple[int, ...]], list[str]]:
+    """Collect the unique training tuples over the composable axes.
+
+    For each distinct combination of class indices observed across
+    ``composable`` axes in ``train_dataset.targets``, builds a stable,
+    human-readable label by inverse-transforming each axis' class index
+    through its fitted encoder and joining as ``"axis=value|axis2=value2"``.
+
+    Args:
+        train_dataset: Training dataset exposing ``.targets`` (dict of
+            axis name -> ``[N]`` long tensor of class indices) and
+            ``.target_encoder.encoders`` (dict of axis name -> fitted
+            ``LabelEncoder``).
+        composable: Composable axis names, in the model's axis order
+            (``model.axis_heads.single_label_axes()``).
+
+    Returns:
+        ``(tuples, labels)`` — parallel lists, empty when ``composable`` is
+        empty.
+    """
+    if not composable:
+        return [], []
+
+    encoders = train_dataset.target_encoder.encoders
+    targets = train_dataset.targets
+    n_rows = len(targets[composable[0]])
+
+    seen: dict[tuple[int, ...], None] = {}
+    for i in range(n_rows):
+        row = tuple(int(targets[axis][i]) for axis in composable)
+        seen.setdefault(row, None)
+
+    tuples = list(seen.keys())
+    labels = [
+        "|".join(
+            f"{axis}={encoders[axis].inverse_transform([idx])[0]}"
+            for axis, idx in zip(composable, row)
+        )
+        for row in tuples
+    ]
+    return tuples, labels
+
+
 def _persist_training_artifacts(
     *,
     model_name: str,
     encoders: dict,
     drug_dim: int,
     geno_dim: int,
+    axes: dict[str, AxisSpec],
+    dims: dict[str, dict[str, int]],
+    switches: dict[str, bool],
+    label_table: dict[str, list] | None = None,
 ) -> None:
     """Persist what the inference path needs to reconstruct the same model.
 
-    Bundles the fitted target encoders together with the per-tower feature
-    widths that were actually inferred from the training graphs. Predictor
-    needs both: encoders to decode logits and the dims to build a model
-    whose ``in_features`` match the saved ``state_dict``.
+    Bundles the fitted target encoders, the per-tower feature widths actually
+    inferred from the training graphs, the per-axis prediction-head specs,
+    the auxiliary/edge dims, the compositional label table, and the
+    structural ablation switches — schema v2 (see
+    ``src/model/engine/predictor.py::PGenPredictor._load_training_artifacts``
+    for the reader, which also accepts the legacy v1/plain-dict formats).
+
+    ``label_table`` defaults to the empty placeholder
+    ``{"tuples": [], "labels": []}`` when omitted (e.g. no composable axes).
     """
     enc_dir = get_settings().paths.encoders
     enc_dir.mkdir(parents=True, exist_ok=True)
     enc_path = enc_dir / f"encoders_{model_name}.pkl"
+    drug_dims = dims.get("drugs", {})
+    geno_dims = dims.get("geno", {})
     bundle = {
         "encoders": encoders,
         "drug_dim": int(drug_dim),
         "geno_dim": int(geno_dim),
-        "schema_version": 1,
+        "edge_dims": {
+            "drug_edge": drug_dims.get("edges", 0),
+            "ddi_edge": drug_dims.get("ddi", 0),
+            "geno_edge": geno_dims.get("edges", 0),
+        },
+        "aux_dims": {
+            "drug_global": drug_dims.get("global", 0),
+            "drug_admet": drug_dims.get("admet", 0),
+            "geno_global": geno_dims.get("function", 0),
+        },
+        "axis_specs": {name: spec.model_dump() for name, spec in axes.items()},
+        "label_table": label_table or {"tuples": [], "labels": []},
+        "switches": switches,
+        "schema_version": 2,
     }
     joblib.dump(bundle, enc_path)
     logger.info(
-        "Persisted training artifacts (encoders=%d, drug_dim=%d, geno_dim=%d) to %s",
+        "Persisted training artifacts v2 (encoders=%d, drug_dim=%d, geno_dim=%d, "
+        "axes=%d) to %s",
         len(encoders),
         drug_dim,
         geno_dim,
+        len(axes),
         enc_path,
     )
 
@@ -177,12 +279,12 @@ def _setup_trainer(
     cfg,
     device: torch.device,
     model_name: str,
+    axes: dict[str, AxisSpec],
 ) -> StandardTrainer:
-    uncertainty_net = LossFactory.create_uncertainty_wrapper(
-        tasks=cfg.targets, device=device
-    )
+    multitask_loss = MultiTaskLoss(axes).to(device)
+    compose_loss = CompositionalLabelLoss()
     optimizer = OptimizerFactory.create(
-        model=model, params=cfg.params, uncertainty_module=uncertainty_net
+        model=model, params=cfg.params, uncertainty_module=multitask_loss
     )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=8, factor=0.5
@@ -195,7 +297,9 @@ def _setup_trainer(
         target_cols=cfg.targets,
         multi_label_cols=get_settings().multi_label_set,
         params=cfg.params,
-        uncertainty_module=uncertainty_net,
+        multitask_loss=multitask_loss,
+        compose_loss=compose_loss,
+        compose_weight=cfg.params.get("compose_loss_weight", 0.5),
         checkpoint_name=model_name,
     )
     logger.info("Trainer initialized")

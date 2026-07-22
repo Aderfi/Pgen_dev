@@ -25,10 +25,9 @@ from typing import TYPE_CHECKING, Any
 import joblib
 import polars as pl
 import torch
-from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 from torch.utils.data import DataLoader
 
-from src.config import get_model_config, get_settings
+from src.config import get_axes_config, get_model_config, get_settings
 from src.core import EncoderError, ModelError
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
@@ -36,6 +35,9 @@ from src.data.datasets import DoubleTowerDataset
 from src.data.encoders import UNKNOWN_CATEGORY_LABEL
 from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
+from src.model.architectures.assembly import infer_axis_specs
+from src.model.architectures.config import AxisSpec
+from src.model.architectures.heads.label_table import CompositionalLabelTable
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
     GENE_COLUMN,
@@ -78,9 +80,29 @@ class PGenPredictor:
         self.multi_label_cols = get_settings().multi_label_set
 
         self.dims = extract_tower_dims(self.cfg)
-        self.encoders, self._saved_drug_dim, self._saved_geno_dim = (
-            self._load_training_artifacts()
-        )
+
+        enc_path = get_settings().paths.encoders / f"encoders_{model_name}.pkl"
+        bundle = self._load_training_artifacts(enc_path)
+
+        encoders = bundle["encoders"]
+        for col in self.target_cols:
+            if col not in encoders:
+                raise EncoderError(
+                    f"Encoder for target {col!r} missing from {enc_path}"
+                )
+        self.encoders = encoders
+        self._saved_drug_dim = bundle.get("drug_dim")
+        self._saved_geno_dim = bundle.get("geno_dim")
+        # Reconstruct the exact architecture the checkpoint was trained under:
+        # the persisted switches decide whether poly / cross-attention submodules
+        # exist, so a strict state_dict load matches.
+        self._switches = bundle.get("switches")
+        self._axis_specs: dict[str, AxisSpec] | None = None
+        if bundle.get("schema_version") == 2 and bundle.get("axis_specs"):
+            self._axis_specs = {
+                name: AxisSpec(**spec) for name, spec in bundle["axis_specs"].items()
+            }
+
         self.cleaner = PharmacogenomicCleaner(multi_label_cols=self.multi_label_cols)
         self._resolver: GenotypeResolver | None = None
         self.collater = DoubleTowerCollater(inference_mode=True)
@@ -88,57 +110,100 @@ class PGenPredictor:
         self.model = self._load_model()
         self.model.eval()
 
+        self._composable_axes: list[str] = self.model.axis_heads.single_label_axes()
+        self.label_table = self._build_label_table(bundle)
+
+    def _build_label_table(
+        self, bundle: dict[str, Any]
+    ) -> CompositionalLabelTable | None:
+        """Rebuild the compositional label table persisted at training time.
+
+        Returns None when the model has no compose head, or the bundle
+        carries no (or an empty) label table — decoding then falls back to
+        the plain per-axis behavior.
+        """
+        label_table_data = bundle.get("label_table") or {}
+        tuples = label_table_data.get("tuples")
+        if not tuples or self.model.compose is None:
+            return None
+
+        labels = label_table_data.get("labels", [])
+        table = CompositionalLabelTable([tuple(t) for t in tuples], labels)
+        table.build(self.model.compose, self.model.axis_heads.axis_embeddings)
+        return table
+
     # ----- artifact loading ------------------------------------------------ #
 
-    def _load_training_artifacts(
-        self,
-    ) -> tuple[dict[str, LabelEncoder | MultiLabelBinarizer], int | None, int | None]:
-        """Load the encoder bundle persisted by the training pipeline.
+    @staticmethod
+    def _load_training_artifacts(path: Path) -> dict[str, Any]:
+        """Load and normalize the encoder bundle persisted by the training pipeline.
 
-        Supports two on-disk formats:
+        Supports three on-disk formats, always returned as a single dict with
+        at least ``encoders`` and ``schema_version`` keys:
 
-        1. **Current bundle** — a dict with keys ``encoders``, ``drug_dim``,
-           ``geno_dim``, ``schema_version`` (saved by
-           ``_persist_training_artifacts`` in ``src/pipeline.py``).
-        2. **Legacy plain dict** — ``{target_col: encoder}`` written by older
-           pipelines. The dims are then inferred from ``cfg.extras``, which
-           is fragile but preserves backward compatibility.
+        1. **Schema v2** — the full bundle written by
+           ``_persist_training_artifacts`` in ``src/pipeline.py``: ``encoders``,
+           ``drug_dim``, ``geno_dim``, ``edge_dims``, ``aux_dims``,
+           ``axis_specs``, ``label_table``, ``switches``, ``schema_version=2``.
+           Returned as-is.
+        2. **Schema v1** — the older bundle with just ``encoders``,
+           ``drug_dim``, ``geno_dim``, ``schema_version=1``. Returned as-is
+           (``schema_version`` normalized to ``1`` if missing/other).
+        3. **Legacy plain dict** — ``{target_col: encoder}`` written by even
+           older pipelines, with no ``schema_version`` at all. Wrapped as
+           ``{"encoders": payload, "schema_version": 1}`` with a warning;
+           dims are then inferred from ``cfg.extras`` by the caller, which is
+           fragile but preserves backward compatibility.
         """
-        enc_path = get_settings().paths.encoders / f"encoders_{self.model_name}.pkl"
-        if not enc_path.exists():
-            raise FileNotFoundError(f"Encoders file not found: {enc_path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Encoders file not found: {path}")
 
-        payload = joblib.load(enc_path)
+        # joblib.load unpickles a local artifact written by this project's own
+        # `pipeline._persist_training_artifacts` — not attacker-controlled
+        # input, so the arbitrary-code-execution risk of pickle does not
+        # apply here (same trust boundary as the rest of the checkpoint I/O).
+        payload = joblib.load(path)
         if not isinstance(payload, dict):
             raise EncoderError(
-                f"Encoder artifact at {enc_path} is not a dict "
+                f"Encoder artifact at {path} is not a dict "
                 f"(got {type(payload).__name__})"
             )
 
         if "encoders" in payload and isinstance(payload["encoders"], dict):
-            encoders = payload["encoders"]
-            drug_dim = payload.get("drug_dim")
-            geno_dim = payload.get("geno_dim")
-        else:
-            logger.warning(
-                "Loading legacy encoders pickle at %s — drug_dim / geno_dim will "
-                "fall back to cfg.extras defaults; retrain to refresh the bundle.",
-                enc_path,
-            )
-            encoders = payload
-            drug_dim = None
-            geno_dim = None
+            bundle = dict(payload)
+            if bundle.get("schema_version") not in (1, 2):
+                bundle["schema_version"] = 1
+            return bundle
 
-        for col in self.target_cols:
-            if col not in encoders:
-                raise EncoderError(
-                    f"Encoder for target {col!r} missing from {enc_path}"
-                )
+        logger.warning(
+            "Loading legacy encoders pickle at %s — drug_dim / geno_dim will "
+            "fall back to cfg.extras defaults; retrain to refresh the bundle.",
+            path,
+        )
+        return {"encoders": payload, "schema_version": 1}
 
-        return encoders, drug_dim, geno_dim
+    def _infer_axes(self):
+        """Rebuild the per-axis specs from the loaded encoders.
 
-    def _target_dims_from_encoders(self) -> dict[str, int]:
-        return {col: len(self.encoders[col].classes_) for col in self.target_cols}
+        Fallback used when the bundle is v1/legacy and carries no persisted
+        ``axis_specs``. There are no training labels available at inference
+        time, so ``train_targets`` is passed empty — ``infer_axis_specs``
+        tolerates this by leaving ``pos_weight`` at ``None`` for binary axes,
+        which is fine here since the specs are only used to reconstruct the
+        model architecture, not to compute a loss.
+        """
+        return infer_axis_specs(
+            self.encoders,
+            {},
+            set(self.multi_label_cols),
+            get_axes_config(),
+        )
+
+    def _resolve_axes(self) -> dict[str, AxisSpec]:
+        """Prefer the axis specs persisted at training time (schema v2)."""
+        if self._axis_specs is not None:
+            return self._axis_specs
+        return self._infer_axes()
 
     def _resolve_tower_dim(self, saved: int | None, fallback_key: str) -> int:
         """Prefer the dim persisted at training time; fall back to cfg.extras."""
@@ -148,7 +213,7 @@ class PGenPredictor:
 
     def _load_model(self):
         """Instantiate the architecture and load the best checkpoint."""
-        target_dims = self._target_dims_from_encoders()
+        axes = self._resolve_axes()
         drug_dim = self._resolve_tower_dim(self._saved_drug_dim, "drugs")
         geno_dim = self._resolve_tower_dim(self._saved_geno_dim, "geno")
 
@@ -157,9 +222,10 @@ class PGenPredictor:
             dims=self.dims,
             drug_dim=drug_dim,
             geno_dim=geno_dim,
-            target_dims=target_dims,
+            axes=axes,
             params=self.params,
             device=self.device,
+            switches=self._switches,
         )
 
         manager = CheckpointManager(model_name=self.model_name)
@@ -258,13 +324,20 @@ class PGenPredictor:
         loader: DataLoader,
     ) -> dict[str, torch.Tensor]:
         per_target: dict[str, list[torch.Tensor]] = {t: [] for t in self.target_cols}
+        z_chunks: list[torch.Tensor] = []
         for batch in loader:
             drug_batch = batch["drug_batch"].to(self.device)
             geno_batch = batch["geno_batch"].to(self.device)
             outputs = self.model(drug_batch, geno_batch)
             for t in self.target_cols:
                 per_target[t].append(outputs[t].cpu())
-        return {t: torch.cat(per_target[t], dim=0) for t in self.target_cols}
+            if "_z" in outputs:
+                z_chunks.append(outputs["_z"].cpu())
+
+        result = {t: torch.cat(per_target[t], dim=0) for t in self.target_cols}
+        if z_chunks:
+            result["_z"] = torch.cat(z_chunks, dim=0)
+        return result
 
     def _decode_logits(self, logits: dict[str, torch.Tensor]) -> list[dict[str, Any]]:
         if not logits:
@@ -289,10 +362,42 @@ class PGenPredictor:
                     for label in labels
                 ]
 
-        return [
+        results = [
             {col: decoded[col][i] for col in self.target_cols}
             for i in range(batch_size)
         ]
+
+        z = logits.get("_z")
+        if self.label_table is not None and z is not None:
+            self._attach_composed_labels(results, logits, z)
+
+        return results
+
+    def _attach_composed_labels(
+        self,
+        results: list[dict[str, Any]],
+        logits: dict[str, torch.Tensor],
+        z: torch.Tensor,
+    ) -> None:
+        """Augment each result dict with the compositional-table decode.
+
+        Adds ``composed_label`` (top-1), ``composed_topk`` (label, score
+        pairs), and ``composed_agreement`` (whether the nearest table row's
+        tuple matches the per-axis argmax) — additive, never replaces the
+        existing per-axis decode.
+        """
+        assert self.label_table is not None
+        top_k = self.label_table.decode(z, top_k=3)
+        argmax_tuple = torch.stack(
+            [logits[axis].argmax(dim=-1) for axis in self._composable_axes], dim=1
+        )
+        agreement = self.label_table.agreement(z, argmax_tuple)
+
+        for i, result in enumerate(results):
+            topk_i = top_k[i]
+            result["composed_label"] = topk_i[0][0] if topk_i else None
+            result["composed_topk"] = [(label, float(score)) for label, score in topk_i]
+            result["composed_agreement"] = bool(agreement[i].item())
 
     # ----- public API ------------------------------------------------------ #
 

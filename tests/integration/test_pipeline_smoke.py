@@ -41,7 +41,7 @@ def test_engine_base_exposes_shared_helpers():
         "load_and_clean_data",
         "stratified_split",
         "build_two_tower_datasets",
-        "infer_dataset_dimensions",
+        "infer_dimensions",
         "build_train_val_loaders",
         "build_gnn_model",
     ):

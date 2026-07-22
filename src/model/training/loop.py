@@ -21,7 +21,7 @@ import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, MutableSequence, Set
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import nn
@@ -30,7 +30,9 @@ from torch.amp.grad_scaler import GradScaler
 from torch.utils.data import DataLoader
 
 from src.core import TrainingError
-from src.model.losses import MultiTaskUncertaintyLoss
+
+if TYPE_CHECKING:
+    from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,9 @@ class TrainingLoop(ABC):
         target_cols: MutableSequence[str],
         multi_label_cols: Set[str],
         params: Mapping[str, Any],
-        uncertainty_module: MultiTaskUncertaintyLoss | None = None,
+        multitask_loss: MultiTaskLoss,
+        compose_loss: CompositionalLabelLoss | None = None,
+        compose_weight: float = 0.5,
     ) -> None:
         self._validate_inputs(target_cols, multi_label_cols, device, params)
 
@@ -61,15 +65,20 @@ class TrainingLoop(ABC):
         self.target_cols = list(target_cols)
         self.ml_cols = set(multi_label_cols)
         self.params = dict(params)
-        self.uncertainty_module = uncertainty_module
+        self.multitask_loss = multitask_loss
+        self.compose_loss = compose_loss
+        self.compose_weight = compose_weight
 
         self.scaler = GradScaler()
-        self.loss_fns = self._setup_criterions()
 
         self.best_loss = float("inf")
         self.patience_counter = 0
         self.current_epoch = 0
 
+        # Uncompiled reference for structural access (e.g. `.compose`,
+        # `.axis_heads`) — torch.compile wraps the model in an
+        # OptimizedModule that can obscure plain submodule access.
+        self._raw_model = model
         # Subclasses opt-in to torch.compile via the hook.
         self.model = self._maybe_compile(model)
 
@@ -120,16 +129,6 @@ class TrainingLoop(ABC):
             msg = f"params must be a Mapping, got {type(params).__name__}"
             raise TypeError(msg)
 
-    def _setup_criterions(self) -> dict[str, nn.Module]:
-        from src.model.factories import LossFactory
-
-        return LossFactory.create_task_criterions(
-            target_cols=self.target_cols,
-            multi_label_cols=self.ml_cols,
-            params=self.params,
-            device=self.device,
-        )
-
     # ------------------------------------------------------- forward / metric
 
     def _compute_step(
@@ -150,17 +149,25 @@ class TrainingLoop(ABC):
         outputs: Mapping[str, torch.Tensor],
         targets: Mapping[str, torch.Tensor],
     ) -> tuple[torch.Tensor, dict[str, float]]:
-        losses_per_task = {}
-        for t_col, t_true in targets.items():
-            pred = outputs[t_col]
-            target = t_true.float() if t_col in self.ml_cols else t_true.long()
-            losses_per_task[t_col] = self.loss_fns[t_col](pred, target)
-
-        if self.uncertainty_module:
-            total_loss = self.uncertainty_module(losses_per_task)
-        else:
-            total_loss = sum(losses_per_task.values())
+        total_loss, _per_task = self.multitask_loss(dict(outputs), dict(targets))
         total_loss = cast("torch.Tensor", total_loss)
+
+        if (
+            self.compose_loss is not None
+            and self._raw_model.compose is not None
+            and "_z" in outputs
+        ):
+            composable = self._raw_model.axis_heads.single_label_axes()
+            if composable:
+                tuples = torch.stack(
+                    [targets[a].long().view(-1) for a in composable], dim=1
+                )
+                target_emb = self._raw_model.compose.embed_tuples(
+                    tuples, self._raw_model.axis_heads.axis_embeddings
+                )
+                total_loss = total_loss + self.compose_weight * self.compose_loss(
+                    outputs["_z"], target_emb
+                )
 
         accuracies: list[float] = []
         with torch.no_grad():

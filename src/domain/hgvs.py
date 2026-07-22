@@ -27,17 +27,17 @@ class ReferenceSequenceKind(str, Enum):
     Covers RefSeq (NC_/NG_/NM_/...) plus LRG and Ensembl ENSG/ENST/ENSP.
     """
 
-    GENOMIC_CHROMOSOME = "NC"       # NC_000017.11 — complete chromosome
-    GENOMIC_REGION = "NG"           # NG_*         — incomplete genomic region
+    GENOMIC_CHROMOSOME = "NC"  # NC_000017.11 — complete chromosome
+    GENOMIC_REGION = "NG"  # NG_*         — incomplete genomic region
     GENOMIC_UNPLACED = "NT"
     GENOMIC_UNLOCALIZED = "NW"
-    MRNA = "NM"                     # NM_007294.4  — curated mRNA / transcript
+    MRNA = "NM"  # NM_007294.4  — curated mRNA / transcript
     NON_CODING_RNA = "NR"
-    PROTEIN = "NP"                  # NP_*         — curated protein
+    PROTEIN = "NP"  # NP_*         — curated protein
     PREDICTED_MRNA = "XM"
     PREDICTED_NON_CODING_RNA = "XR"
     PREDICTED_PROTEIN = "XP"
-    LRG = "LRG"                     # LRG_8t1      — Locus Reference Genomic
+    LRG = "LRG"  # LRG_8t1      — Locus Reference Genomic
     ENSEMBL_GENE = "ENSG"
     ENSEMBL_TRANSCRIPT = "ENST"
     ENSEMBL_PROTEIN = "ENSP"
@@ -47,13 +47,13 @@ class ReferenceSequenceKind(str, Enum):
 class MolecularType(str, Enum):
     """The letter prefix that precedes the dot (e.g. the `c` in `c.5434C>T`)."""
 
-    GENOMIC = "g"               # linear genomic reference
-    CIRCULAR_GENOMIC = "o"      # circular genomic reference (rare)
-    MITOCHONDRIAL = "m"         # mitochondrial reference
-    CODING = "c"                # coding DNA (CDS-relative)
-    NON_CODING = "n"            # non-coding DNA reference
-    RNA = "r"                   # RNA reference (lowercase bases)
-    PROTEIN = "p"               # protein reference
+    GENOMIC = "g"  # linear genomic reference
+    CIRCULAR_GENOMIC = "o"  # circular genomic reference (rare)
+    MITOCHONDRIAL = "m"  # mitochondrial reference
+    CODING = "c"  # coding DNA (CDS-relative)
+    NON_CODING = "n"  # non-coding DNA reference
+    RNA = "r"  # RNA reference (lowercase bases)
+    PROTEIN = "p"  # protein reference
 
 
 # Convenience — which molecular types parse as nucleotide vs protein.
@@ -72,31 +72,31 @@ NUCLEOTIDE_TYPES: frozenset[MolecularType] = frozenset(
 class VariantKind(str, Enum):
     """The class of change described by the variant."""
 
-    SUBSTITUTION = "substitution"       # A>G        (DNA) or Gln1812Arg (protein)
-    DELETION = "deletion"               # del
-    DUPLICATION = "duplication"         # dup
-    INSERTION = "insertion"             # ins
-    DELINS = "delins"                   # delins / indel
-    INVERSION = "inversion"             # inv
-    CONVERSION = "conversion"           # con — inter-sequence copy
-    REPEAT = "repeat"                   # [N] — short tandem repeat count
-    FRAMESHIFT = "frameshift"           # fs        (protein only)
-    EXTENSION = "extension"             # ext       (protein only)
-    SILENT = "silent"                   # =         (no change)
-    UNKNOWN = "unknown"                 # ?         (effect not known)
-    NO_PROTEIN = "no_protein"           # p.0       (no product translated)
+    SUBSTITUTION = "substitution"  # A>G        (DNA) or Gln1812Arg (protein)
+    DELETION = "deletion"  # del
+    DUPLICATION = "duplication"  # dup
+    INSERTION = "insertion"  # ins
+    DELINS = "delins"  # delins / indel
+    INVERSION = "inversion"  # inv
+    CONVERSION = "conversion"  # con — inter-sequence copy
+    REPEAT = "repeat"  # [N] — short tandem repeat count
+    FRAMESHIFT = "frameshift"  # fs        (protein only)
+    EXTENSION = "extension"  # ext       (protein only)
+    SILENT = "silent"  # =         (no change)
+    UNKNOWN = "unknown"  # ?         (effect not known)
+    NO_PROTEIN = "no_protein"  # p.0       (no product translated)
 
 
 class VariantPhase(str, Enum):
     """Relationship between multiple changes in a single HGVS expression."""
 
-    SINGLE = "single"           # one elementary change, no brackets
-    CIS = "cis"                 # [a;b]     — same allele
-    TRANS = "trans"             # [a];[b]   — different alleles
-    UNKNOWN_PHASE = "unknown"   # [a(;)b]   — phase not established
-    MOSAIC = "mosaic"           # A=/>G     — somatic mosaic
-    CHIMERIC = "chimeric"       # A=//>G    — chimeric tissue
-    HOMOZYGOUS = "homozygous"   # [a];[a]   or [a](;)[a]
+    SINGLE = "single"  # one elementary change, no brackets
+    CIS = "cis"  # [a;b]     — same allele
+    TRANS = "trans"  # [a];[b]   — different alleles
+    UNKNOWN_PHASE = "unknown"  # [a(;)b]   — phase not established
+    MOSAIC = "mosaic"  # A=/>G     — somatic mosaic
+    CHIMERIC = "chimeric"  # A=//>G    — chimeric tissue
+    HOMOZYGOUS = "homozygous"  # [a];[a]   or [a](;)[a]
 
 
 # --------------------------------------------------------------------------- #
@@ -324,7 +324,7 @@ class ProteinChange(BaseModel):
 
 
 HGVSChange = Annotated[
-    Union[NucleotideChange, ProteinChange],
+    NucleotideChange | ProteinChange,
     Field(discriminator="level"),
 ]
 

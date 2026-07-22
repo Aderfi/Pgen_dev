@@ -1,3 +1,6 @@
+CLAUDE.md
+src/model/architectures/___gnn.py
+
 # =======================================================
 # 1. CORE & PYTHON
 # =======================================================
@@ -113,3 +116,54 @@ BACKUPS/
 
 # Graphify
 graphify-out/
+
+*__pycache__/
+
+_management/
+
+*.pyc
+.env
+.venv/
+venv/
+data/raw/
+data/processed/
+models/*.pkl
+models/*.h5
+*.log
+.ipynb_checkpoints/
+*.db
+
+graphify-out/
+
+# ATC scraper artifacts (progress state + duplicate of src/data/atc/codes.json)
+scripts/checkpoint.json
+scripts/codes.json
+
+# Runtime logs and Tier 2 pharmacovigilance cache
+logs/
+log.txt
+src/data/pharmacovigilance/_cache/
+
+# One-off ETL source downloads
+tmp/
+
+# Snakemake run metadata/locks (local, never shared)
+.snakemake/
+
+# Generated pharmacovigilance datasets (built offline by build_pharmacovigilance.py)
+src/data/pharmacovigilance/*.db
+src/data/pharmacovigilance/*.json
+CLAUDE.md
+.claude/
+.claudeignore
+
+docs/superpowers/
+
+.superpowers/
+.vscode/
+*pytest*
+*ruff*
+
+models/gemma4_e4b_it.gguf
+
+docs/*.md

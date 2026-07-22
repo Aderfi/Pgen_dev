@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import torch
@@ -38,7 +38,10 @@ from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
 from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
-from src.model.architectures.layers import create_gnn_model
+from src.model.architectures.assembly import create_gnn_model
+
+if TYPE_CHECKING:
+    from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)
 
@@ -227,11 +230,16 @@ def build_two_tower_datasets(
     return train_dataset, val_dataset
 
 
-def infer_dataset_dimensions(
+def infer_dimensions(
     train_dataset: DoubleTowerDataset,
     cfg,
-) -> tuple[int, int, dict[str, int]]:
-    """Probe a sample to learn the per-tower feature widths and per-target sizes."""
+) -> tuple[int, int]:
+    """Probe a sample to learn the per-tower feature widths.
+
+    Axis (per-target) sizing has moved to
+    ``src.model.architectures.assembly.infer_axis_specs`` — this helper is now
+    concerned only with the tower feature widths shared by every axis.
+    """
     try:
         sample = train_dataset[0]
         drug_dim = sample["drug_data"].x.shape[1]
@@ -244,14 +252,7 @@ def infer_dataset_dimensions(
             f"Invalid inferred dimensions: drug={drug_dim}, geno={geno_dim}"
         )
 
-    encoders = train_dataset.target_encoder.encoders
-    target_dims: dict[str, int] = {}
-    for col in cfg.targets:
-        if col not in encoders:
-            raise DataError(f"Target column '{col}' not encoded")
-        target_dims[col] = len(encoders[col].classes_)
-
-    return drug_dim, geno_dim, target_dims
+    return drug_dim, geno_dim
 
 
 # --------------------------------------------------------------------------- #
@@ -311,31 +312,20 @@ def build_gnn_model(
     dims: dict[str, dict[str, int]],
     drug_dim: int,
     geno_dim: int,
-    target_dims: dict[str, int],
+    axes: dict[str, AxisSpec],
     params: dict[str, Any],
     device: torch.device,
+    switches: dict[str, bool] | None = None,
 ) -> nn.Module:
     """Instantiate PharmagenTwoTower with the inferred / configured shapes."""
-    drug_config = {
-        "num_features": drug_dim,
-        "edge_dim": dims["drugs"]["edges"],
-        "global_dim": dims["drugs"].get("global", 0),
-        "admet_dim": dims["drugs"].get("admet", 0),
-    }
-    geno_config = {
-        "num_features": geno_dim,
-        "edge_dim": dims["geno"]["edges"],
-        # The geno tower's aux "global" branch is fed the graph-level PGx
-        # function vector (``geno_function``).
-        "global_dim": dims["geno"].get("function", 0),
-    }
     try:
         model = create_gnn_model(
-            model_name=model_name,
-            drug_config=drug_config,
-            geno_config=geno_config,
-            target_dims=target_dims,
+            dims=dims,
+            drug_dim=drug_dim,
+            geno_dim=geno_dim,
+            axes=axes,
             params=params,
+            switches=switches,
         ).to(device)
     except Exception as e:
         raise ModelError(f"Failed to create model '{model_name}': {e}") from e
@@ -350,7 +340,7 @@ __all__ = [
     "build_train_val_loaders",
     "build_two_tower_datasets",
     "extract_tower_dims",
-    "infer_dataset_dimensions",
+    "infer_dimensions",
     "load_and_clean_data",
     "resolve_device",
     "stratified_split",

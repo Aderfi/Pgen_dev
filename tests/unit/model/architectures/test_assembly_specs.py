@@ -45,3 +45,15 @@ def test_pos_weight_none_when_degenerate():
     specs = infer_axis_specs(encoders, train, set(), AxesConfig(overrides={}))
     assert specs["allpos"].pos_weight is None
     assert specs["allneg"].pos_weight is None
+
+
+def test_empty_train_targets_tolerated_at_inference():
+    """At inference time there are no train labels — must not KeyError."""
+    le3 = LabelEncoder().fit(["a", "b", "c"])
+    le2 = LabelEncoder().fit(["no", "yes"])
+    mlb = MultiLabelBinarizer().fit([["x", "y"]])
+    encoders = {"pheno": le3, "assoc": le2, "meta": mlb}
+    specs = infer_axis_specs(encoders, {}, {"meta"}, AxesConfig(overrides={}))
+    assert specs["pheno"].kind == "multiclass" and specs["pheno"].dim == 3
+    assert specs["assoc"].kind == "binary" and specs["assoc"].pos_weight is None
+    assert specs["meta"].kind == "binary" and specs["meta"].dim == 2

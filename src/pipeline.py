@@ -11,15 +11,16 @@ from pathlib import Path
 import joblib
 import torch
 
-from src.config import get_model_config, get_settings
+from src.config import get_axes_config, get_model_config, get_settings
 from src.core import ConfigurationError
 from src.interface.ui import ConsoleIO
+from src.model.architectures.assembly import infer_axis_specs
 from src.model.engine.base import (
     build_gnn_model,
     build_train_val_loaders,
     build_two_tower_datasets,
     extract_tower_dims,
-    infer_dataset_dimensions,
+    infer_dimensions,
     load_and_clean_data,
     resolve_device,
     stratified_split,
@@ -78,9 +79,16 @@ def train_pipeline(
     ConsoleIO.print_info(f"Train: {len(train_df)} | Val: {len(val_df)}")
 
     train_dataset, val_dataset = build_two_tower_datasets(train_df, val_df, cfg, dims)
-    drug_dim, geno_dim, target_dims = infer_dataset_dimensions(train_dataset, cfg)
+    drug_dim, geno_dim = infer_dimensions(train_dataset, cfg)
     logger.info("Inferred dimensions: Drug=%d, Geno=%d", drug_dim, geno_dim)
-    logger.info("Target dimensions: %s", target_dims)
+
+    axes = infer_axis_specs(
+        train_dataset.target_encoder.encoders,
+        train_dataset.targets,
+        set(get_settings().multi_label_set),
+        get_axes_config(),
+    )
+    logger.info("Inferred axes: %s", list(axes.keys()))
 
     train_loader, val_loader = build_train_val_loaders(
         train_dataset, val_dataset, batch_size
@@ -91,7 +99,7 @@ def train_pipeline(
         dims=dims,
         drug_dim=drug_dim,
         geno_dim=geno_dim,
-        target_dims=target_dims,
+        axes=axes,
         params=cfg.params,
         device=device,
     )

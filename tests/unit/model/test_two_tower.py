@@ -11,7 +11,8 @@ import pytest
 import torch
 from torch_geometric.data import Batch, Data
 
-from src.model.architectures.layers import create_gnn_model
+from src.model.architectures.assembly import create_gnn_model
+from src.model.architectures.config import AxisSpec
 
 PARAMS = {
     "embedding_dim": 32,
@@ -20,10 +21,15 @@ PARAMS = {
     "n_layers": 2,
     "heads": 4,
 }
+SWITCHES = {"use_polypharmacy": False, "use_cross_attention": False}
 GLOBAL_DIM = 1038
 ADMET_DIM = 41
 GENO_FUNCTION_DIM = 6
 TARGETS = {"phenotype_category": 5}
+AXES = {
+    name: AxisSpec(name=name, dim=dim, kind="multiclass")
+    for name, dim in TARGETS.items()
+}
 
 
 def _drug_graph(*, with_global: bool, with_admet: bool = False) -> Data:
@@ -49,16 +55,15 @@ def _geno_graph() -> Data:
 
 def _model(global_dim: int, admet_dim: int = 0):
     return create_gnn_model(
-        "TwoTowerGAT",
-        drug_config={
-            "num_features": 61,
-            "edge_dim": 18,
-            "global_dim": global_dim,
-            "admet_dim": admet_dim,
+        dims={
+            "drugs": {"edges": 18, "global": global_dim, "admet": admet_dim},
+            "geno": {"edges": 3},
         },
-        geno_config={"num_features": 9, "edge_dim": 3},
-        target_dims=TARGETS,
+        drug_dim=61,
+        geno_dim=9,
+        axes=AXES,
         params=PARAMS,
+        switches=SWITCHES,
     )
 
 
@@ -75,15 +80,15 @@ def _geno_graph_v2(*, with_function: bool) -> Data:
 
 def _geno_model(geno_function_dim: int):
     return create_gnn_model(
-        "TwoTowerGAT",
-        drug_config={"num_features": 61, "edge_dim": 18},
-        geno_config={
-            "num_features": 30,
-            "edge_dim": 2,
-            "global_dim": geno_function_dim,
+        dims={
+            "drugs": {"edges": 18},
+            "geno": {"edges": 2, "function": geno_function_dim},
         },
-        target_dims=TARGETS,
+        drug_dim=61,
+        geno_dim=30,
+        axes=AXES,
         params=PARAMS,
+        switches=SWITCHES,
     )
 
 

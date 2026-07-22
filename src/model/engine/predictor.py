@@ -28,7 +28,7 @@ import torch
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 from torch.utils.data import DataLoader
 
-from src.config import get_model_config, get_settings
+from src.config import get_axes_config, get_model_config, get_settings
 from src.core import EncoderError, ModelError
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
@@ -36,6 +36,7 @@ from src.data.datasets import DoubleTowerDataset
 from src.data.encoders import UNKNOWN_CATEGORY_LABEL
 from src.data.library.geno_store import GenoLibrary
 from src.data.loaders import TabularLoader
+from src.model.architectures.assembly import infer_axis_specs
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
     GENE_COLUMN,
@@ -137,8 +138,21 @@ class PGenPredictor:
 
         return encoders, drug_dim, geno_dim
 
-    def _target_dims_from_encoders(self) -> dict[str, int]:
-        return {col: len(self.encoders[col].classes_) for col in self.target_cols}
+    def _infer_axes(self):
+        """Rebuild the per-axis specs from the loaded encoders.
+
+        There are no training labels available at inference time, so
+        ``train_targets`` is passed empty — ``infer_axis_specs`` tolerates
+        this by leaving ``pos_weight`` at ``None`` for binary axes, which is
+        fine here since the specs are only used to reconstruct the model
+        architecture, not to compute a loss.
+        """
+        return infer_axis_specs(
+            self.encoders,
+            {},
+            set(self.multi_label_cols),
+            get_axes_config(),
+        )
 
     def _resolve_tower_dim(self, saved: int | None, fallback_key: str) -> int:
         """Prefer the dim persisted at training time; fall back to cfg.extras."""
@@ -148,7 +162,7 @@ class PGenPredictor:
 
     def _load_model(self):
         """Instantiate the architecture and load the best checkpoint."""
-        target_dims = self._target_dims_from_encoders()
+        axes = self._infer_axes()
         drug_dim = self._resolve_tower_dim(self._saved_drug_dim, "drugs")
         geno_dim = self._resolve_tower_dim(self._saved_geno_dim, "geno")
 
@@ -157,7 +171,7 @@ class PGenPredictor:
             dims=self.dims,
             drug_dim=drug_dim,
             geno_dim=geno_dim,
-            target_dims=target_dims,
+            axes=axes,
             params=self.params,
             device=self.device,
         )

@@ -8,6 +8,7 @@ GEMINI.md
 .aiexclude
 .user_env_cfg
 vexp.toml
+.vexp/
 src/model/architectures/___gnn.py
 
 # =======================================================
@@ -128,6 +129,7 @@ tmp/
 
 # Graphify knowledge graph output
 graphify-out/
+___graphify_out/
 graph_canvas/
 
 # ATC scraper artifacts

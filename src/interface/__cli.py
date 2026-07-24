@@ -1,11 +1,13 @@
-# src/interface/cli.py
-# Pharmagen - Command Line Interface
-# Interactive Menu and Workflows
+# src/interface/__cli.py
+# Pharmagen - Interactive Menu and Workflows
+#
+# SHELVED: the double-underscore prefix marks this module as parked pending a
+# redesign. It is not wired into main.py; import it explicitly if needed.
 
 import datetime
 import logging
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Project Imports
 from src.config import PROJECT_ROOT, get_available_models, get_settings
@@ -15,6 +17,9 @@ from src.interface.io import (
     print_warranty_details,
 )
 from src.interface.ui import ConsoleIO, Spinner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 DATE_STAMP = datetime.datetime.now().strftime("%Y_%m_%d")

@@ -129,7 +129,7 @@
     "src/pipeline.py": "ca214b1319c935189a3c7e854b6025154a5787e9fbb9ce0d1df0fa5e2081b2e5",
     "src/tui/__init__.py": "76273c6eaa5671d17ce1ef38fc1960afa3c7588ed3abb5dde37009147f5093aa",
     "src/tui/app.py": "ee03dfdc549fcf1d60362f1d785570925327cea3d0dc09b13c129f604eaab17a",
-    "src/tui/parser.py": "b565932a8a5dbd15ead52eb4ab823f7d07d8979434ba3aaa6b86e358a999a6eb",
+    "src/tui/parser.py": "03c61eaadedfad8c7388370efbce2eb84d2f1c0229ae69beb7b201d1d6a7dafe",
     "tests/README.md": "d23aaf2a0d2786ba38883f1986038b841409ff9c0b675a9c2cb331d5f0191e4b",
     "tests/__init__.py": "5c0469ebbbeea5d3cb915c31f70e273882f6b1d894f75f55344e801816dbc607",
     "tests/benchmarks/__init__.py": "e9eb3911036c0930a968bffb3db20c5a98a41ac6692bac422a34955846105c0d",
@@ -233,11 +233,11 @@
     "train_data/var_anno/tonteria.py": "af3be3c341be14ad6e05077feb871a23da91c144b405e20865f6cca5a4e83991",
     "train_data/var_anno/verify.py": "8eeb9149bc873dc9465f3b49ae6fe5794351972f8a1fa508b19407cefdeb89ec"
   },
-  "indexed_at_commit": "3e4be5790a385cb9e3743b7bfffffb352a28ef3d",
-  "indexed_at_timestamp": "2026-07-24T17:03:53.207744460+00:00",
+  "indexed_at_commit": "cdfa006fed7051ca84e624e93feb793d30e66825",
+  "indexed_at_timestamp": "2026-07-24T17:04:30.839095902+00:00",
   "schema_version": 3,
   "stats": {
-    "total_edges": 2172,
+    "total_edges": 2171,
     "total_files": 232,
     "total_nodes": 1766
   },

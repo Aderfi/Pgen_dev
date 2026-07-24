@@ -82,7 +82,8 @@ def test_api_app_imports():
 
 
 def test_cli_entry_imports():
-    importlib.import_module("src.interface.cli")
+    importlib.import_module("src.tui.parser")
+    importlib.import_module("src.tui.app")
 
 
 def test_settings_paths_resolves():

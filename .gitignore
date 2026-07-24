@@ -1,66 +1,76 @@
+# =======================================================
+# PROJECT-SPECIFIC
+# =======================================================
 CLAUDE.md
+GEMINI.md
+.claude/
+.claudeignore
+.aiexclude
+.user_env_cfg
+vexp.toml
 src/model/architectures/___gnn.py
 
 # =======================================================
-# 1. CORE & PYTHON
+# 1. PYTHON
 # =======================================================
 __pycache__/
+*__pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 *.egg-info/
 dist/
 build/
+.mypy_cache/
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
-.aiexclude
-.mypy_cache/
-.*
+.ipynb_checkpoints/
+.ruff_cache/
 
 # =======================================================
-# 2. ENVIRONMENTS & SECRETS (CRITICAL)
+# 2. ENVIRONMENTS & SECRETS
 # =======================================================
-# Virtual Environments
+# Virtual environments
+.env
+.venv/
+venv/
 .*env*/
 
-# Credentials & Local Configs
+# Credentials & local configs
 gha-creds-*.json
 gemini*.json
 src/cfg/venv_setup_true
 
 # =======================================================
-# 3. IDE & OS (Windows/Linux Compatibility)
+# 3. IDE & OS
 # =======================================================
 # Windows
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# MacOS (if collaborating)
+# macOS
 .DS_Store
 
 # IDEs
 .vscode/
 .idea/
 *.code-workspace
-.user_env_cfg
 
 # =======================================================
 # 4. BIOINFORMATICS & DATA
 # =======================================================
-# General Large Data rule: Ignore everything in data/ first
+# Ignore all of data/ by default; explicitly un-ignore tracked structure below
 data/*
-
-# Exceptions: explicit folders we DO want to track (structure)
-# Must un-ignore the directory itself before contents are reachable.
 !data/dicts/
 !data/dicts/**
 !data/processed/.gitkeep
 !data/raw/.gitkeep
 !data/vcf/.gitkeep
 
-# Specific extensions to block globally (Safety net)
+# Genomics file formats (large binary/text)
 *.vcf
 *.vcf.gz
 *.tbi
@@ -71,14 +81,14 @@ data/*
 *.fasta
 *.fa.gz
 
-# Tabular Data (prevent accidental CSV commits)
+# Tabular data (prevent accidental commits)
 *.csv
 #*.tsv
 *.xlsx
 #*.parquet
 *.feather
 
-# Library dependencies inside src (if applicable)
+# Legacy library path inside src
 src/library/**
 
 # =======================================================
@@ -90,80 +100,50 @@ src/library/**
 *.h5
 *.ckpt
 *.onnx
-model_*.txt
 *.joblib
+model_*.txt
+models/gemma4_e4b_it.gguf
 
-# Optuna / DBs
+# Databases
 *.db
 *.sqlite3
 
 # =======================================================
 # 6. LOGS & OUTPUTS
 # =======================================================
-.ruff_cache/
+*.log
 logs/
+log.txt
 reports/
 cache/
 results/
 npm-debug.log*
-*.log
-GEMINI.md
 
 # =======================================================
-# 7. LOCAL BACKUPS
+# 7. BACKUPS & GENERATED ARTIFACTS
 # =======================================================
 BACKUPS/
-
-# Graphify
-graphify-out/
-
-*__pycache__/
-
 _management/
+tmp/
 
-*.pyc
-.env
-.venv/
-venv/
-data/raw/
-data/processed/
-models/*.pkl
-models/*.h5
-*.log
-.ipynb_checkpoints/
-*.db
-
+# Graphify knowledge graph output
 graphify-out/
+graph_canvas/
 
-# ATC scraper artifacts (progress state + duplicate of src/data/atc/codes.json)
+# ATC scraper artifacts
 scripts/checkpoint.json
 scripts/codes.json
 
-# Runtime logs and Tier 2 pharmacovigilance cache
-logs/
-log.txt
+# Pharmacovigilance datasets (built offline by build_pharmacovigilance.py)
 src/data/pharmacovigilance/_cache/
-
-# One-off ETL source downloads
-tmp/
-
-# Snakemake run metadata/locks (local, never shared)
-.snakemake/
-
-# Generated pharmacovigilance datasets (built offline by build_pharmacovigilance.py)
 src/data/pharmacovigilance/*.db
 src/data/pharmacovigilance/*.json
-CLAUDE.md
-.claude/
-.claudeignore
 
-docs/superpowers/
-
+# Snakemake run metadata/locks (local only)
+.snakemake/
 .superpowers/
-.vscode/
-*pytest*
-*ruff*
 
-models/gemma4_e4b_it.gguf
-
+# Generated documentation
+docs/superpowers/
 docs/*.md
+docs/*.canvas

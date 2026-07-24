@@ -6,7 +6,10 @@ tests focus on:
 - the 503 path when artifacts are missing
 """
 
-from fastapi.testclient import TestClient
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 class TestSinglePredict:

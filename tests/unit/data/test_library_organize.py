@@ -1,8 +1,11 @@
 """Tests for src.data.library.organize."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.data.library.organize import organize_gene_files
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestOrganizeGeneFiles:

@@ -27,11 +27,12 @@ import torch
 from torch import nn
 from torch.amp.autocast_mode import autocast
 from torch.amp.grad_scaler import GradScaler
-from torch.utils.data import DataLoader
 
 from src.core import TrainingError
 
 if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+
     from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)

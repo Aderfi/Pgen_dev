@@ -13,12 +13,10 @@ epoch. Use directly:
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping, MutableSequence, Set
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.config import get_settings
@@ -26,6 +24,10 @@ from src.model.checkpoint import CheckpointManager
 from src.model.training.loop import TrainingLoop
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, MutableSequence, Set
+
+    from torch.utils.data import DataLoader
+
     from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)

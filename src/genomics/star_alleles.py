@@ -18,12 +18,15 @@ from __future__ import annotations
 import csv
 from collections.abc import Iterable
 from functools import lru_cache
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.config.settings import PROJECT_ROOT
-from src.domain.gene import AlleleFunction, Gene, StarAllele
+from src.domain.schemas.gene import AlleleFunction, Gene, StarAllele
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _DEFAULT_TSV = PROJECT_ROOT / "data" / "dicts" / "star_alleles.tsv"
 

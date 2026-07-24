@@ -1,9 +1,12 @@
 """Tests for src.data.library.manifest."""
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.data.library.manifest import BuildManifest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestBuildManifest:

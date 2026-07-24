@@ -8,7 +8,6 @@ tensorization).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -25,6 +24,7 @@ from src.data.library.geno_store import GenoLibrary
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Set
+    from pathlib import Path
 
     from src.data.library.genotype_resolver import GenotypeResolver
     from src.data.polypharmacy import PseudoPatientBuilder

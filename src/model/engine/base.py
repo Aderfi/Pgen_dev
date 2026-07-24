@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import polars as pl
 import torch
 from sklearn.model_selection import train_test_split
 from torch import nn
@@ -41,6 +39,10 @@ from src.data.loaders import TabularLoader
 from src.model.architectures.assembly import create_gnn_model
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    import polars as pl
+
     from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)

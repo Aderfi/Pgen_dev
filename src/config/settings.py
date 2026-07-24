@@ -23,7 +23,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.config.paths import Paths
-from src.domain.variant import GenomeBuild
+from src.domain.schemas.variant import GenomeBuild
 
 # Resolved at import time once — the project root is derived from this file's
 # location (3 levels up: src/config/settings.py → src/config → src → root).

@@ -8,24 +8,22 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 from torch_geometric.data import Data as PyGData
 
+from src.domain.base import GraphDomainModel
 
-class GraphKind(StrEnum):
-    DRUG = "drug"
-    GENE = "gene"
+GraphKind = Literal["drug", "gene"]
 
 
-class GraphMetadata(BaseModel):
+class GraphMetadata(GraphDomainModel):
     """Lightweight description of a stored graph artifact.
 
     `path` points at the .pt file produced by the library builder. It's a
     Path, not a string, so downstream code gets the typed object for free.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     kind: GraphKind
     identifier: str = Field(..., description="Drug CID or 'GENE/variant' key.")
@@ -39,12 +37,12 @@ class GraphMetadata(BaseModel):
     )
 
 
-class GraphPair(BaseModel):
+class GraphPair(GraphDomainModel):
     """A drug graph paired with a gene/genotype graph — the input shape for the
     Two-Tower model.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # holds live PyG tensors
 
     drug: PyGData
     gene: PyGData

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.gene import AlleleFunction, Gene, StarAllele
+from src.domain.schemas.gene import AlleleFunction, Gene, StarAllele
 
 
 class TestGene:

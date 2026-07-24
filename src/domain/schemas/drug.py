@@ -14,9 +14,11 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 from torch_geometric.data import Data as PyGData
 
+from src.domain.base import DrugDomainModel
 
-class Drug(BaseModel):
-    """A drug molecule keyed by PubChem CID.
+
+class Drug(DrugDomainModel):
+    """A drug molecule.
 
     `molecule` (RDKit Mol) and `graph` (PyG Data) are optional so callers can
     construct a Drug from a database row before chemistry/graph derivation
@@ -29,6 +31,9 @@ class Drug(BaseModel):
         ..., description="Cleaned drug name; used for filenames and display."
     )
     cid: PositiveInt = Field(..., description="PubChem Compound ID.")
+    sid: PositiveInt | None = Field(
+        default=None, description="PubChem Substance ID, only for substances that are not compounds."
+    )
     smiles: str = Field(..., description="Canonical SMILES string.")
     ph_group: str | None = Field(
         default=None, description="ATC/pharmacological group code."
@@ -73,9 +78,12 @@ class Drug(BaseModel):
         return cls(
             name=name,
             cid=cid,
+            sid=None,
             smiles=canonical,
             ph_group=ph_group,
             molecule=mol,
             graph=graph,
             **extra,
         )
+
+

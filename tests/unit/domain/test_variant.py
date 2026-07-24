@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.variant import (
+from src.domain.schemas.variant import (
     GenomeBuild,
     Genotype,
     Position,

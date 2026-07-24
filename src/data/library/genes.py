@@ -25,9 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 import polars as pl
@@ -38,8 +36,13 @@ from tqdm.auto import tqdm
 
 from src.data.library.chromosome import CHROM_TO_REFSEQ
 from src.data.library.geno_func import GenoFuncProvider
-from src.data.library.manifest import BuildManifest
 from src.data.library.pgx import load_pgx_folder
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
+    from src.data.library.manifest import BuildManifest
 
 logger = logging.getLogger(__name__)
 

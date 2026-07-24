@@ -12,17 +12,19 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Mapping, MutableSequence, Set
 from typing import TYPE_CHECKING, Any
 
-import torch
 from optuna import Trial, TrialPruned
-from torch import nn
-from torch.utils.data import DataLoader
 
 from src.model.training.loop import TrainingLoop
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, MutableSequence, Set
+
+    import torch
+    from torch import nn
+    from torch.utils.data import DataLoader
+
     from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 
 logger = logging.getLogger(__name__)

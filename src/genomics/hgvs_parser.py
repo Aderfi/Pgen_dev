@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 
 from src.core.exceptions import BioinformaticsError
-from src.domain.hgvs import (
+from src.domain.schemas.hgvs import (
     AMINO_ACID_THREE_TO_ONE,
     HGVSVariant,
     MolecularType,

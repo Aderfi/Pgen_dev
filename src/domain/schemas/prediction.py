@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.domain.gene import StarAllele
+from src.domain.schemas.gene import StarAllele
 
 
 class PredictionRequest(BaseModel):

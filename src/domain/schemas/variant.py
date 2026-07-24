@@ -8,9 +8,18 @@ is a programming-internal detail and never leaves these models.
 from __future__ import annotations
 
 import re
-from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
+
+from src.domain.types import GenomeBuild, VariantType, Zygosity
 
 # Accept short autosome names (1-22), sex chroms (X, Y), and mitochondrial (MT).
 # Other contigs (scaffolds, alternate haplotypes) are valid but uncommon — we
@@ -20,7 +29,6 @@ _CHROM_PREFIX = re.compile(r"^chr", re.IGNORECASE)
 _REFSEQ_HUMAN = re.compile(r"^NC_0+(\d+)\.\d+$")
 # Special-case sex/mitochondrial chromosomes; autosomes pass through unchanged.
 _REFSEQ_NON_AUTOSOME = {"23": "X", "24": "Y", "12920": "MT"}
-
 
 def normalize_chromosome(chrom: str) -> str:
     """Normalize a chromosome label to the bare-token form used by Ensembl FASTA.
@@ -47,35 +55,8 @@ def normalize_chromosome(chrom: str) -> str:
 
     return bare
 
-
-class GenomeBuild(StrEnum):
-    """Reference assembly identifier.
-
-    Pharmagen targets GRCh38 by default; GRCh37 is accepted but flagged at the
-    Variant boundary so callers can opt in deliberately (legacy datasets).
-    """
-
-    GRCH37 = "GRCh37"
-    GRCH38 = "GRCh38"
-
-
-class VariantType(StrEnum):
-    SNP = "SNP"
-    MNP = "MNP"
-    INSERTION = "INS"
-    DELETION = "DEL"
-    INDEL = "INDEL"
-    STAR_ALLELE = "STAR_ALLELE"
-    OTHER = "OTHER"
-
-
-class Zygosity(StrEnum):
-    HOMOZYGOUS_REF = "0/0"
-    HETEROZYGOUS = "0/1"
-    HOMOZYGOUS_ALT = "1/1"
-    HEMIZYGOUS = "1"
-    UNKNOWN = "./."
-
+ChromLabel = Annotated[str, BeforeValidator(normalize_chromosome)]
+GenomicPosition = Annotated[int, Field(ge=1, description="1-based genomic position.")]
 
 class Position(BaseModel):
     """A point on a reference genome.
@@ -92,16 +73,35 @@ class Position(BaseModel):
     pos: int = Field(..., ge=1, description="1-based genomic position.")
     build: GenomeBuild = Field(default=GenomeBuild.GRCH38)
 
-    @field_validator("chrom", mode="before")
-    @classmethod
-    def _normalize_chrom(cls, v: str) -> str:
-        return normalize_chromosome(v)
+    #@field_validator("chrom", mode="before")
+    #@classmethod
+    #def _normalize_chrom(cls, v: str) -> str:
+    #    return normalize_chromosome(v)
 
     def __str__(self) -> str:
         return f"{self.build.value}:{self.chrom}:{self.pos}"
 
 
 _ALLELE_PATTERN = re.compile(r"^[ACGTN]+$|^\.$|^-$")
+
+def _normalize_allele(v: str) -> str:
+    if not isinstance(v, str):
+        msg = f"allele must be str, got {type(v).__name__}"
+        raise TypeError(msg)
+    upper = v.strip().upper()
+    if not _ALLELE_PATTERN.match(upper):
+        msg = f"invalid allele {v!r}: expected ACGTN/./- only"
+        raise ValueError(msg)
+    return upper
+
+Allele = Annotated[
+    str,
+    BeforeValidator(_normalize_allele),
+    Field(min_length=1, description="Reference/alternate allele (uppercase ACGTN)."),
+]
+RsId = Annotated[str, StringConstraints(pattern=r"^rs\d+$")]
+
+
 
 
 class Variant(BaseModel):
@@ -115,36 +115,10 @@ class Variant(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     position: Position
-    ref: str = Field(
-        ..., min_length=1, description="Reference allele (uppercase ACGTN)."
-    )
-    alt: str = Field(
-        ..., min_length=1, description="Alternate allele (uppercase ACGTN)."
-    )
+    ref: Allele
+    alt: Allele
     variant_type: VariantType = VariantType.OTHER
-    rsid: str | None = Field(default=None, description="dbSNP rsID if known.")
-
-    @field_validator("ref", "alt", mode="before")
-    @classmethod
-    def _uppercase_allele(cls, v: str) -> str:
-        if not isinstance(v, str):
-            msg = f"allele must be str, got {type(v).__name__}"
-            raise TypeError(msg)
-        upper = v.strip().upper()
-        if not _ALLELE_PATTERN.match(upper):
-            msg = f"invalid allele {v!r}: expected ACGTN/./- only"
-            raise ValueError(msg)
-        return upper
-
-    @field_validator("rsid")
-    @classmethod
-    def _check_rsid(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        if not re.match(r"^rs\d+$", v):
-            msg = f"invalid rsID {v!r}: expected 'rs' followed by digits"
-            raise ValueError(msg)
-        return v
+    rsid: RsId | None = Field(default=None, description="dbSNP rsID if known.")
 
     @model_validator(mode="after")
     def _infer_type_if_other(self) -> Variant:
@@ -170,3 +144,5 @@ class Genotype(BaseModel):
     variant: Variant
     zygosity: Zygosity
     sample_id: str | None = None
+
+

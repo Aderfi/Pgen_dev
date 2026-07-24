@@ -18,14 +18,16 @@ Bioinformatics conventions:
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator, Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pysam  # type: ignore[import-not-found]
 
 from src.config import get_settings as _get_settings
 from src.core import BioinformaticsError
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Iterable
 
 _paths = _get_settings().paths
 DATA_DIR = _paths.data

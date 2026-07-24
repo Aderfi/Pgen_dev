@@ -434,6 +434,7 @@ class PharmagenTwoTower(nn.Module):
     def _resolve_mol_to_patient(
         self, drug_data: Data, num_molecules: int, num_patients: int
     ) -> Tensor:
+        assert drug_data.x is not None
         """Return the molecule -> patient index, defaulting to 1-per-patient."""
         mol_to_patient: Tensor | None = getattr(drug_data, "mol_to_patient", None)
         if mol_to_patient is None:
@@ -443,7 +444,9 @@ class PharmagenTwoTower(nn.Module):
                     f"molecules ({num_molecules}) differs from the number of "
                     f"patients ({num_patients})."
                 )
-            mol_to_patient = torch.arange(num_molecules, device=drug_data.x.device)
+            mol_to_patient = torch.arange(
+                num_molecules, device=drug_data.x.device
+            )  # device not None
         return mol_to_patient.long()
 
     def _molecule_forward(self, drug_data: Data, num_molecules: int) -> Tensor:
@@ -505,6 +508,9 @@ class PharmagenTwoTower(nn.Module):
         """
         cfg = self.config
         self._validate_batch_inputs(drug_data, geno_data)
+
+        assert drug_data.batch is not None
+        assert geno_data.batch is not None
 
         num_patients = int(geno_data.batch.max().item()) + 1
 

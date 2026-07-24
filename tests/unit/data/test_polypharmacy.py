@@ -1,6 +1,6 @@
 """Tests for src.data.polypharmacy.PseudoPatientBuilder."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 from torch_geometric.data.data import Data
@@ -12,6 +12,9 @@ from src.data.library.ingest.graph_artifact import (
     build_ddi_artifact,
 )
 from src.data.polypharmacy import PseudoPatientBuilder
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _tiny_drug_graph(cid: str) -> Data:

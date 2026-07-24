@@ -1,10 +1,13 @@
 """Per-task temperature scaling for post-hoc probability calibration."""
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from src.model.architectures.config import TaskSpec
+if TYPE_CHECKING:
+    from src.model.architectures.config import TaskSpec
 
 
 class TemperatureScaler(nn.Module):

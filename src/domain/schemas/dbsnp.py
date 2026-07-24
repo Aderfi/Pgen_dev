@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
 
-from src.domain.variant import (
+from src.domain.base import GenomicDomainModel
+from src.domain.schemas.variant import (
     GenomeBuild,
     Position,
     Variant,
@@ -40,14 +41,12 @@ def build_from_accession(accession: str) -> GenomeBuild:
     return GenomeBuild.GRCH38
 
 
-class DbSnpGene(BaseModel):
+class DbSnpGene(GenomicDomainModel):
     """A gene annotation as reported in a ``<GENE_E>`` element.
 
     ``entrez_id`` is the NCBI Entrez Gene ID (the ``<GENE_ID>`` value, e.g.
     840 for CASP7) — *not* an Ensembl ID, so it cannot go into ``Gene``.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     symbol: str = Field(..., min_length=1, description="Gene symbol as reported.")
     entrez_id: int | None = Field(
@@ -63,15 +62,13 @@ class DbSnpGene(BaseModel):
         return v.strip()
 
 
-class SpdiAllele(BaseModel):
+class SpdiAllele(GenomicDomainModel):
     """A single allele from the ``<SPDI>`` field, in SPDI semantics.
 
     SPDI describes a change as ``deleted -> inserted`` at a position. A
     substitution has one base in each; a deletion has an empty ``inserted``;
     an insertion has an empty ``deleted``. ``pos`` is stored **1-based**.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     accession: str = Field(..., description="RefSeq sequence accession.")
     chrom: str = Field(..., description="Normalized chromosome label.")
@@ -106,10 +103,9 @@ class SpdiAllele(BaseModel):
         )
 
 
-class DbSnpSummary(BaseModel):
+class DbSnpSummary(GenomicDomainModel):
     """One ``<DocumentSummary>`` record, reduced to the PGx-relevant fields."""
 
-    model_config = ConfigDict(frozen=True)
 
     snp_id: int = Field(..., ge=1, description="dbSNP numeric ID (without 'rs').")
     chromosome: str | None = Field(default=None, description="Normalized chromosome.")

@@ -6,7 +6,7 @@ import pytest
 
 from src.core.exceptions import BioinformaticsError
 from src.data.library.ingest.hgvs_build import genomic_hgvs, genomic_hgvs_body
-from src.domain.hgvs import MolecularType, VariantKind
+from src.domain.schemas.hgvs import MolecularType, VariantKind
 from src.genomics.hgvs_parser import parse
 
 

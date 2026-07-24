@@ -33,7 +33,7 @@ import logging
 from math import sqrt
 
 from src.core import BioinformaticsError
-from src.domain.hgvs import AMINO_ACID_THREE_TO_ONE, MolecularType, VariantKind
+from src.domain.schemas.hgvs import AMINO_ACID_THREE_TO_ONE, MolecularType, VariantKind
 from src.genomics.hgvs_parser import parse
 
 logger = logging.getLogger(__name__)

@@ -1,16 +1,19 @@
 """Tests for src.genomics.star_alleles."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from src.domain.gene import AlleleFunction
+from src.domain.schemas.gene import AlleleFunction
 from src.genomics.star_alleles import (
     StarAlleleMap,
     StarAlleleRecord,
     get_default_map,
     load_star_alleles,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -123,7 +126,7 @@ class TestDefaultCatalog:
 
 class TestStarAlleleRecord:
     def test_normalize_rsids_string(self) -> None:
-        from src.domain.gene import Gene, StarAllele
+        from src.domain.schemas.gene import Gene, StarAllele
 
         rec = StarAlleleRecord(
             star_allele=StarAllele(gene=Gene(symbol="CYP2D6"), allele="4"),
@@ -132,7 +135,7 @@ class TestStarAlleleRecord:
         assert rec.rsids == ("rs1", "rs2", "rs3")
 
     def test_normalize_rsids_iterable(self) -> None:
-        from src.domain.gene import Gene, StarAllele
+        from src.domain.schemas.gene import Gene, StarAllele
 
         rec = StarAlleleRecord(
             star_allele=StarAllele(gene=Gene(symbol="CYP2D6"), allele="4"),

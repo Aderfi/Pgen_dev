@@ -1,12 +1,15 @@
 """Multi-task loss with learned homoscedastic uncertainty weighting."""
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from src.model.architectures.config import TaskSpec
-
 from .focal import focal_bce_with_logits
+
+if TYPE_CHECKING:
+    from src.model.architectures.config import TaskSpec
 
 
 class MultiTaskLoss(nn.Module):

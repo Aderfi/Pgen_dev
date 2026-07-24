@@ -20,11 +20,14 @@ from ``data/dicts/star_alleles.tsv`` to avoid a hardcoded table.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from src.genomics.star_alleles import get_default_map
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

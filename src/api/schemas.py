@@ -7,12 +7,13 @@ lives here.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 
-from src.domain.gene import StarAllele
-from src.domain.prediction import PredictionResult
+if TYPE_CHECKING:
+    from src.domain.schemas.gene import StarAllele
+    from src.domain.schemas.prediction import PredictionResult
 
 
 class HealthResponse(BaseModel):

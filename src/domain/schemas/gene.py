@@ -11,7 +11,9 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+
+from src.domain.base import GenomicDomainModel
 
 _HGNC_SYMBOL = re.compile(r"^[A-Z][A-Z0-9-]*$")
 _ENSG_ID = re.compile(r"^ENSG\d{11}(?:\.\d+)?$")
@@ -33,10 +35,8 @@ class AlleleFunction(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Gene(BaseModel):
+class Gene(GenomicDomainModel):
     """A gene identified by its HGNC symbol, optionally an Ensembl ID."""
-
-    model_config = ConfigDict(frozen=True)
 
     symbol: str = Field(..., description="HGNC symbol (uppercase, e.g. 'CYP2D6').")
     ensembl_id: str | None = Field(
@@ -66,7 +66,7 @@ class Gene(BaseModel):
         return v
 
 
-class StarAllele(BaseModel):
+class StarAllele(GenomicDomainModel):
     """A pharmacogenomic star allele (e.g. CYP2D6*4).
 
     The combined ``GENE*allele`` form is exposed via ``label``; component access
@@ -74,8 +74,6 @@ class StarAllele(BaseModel):
     ``Gene`` model (not a bare string) so callers can't smuggle invalid symbols
     in through this entry point.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     gene: Gene
     allele: str = Field(

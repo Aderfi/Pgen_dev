@@ -9,12 +9,16 @@ object store.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from src.api.deps import SettingsDep
 from src.api.schemas import LibraryEntry, LibraryListResponse
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from src.api.deps import SettingsDep
 
 router = APIRouter(prefix="/v1/library", tags=["library"])
 

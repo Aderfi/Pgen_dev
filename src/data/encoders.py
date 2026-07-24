@@ -11,14 +11,16 @@ constructing a full Dataset.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import torch
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 
 from src.core import EncoderError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 

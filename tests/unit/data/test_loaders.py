@@ -1,10 +1,13 @@
 """Tests for src.data.loaders."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from src.data.loaders import DEFAULT_NULL_VALUES, TRAIN_DATA_SCHEMA, TabularLoader
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

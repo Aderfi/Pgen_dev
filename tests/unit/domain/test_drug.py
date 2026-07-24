@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.drug import Drug
+from src.domain.schemas.drug import Drug
 
 ASPIRIN_SMILES = "CC(=O)OC1=CC=CC=C1C(=O)O"
 ASPIRIN_CANONICAL = "CC(=O)Oc1ccccc1C(=O)O"

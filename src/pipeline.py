@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import gc
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import joblib
@@ -31,6 +30,8 @@ from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training.standard import StandardTrainer
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from src.data.datasets import DoubleTowerDataset
     from src.model.architectures.config import AxisSpec
 

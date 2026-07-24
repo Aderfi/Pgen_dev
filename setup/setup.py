@@ -21,7 +21,6 @@ import subprocess
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 # Configure logging
 logging.basicConfig(

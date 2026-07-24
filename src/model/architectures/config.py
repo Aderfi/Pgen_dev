@@ -19,7 +19,7 @@ class AxisSpec(BaseModel):
     """Declarative description of one prediction head.
 
     Args:
-        name: Human-readable identifier for the axis/head.
+        name: Identifier for the axis/head.
         dim: Output dimensionality (1 for binary / regression, C for multiclass).
         kind: Determines the loss and the calibration strategy.
         embedding_dim: Size of any auxiliary embedding associated with this axis.

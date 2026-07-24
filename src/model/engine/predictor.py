@@ -7,7 +7,7 @@ training path. The saved checkpoint provides the model weights; the saved
 target-encoder bundle provides the label spaces.
 
 Public API (relied on by ``src/api/routers/predict.py``,
-``src/interface/cli.py``, and ``main.py``):
+``src/tui/app.py``, and the shelved ``src/interface/__cli.py``):
 
     predictor = PGenPredictor(model_name)
     predictor.predict_single({"drugs_cid": "12345", "genotype": "CYP2D6*1"})
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +47,8 @@ from src.model.engine.base import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from src.data.library.genotype_resolver import GenotypeResolver
 
 logger = logging.getLogger(__name__)

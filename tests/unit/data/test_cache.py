@@ -1,12 +1,15 @@
 """Tests for src.data.cache."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import torch
 from torch_geometric.data.data import Data
 
 from src.data.cache import GraphCache, GraphDims, make_empty_graph
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

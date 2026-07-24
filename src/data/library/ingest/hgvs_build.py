@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from src.core.exceptions import BioinformaticsError
 from src.data.library.chromosome import to_refseq
-from src.domain.hgvs import MolecularType
+from src.domain.schemas.hgvs import MolecularType
 from src.genomics.hgvs_parser import parse
 
 

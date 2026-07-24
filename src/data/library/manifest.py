@@ -10,11 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
-from collections.abc import Iterable
 from datetime import UTC, datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 

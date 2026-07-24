@@ -19,7 +19,7 @@ from src.api.schemas import (
     BatchPredictResponse,
     SinglePredictRequest,
 )
-from src.domain.prediction import PredictionResult, TargetPrediction
+from src.domain.schemas.prediction import PredictionResult, TargetPrediction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/predict", tags=["predict"])

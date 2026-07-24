@@ -20,17 +20,20 @@ machine-readable canonical form; DOCSUM is only mined for HGVS strings.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
-from src.domain.dbsnp import (
+from src.domain.schemas.dbsnp import (
     DbSnpGene,
     DbSnpSummary,
     SpdiAllele,
     build_from_accession,
 )
-from src.domain.variant import normalize_chromosome
+from src.domain.schemas.variant import normalize_chromosome
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 

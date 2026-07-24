@@ -2,8 +2,8 @@
 
 import pytest
 
-from src.domain.gene import StarAllele
-from src.domain.prediction import (
+from src.domain.schemas.gene import StarAllele
+from src.domain.schemas.prediction import (
     PredictionRequest,
     PredictionResult,
     TargetPrediction,

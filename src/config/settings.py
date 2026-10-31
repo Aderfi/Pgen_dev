@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.config.paths import Paths
@@ -29,6 +29,31 @@ from src.domain.schemas.variant import GenomeBuild
 # location (3 levels up: src/config/settings.py → src/config → src → root).
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 CONFIG_DATA_DIR: Path = Path(__file__).parent / "data"
+
+
+class KGSettings(BaseModel):
+    """Neo4j knowledge-graph connection.
+
+    Override via env, e.g. ``PHARMAGEN_KG__URI=bolt://host:7687`` and
+    ``PHARMAGEN_KG__PASSWORD=...``. The password never lives in TOML.
+    """
+
+    uri: str = "bolt://localhost:7687"
+    user: str = "neo4j"
+    password: SecretStr = SecretStr("neo4j")
+    database: str = "neo4j"
+
+
+class NCBISettings(BaseModel):
+    """NCBI E-utilities / Variation Services client identity.
+
+    ``PHARMAGEN_NCBI__API_KEY`` raises the E-utilities limit from 3 to 10
+    requests/s; ``PHARMAGEN_NCBI__EMAIL`` is sent only when set.
+    """
+
+    api_key: SecretStr | None = None
+    email: str | None = None
+    tool: str = "pharmagen"
 
 
 class Settings(BaseSettings):
@@ -57,6 +82,10 @@ class Settings(BaseSettings):
     log_level: str = "WARNING"
     multi_label_cols: list[str] = Field(default_factory=list)
     genome_build: GenomeBuild = GenomeBuild.GRCH38
+
+    # Knowledge graph (Neo4j)
+    kg: KGSettings = Field(default_factory=KGSettings)
+    ncbi: NCBISettings = Field(default_factory=NCBISettings)
 
     # Filesystem
     paths: Paths

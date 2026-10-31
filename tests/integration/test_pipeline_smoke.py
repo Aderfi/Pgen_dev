@@ -20,30 +20,19 @@ def test_train_pipeline_imports_cleanly():
     assert hasattr(module, "train_pipeline"), "train_pipeline missing from src.pipeline"
 
 
-def test_pipeline_local_helpers_are_defined():
-    """Local pipeline helpers (the ones not yet pushed into engine.base)."""
-    module = importlib.import_module("src.pipeline")
-    for helper in (
-        "_announce_device",
-        "_log_memory_stats",
-        "_persist_training_artifacts",
-        "_setup_trainer",
-        "_execute_training",
-    ):
-        assert hasattr(module, helper), f"pipeline helper {helper!r} missing"
-
-
 def test_engine_base_exposes_shared_helpers():
     base = importlib.import_module("src.model.engine.base")
     for sym in (
         "resolve_device",
-        "extract_tower_dims",
+        "tower_dims",
         "load_and_clean_data",
         "stratified_split",
         "build_two_tower_datasets",
         "infer_dimensions",
+        "prepare_training_data",
         "build_train_val_loaders",
         "build_gnn_model",
+        "build_trainer",
     ):
         assert hasattr(base, sym), f"engine.base helper {sym!r} missing"
 
@@ -82,8 +71,8 @@ def test_api_app_imports():
 
 
 def test_cli_entry_imports():
-    importlib.import_module("src.tui.parser")
-    importlib.import_module("src.tui.app")
+    importlib.import_module("src.cli.parser")
+    importlib.import_module("src.cli.app")
 
 
 def test_settings_paths_resolves():

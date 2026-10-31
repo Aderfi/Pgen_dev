@@ -1,4 +1,4 @@
-from src.model.architectures import PharmagenConfig, PharmagenTwoTower, TaskSpec
+from src.model.architectures import AxisSpec, PharmagenConfig, PharmagenTwoTower
 
 
 def _cfg():
@@ -15,7 +15,7 @@ def _cfg():
         dropout=0.0,
         use_polypharmacy=False,
         use_cross_attention=False,
-        axes={"pheno": TaskSpec(dim=3, kind="multiclass")},
+        axes={"pheno": AxisSpec(dim=3, kind="multiclass")},
     )
 
 

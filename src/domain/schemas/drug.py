@@ -32,7 +32,8 @@ class Drug(DrugDomainModel):
     )
     cid: PositiveInt = Field(..., description="PubChem Compound ID.")
     sid: PositiveInt | None = Field(
-        default=None, description="PubChem Substance ID, only for substances that are not compounds."
+        default=None,
+        description="PubChem Substance ID, only for substances that are not compounds.",
     )
     smiles: str = Field(..., description="Canonical SMILES string.")
     ph_group: str | None = Field(
@@ -85,5 +86,3 @@ class Drug(DrugDomainModel):
             graph=graph,
             **extra,
         )
-
-

@@ -114,17 +114,18 @@ source .venv/bin/activate
 # Build the offline graph library (one-time, resumable)
 python -m src.data.library
 
-# Standard training
-python main.py --mode train --model TwoTowerGAT --input train_data/train_data.tsv
+# Standard training (TSV/CSV/parquet file, or rows straight from Neo4j)
+python main.py train -M TwoTowerGAT -i train_data/train_data.tsv
+python main.py train --neo4j
 
 # Hyperparameter search
-python main.py --mode train --optuna --optuna-trials 50 --optuna-epochs 30
+python main.py optuna --trials 50 --epochs 30
+
+# Batch prediction
+python main.py predict -i data/patients.csv
 
 # Inference (FastAPI)
 uvicorn src.api.main:app --reload          # → http://localhost:8000/docs
-
-# Interactive CLI menu
-python main.py
 ```
 
 Programmatic prediction:
@@ -150,14 +151,15 @@ src/
 ├── core/        Cross-cutting: exceptions, logging, validators
 ├── config/      Pydantic Settings + TOML data files
 ├── domain/      Pydantic v2 domain models
+├── cli/         Command line (python main.py {train,optuna,predict})
 ├── data/        Loading, cleaning, normalization, library builder
-├── genomics/    NGS pipeline, reference genome, star alleles, variants
-├── interface/   Console UI and interactive CLI
-├── model/       GATv2 architecture, training, engine (engine/base.py is shared bootstrap)
+├── genomics/    HGVS parsing, gene annotation, star alleles, variants
+├── kg/          Neo4j PharmGKB knowledge graph — the training-row source
+├── model/       GNN architecture, Trainer, engine (engine/base.py is shared bootstrap)
 └── pipeline.py  Training orchestrator
 
 data/
-├── library/     On-disk graph cache (drugs/, gene_graphs/) — Settings.paths.library
+├── library/     Graph cache (drugs/*.pt, hgvs_catalog.pt, kg/) — Settings.paths.library
 ├── dicts/       star_alleles.tsv and other static lookups
 └── …            raw/, processed/, ref_genome/
 

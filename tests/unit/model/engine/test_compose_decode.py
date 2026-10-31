@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import torch
 
+from src.model.architectures.axis_heads import AxisHeads
+from src.model.architectures.compose import ComposeHead
 from src.model.architectures.config import AxisSpec
-from src.model.architectures.heads.axis_heads import AxisHeads
-from src.model.architectures.heads.compose import ComposeHead
-from src.model.architectures.heads.label_table import CompositionalLabelTable
+from src.model.architectures.label_table import CompositionalLabelTable
 from src.model.engine.predictor import PGenPredictor
 
 

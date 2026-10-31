@@ -11,7 +11,7 @@ from __future__ import annotations
 import torch
 from torch_geometric.data import Batch, Data
 
-from src.model.architectures import PharmagenConfig, PharmagenTwoTower, TaskSpec
+from src.model.architectures import AxisSpec, PharmagenConfig, PharmagenTwoTower
 
 
 def _drug_graph() -> Data:
@@ -45,7 +45,7 @@ def _cfg() -> PharmagenConfig:
         dropout=0.0,
         use_polypharmacy=False,
         use_cross_attention=False,
-        axes={"outcome": TaskSpec(dim=1, kind="binary")},
+        axes={"outcome": AxisSpec(dim=1, kind="binary")},
     )
 
 

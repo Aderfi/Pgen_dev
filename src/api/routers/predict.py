@@ -28,11 +28,16 @@ router = APIRouter(prefix="/v1/predict", tags=["predict"])
 def _request_to_features(req: SinglePredictRequest) -> dict[str, Any]:
     """Translate the typed API request into the dict shape the predictor wants.
 
-    The TwoTowerGAT model expects features named ``drugs_cid`` and ``genotype``;
-    that mapping is encoded here so the API contract stays clean even if model
-    feature names drift.
+    HGVS variants and the star allele become genotype tokens; the predictor's
+    genotype graph builder links them to HGVS variant nodes.
     """
-    return {"drugs_cid": str(req.drug_cid), "genotype": req.allele.label}
+    tokens = [*req.hgvs, *([req.allele.label] if req.allele else [])]
+    return {
+        "drugs_cid": str(req.drug_cid),
+        "gene": req.gene_symbol,
+        "genotype": "|".join(tokens),
+        "alleles": req.alleles or "",
+    }
 
 
 def _wrap_prediction(

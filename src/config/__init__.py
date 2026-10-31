@@ -23,6 +23,8 @@ from src.config.models import (
 from src.config.paths import Paths
 from src.config.settings import (
     PROJECT_ROOT,
+    KGSettings,
+    NCBISettings,
     Settings,
     configure_logging_level,
     get_settings,
@@ -34,7 +36,9 @@ __all__ = [
     "CategoricalSpec",
     "FloatSpec",
     "IntSpec",
+    "KGSettings",
     "LogSpec",
+    "NCBISettings",
     "ModelConfig",
     "OptunaSpec",
     "PROJECT_ROOT",

@@ -37,9 +37,10 @@ class TestMakeEmptyGraph:
 
     def test_geno_dims(self) -> None:
         g = make_empty_graph("geno", graph_id="CYP2D6")
-        assert g.x.shape == (1, 30)
-        assert g.edge_attr.shape == (0, 2)
+        assert g.x.shape == (1, 45)
+        assert g.edge_attr.shape == (0, 3)
         assert g.geno_function.shape == (1, 6)
+        assert g.gene_token.tolist() == [1]  # UNK gene hub
         assert g.gene == "CYP2D6"
 
     def test_custom_dims(self) -> None:

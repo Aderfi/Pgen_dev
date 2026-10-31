@@ -1,86 +1,90 @@
-"""Library catalog — drugs and gene-graph artifacts on disk.
+"""Library catalog — the graph artifacts the model reads.
 
-These endpoints scan ``settings.paths.library`` (``data/library/`` by default)
-for ``.pt`` files (the pre-built PyG graphs) and return paginated metadata.
-The endpoint never returns the tensor payload itself — too large for HTTP;
-downstream callers fetch artifacts directly from the filesystem or a future
-object store.
+* ``/drugs`` lists the per-drug ``.pt`` graphs under ``paths.library/drugs``.
+* ``/genes`` lists the genes of the HGVS variant catalog
+  (``paths.library/hgvs_catalog.pt``); ``/genes/{symbol}`` lists that gene's
+  catalogued variants by genomic HGVS.
+
+Tensor payloads are never returned — too large for HTTP.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import lru_cache
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from src.api.deps import SettingsDep
 from src.api.schemas import LibraryEntry, LibraryListResponse
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from src.api.deps import SettingsDep
+from src.data.genotype import HGVS_CATALOG_FILE, HgvsCatalog
 
 router = APIRouter(prefix="/v1/library", tags=["library"])
 
+Offset = Query(0, ge=0)
+Limit = Query(50, ge=1, le=500)
 
-def _library_root(settings) -> Path:
-    return settings.paths.library
+
+@lru_cache(maxsize=2)
+def _catalog(path: Path, mtime: float) -> HgvsCatalog:  # noqa: ARG001 — cache key
+    return HgvsCatalog.load(path)
 
 
-def _list_pt_files(
-    directory: Path, kind: str, offset: int, limit: int
-) -> tuple[int, list[LibraryEntry]]:
-    if not directory.exists():
-        return 0, []
+def _load_catalog(library_root: Path) -> HgvsCatalog | None:
+    path = library_root / HGVS_CATALOG_FILE
+    if not path.exists():
+        return None
+    return _catalog(path, path.stat().st_mtime)
 
-    files = sorted(directory.rglob("*.pt"))
-    total = len(files)
-    sliced = files[offset : offset + limit]
-    items = [LibraryEntry(kind=kind, identifier=f.stem, path=str(f)) for f in sliced]
-    return total, items
+
+def _page(
+    kind: str, entries: list[LibraryEntry], offset: int, limit: int
+) -> LibraryListResponse:
+    return LibraryListResponse(
+        kind=kind,
+        total=len(entries),
+        offset=offset,
+        limit=limit,
+        items=entries[offset : offset + limit],
+    )
 
 
 @router.get("/drugs", response_model=LibraryListResponse)
 def list_drugs(
-    settings: SettingsDep,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500),
+    settings: SettingsDep, offset: int = Offset, limit: int = Limit
 ) -> LibraryListResponse:
-    drugs_dir = _library_root(settings) / "drugs"
-    total, items = _list_pt_files(drugs_dir, "drug", offset, limit)
-    return LibraryListResponse(
-        kind="drug", total=total, offset=offset, limit=limit, items=items
-    )
+    drugs_dir = settings.paths.library / "drugs"
+    files = sorted(drugs_dir.glob("*.pt")) if drugs_dir.exists() else []
+    entries = [LibraryEntry(kind="drug", identifier=f.stem, path=str(f)) for f in files]
+    return _page("drug", entries, offset, limit)
 
 
 @router.get("/genes", response_model=LibraryListResponse)
 def list_genes(
-    settings: SettingsDep,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500),
+    settings: SettingsDep, offset: int = Offset, limit: int = Limit
 ) -> LibraryListResponse:
-    genes_dir = _library_root(settings) / "gene_graphs"
-    total, items = _list_pt_files(genes_dir, "gene", offset, limit)
-    return LibraryListResponse(
-        kind="gene", total=total, offset=offset, limit=limit, items=items
-    )
+    catalog = _load_catalog(settings.paths.library)
+    genes = catalog.genes() if catalog is not None else []
+    path = str(settings.paths.library / HGVS_CATALOG_FILE)
+    entries = [LibraryEntry(kind="gene", identifier=g, path=path) for g in genes]
+    return _page("gene", entries, offset, limit)
 
 
 @router.get("/genes/{gene_symbol}", response_model=LibraryListResponse)
 def list_gene_variants(
     gene_symbol: str,
     settings: SettingsDep,
-    offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=500),
+    offset: int = Offset,
+    limit: int = Limit,
 ) -> LibraryListResponse:
-    """Variants stored for a single gene (by HGNC symbol)."""
-    genes_dir = _library_root(settings) / "gene_graphs" / gene_symbol.upper()
-    if not genes_dir.exists():
+    """Catalogued variants of one gene (HGNC symbol), as genomic HGVS."""
+    catalog = _load_catalog(settings.paths.library)
+    variants = catalog.variants_of(gene_symbol.upper()) if catalog is not None else []
+    if not variants:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No graphs for gene {gene_symbol!r}",
+            detail=f"No catalogued variants for gene {gene_symbol!r}",
         )
-    total, items = _list_pt_files(genes_dir, "gene", offset, limit)
-    return LibraryListResponse(
-        kind="gene", total=total, offset=offset, limit=limit, items=items
-    )
+    path = str(settings.paths.library / HGVS_CATALOG_FILE)
+    entries = [LibraryEntry(kind="variant", identifier=h, path=path) for h in variants]
+    return _page("variant", entries, offset, limit)

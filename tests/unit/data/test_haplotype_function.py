@@ -11,6 +11,7 @@ from src.data.library.haplotype_function import (
     FUNC_STATUSES,
     PATH_FUNCTION_DIM,
     HaplotypeFunctionProvider,
+    parse_activity_score,
 )
 
 if TYPE_CHECKING:
@@ -69,3 +70,18 @@ def test_miss_returns_zeros(star_tsv: Path) -> None:
 def test_null_provider() -> None:
     provider = HaplotypeFunctionProvider.null()
     assert provider.vector_for("CYP2D6", "*4") == [0.0] * PATH_FUNCTION_DIM
+
+
+@pytest.mark.parametrize(
+    ("notes", "function", "expected"),
+    [
+        ("AS 0.0", "no_function", 0.0),
+        ("severe; AS 0.0", "decreased_function", 0.0),
+        ("AS 1.0+", "increased_function", 1.0),
+        (None, "decreased_function", 0.5),  # falls back to CPIC-style default
+    ],
+)
+def test_parse_activity_score(
+    notes: str | None, function: str, expected: float
+) -> None:
+    assert parse_activity_score(notes, function) == expected

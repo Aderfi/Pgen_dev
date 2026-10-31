@@ -18,7 +18,6 @@ Bioinformatics conventions:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pysam  # type: ignore[import-not-found]
@@ -28,24 +27,16 @@ from src.core import BioinformaticsError
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable
+    from pathlib import Path
 
 _paths = _get_settings().paths
-DATA_DIR = _paths.data
 REF_GENOME_FASTA = _paths.ref_genome_fasta
 
 logger = logging.getLogger(__name__)
 
 
-# Default locations — keep available for legacy callers/scripts.
+# Default location — keep available for legacy callers/scripts.
 DEFAULT_FASTA: Path = REF_GENOME_FASTA
-DEFAULT_VCF_DIR: Path = Path(DATA_DIR, "raw")
-
-
-def list_vcf_files(vcf_dir: Path = DEFAULT_VCF_DIR) -> list[Path]:
-    """Return the .vcf.gz files available under ``vcf_dir`` (sorted)."""
-    if not vcf_dir.exists():
-        return []
-    return sorted(vcf_dir.glob("*.vcf.gz"))
 
 
 def decode_genotype(record: Any, sample_id: str) -> dict[str, Any]:

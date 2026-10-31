@@ -11,16 +11,18 @@ import pytest
 import torch
 from torch_geometric.data import Batch, Data
 
-from src.model.architectures.assembly import create_gnn_model
-from src.model.architectures.config import AxisSpec
+from src.config.models import TrainingParams
+from src.data.cache import GraphDims
+from src.model.architectures.config import AxisSpec, PharmagenConfig
+from src.model.architectures.model import PharmagenTwoTower
 
-PARAMS = {
-    "embedding_dim": 32,
-    "hidden_dim": 16,
-    "dropout_rate": 0.1,
-    "n_layers": 2,
-    "heads": 4,
-}
+PARAMS = TrainingParams(
+    embedding_dim=32,
+    hidden_dim=16,
+    dropout_rate=0.1,
+    n_layers=2,
+    heads=4,
+)
 SWITCHES = {"use_polypharmacy": False, "use_cross_attention": False}
 GLOBAL_DIM = 1038
 ADMET_DIM = 41
@@ -54,17 +56,21 @@ def _geno_graph() -> Data:
 
 
 def _model(global_dim: int, admet_dim: int = 0):
-    return create_gnn_model(
-        dims={
-            "drugs": {"edges": 18, "global": global_dim, "admet": admet_dim},
-            "geno": {"edges": 3},
-        },
+    cfg = PharmagenConfig.from_dims(
+        dims=GraphDims(
+            drug_edges=18,
+            drug_global=global_dim,
+            drug_admet=admet_dim,
+            geno_edges=3,
+            geno_function=0,
+        ),
         drug_dim=61,
         geno_dim=9,
         axes=AXES,
         params=PARAMS,
         switches=SWITCHES,
     )
+    return PharmagenTwoTower(cfg)
 
 
 def _geno_graph_v2(*, with_function: bool) -> Data:
@@ -79,17 +85,21 @@ def _geno_graph_v2(*, with_function: bool) -> Data:
 
 
 def _geno_model(geno_function_dim: int):
-    return create_gnn_model(
-        dims={
-            "drugs": {"edges": 18},
-            "geno": {"edges": 2, "function": geno_function_dim},
-        },
+    cfg = PharmagenConfig.from_dims(
+        dims=GraphDims(
+            drug_edges=18,
+            drug_global=0,
+            drug_admet=0,
+            geno_edges=2,
+            geno_function=geno_function_dim,
+        ),
         drug_dim=61,
         geno_dim=30,
         axes=AXES,
         params=PARAMS,
         switches=SWITCHES,
     )
+    return PharmagenTwoTower(cfg)
 
 
 class TestGenoFunctionBranch:
@@ -187,3 +197,76 @@ class TestAdmetBranch:
         geno = Batch.from_data_list([_geno_graph() for _ in range(2)])
         out = model(drug, geno)
         assert out["phenotype_category"].shape == (2, 5)
+
+
+# --------------------------------------------------------------------------- #
+# HGVS genotype tower: gene-identity embedding + LayerNorm
+# --------------------------------------------------------------------------- #
+
+
+def _hgvs_model(gene_vocab_size: int) -> PharmagenTwoTower:
+    cfg = PharmagenConfig.from_dims(
+        dims=GraphDims(drug_global=0, drug_admet=0, geno_function=0),
+        drug_dim=61,
+        geno_dim=45,
+        axes=AXES,
+        params=PARAMS,
+        switches=SWITCHES,
+        gene_vocab_size=gene_vocab_size,
+    )
+    return PharmagenTwoTower(cfg)
+
+
+def _hgvs_graph(gene_token: int) -> Data:
+    """Gene hub + two variants (the shape GenotypeGraphBuilder produces)."""
+    g = Data(
+        x=torch.randn(3, 45),
+        edge_index=torch.tensor([[0, 1, 0, 2, 1, 2], [1, 0, 2, 0, 2, 1]]),
+        edge_attr=torch.randn(6, 3),
+    )
+    g.gene_token = torch.tensor([gene_token, 0, 0])
+    return g
+
+
+class TestHgvsGenotypeTower:
+    def test_gene_identity_changes_the_output(self) -> None:
+        model = _hgvs_model(gene_vocab_size=5).eval()
+        drug = Batch.from_data_list([_drug_graph(with_global=False)])
+        graph = _hgvs_graph(2)
+        other = graph.clone()
+        other.gene_token = torch.tensor([3, 0, 0])
+        a = model(drug, Batch.from_data_list([graph]))["phenotype_category"]
+        b = model(drug, Batch.from_data_list([other]))["phenotype_category"]
+        assert not torch.allclose(a, b)
+
+    def test_variant_nodes_get_no_gene_vector(self) -> None:
+        model = _hgvs_model(gene_vocab_size=5)
+        assert torch.equal(
+            model.gene_embedding.weight[0], torch.zeros(PARAMS.hidden_dim)
+        )
+
+    def test_missing_gene_token_raises(self) -> None:
+        model = _hgvs_model(gene_vocab_size=5)
+        drug = Batch.from_data_list([_drug_graph(with_global=False)])
+        graph = _hgvs_graph(2)
+        del graph.gene_token
+        with pytest.raises(ValueError, match="gene_token"):
+            model(drug, Batch.from_data_list([graph]))
+
+    def test_single_node_genotype_is_not_erased(self) -> None:
+        """LayerNorm keeps a lone gene hub informative (GraphNorm would zero it)."""
+        model = _hgvs_model(gene_vocab_size=5).eval()
+        drug = Batch.from_data_list([_drug_graph(with_global=False)])
+
+        def lone(token: int) -> Batch:
+            g = Data(
+                x=torch.zeros(1, 45),
+                edge_index=torch.empty((2, 0), dtype=torch.long),
+                edge_attr=torch.empty((0, 3)),
+            )
+            g.gene_token = torch.tensor([token])
+            return Batch.from_data_list([g])
+
+        a = model(drug, lone(2))["phenotype_category"]
+        b = model(drug, lone(3))["phenotype_category"]
+        assert not torch.allclose(a, b)

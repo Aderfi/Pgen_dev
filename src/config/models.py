@@ -120,6 +120,47 @@ def _parse_optuna_value(raw: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Training hyperparameters (architecture + optimizer + scheduler)
+# ---------------------------------------------------------------------------
+
+
+class TrainingParams(BaseModel):
+    """Typed hyperparameters for the two-tower GNN: architecture + optimizer
+    + scheduler.
+
+    Validated from ``ModelConfig.params`` (TOML) or from a trial's suggested
+    values (Optuna) — see :meth:`ModelConfig.training_params`. ``extra =
+    "ignore"`` so stale search-space keys left over from the pre-GNN DeepFM
+    era (e.g. ``gamma``, ``asl_clip``) don't break validation; they simply
+    carry no effect.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # --- Architecture (GATv2 two-tower) ---
+    embedding_dim: int
+    hidden_dim: int
+    n_layers: int
+    heads: int
+    dropout_rate: float
+
+    # --- Optimizer ---
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-4
+    optimizer_type: Literal["adamw", "adam", "sgd", "rmsprop"] = "adamw"
+    momentum: float = 0.9  # only used when optimizer_type == "sgd"
+    loss_learning_rate: float | None = None  # defaults to learning_rate
+
+    # --- LR scheduler (ReduceLROnPlateau) ---
+    scheduler_factor: float = 0.5
+    scheduler_patience: int = 8
+
+    # --- Training loop ---
+    batch_size: int = 64
+    compose_loss_weight: float = 0.5
+
+
+# ---------------------------------------------------------------------------
 # Model config
 # ---------------------------------------------------------------------------
 
@@ -127,9 +168,9 @@ def _parse_optuna_value(raw: Any) -> Any:
 class ModelConfig(BaseModel):
     """Configuration for a single trained model.
 
-    `params` and `optuna` are kept as flexible dicts because their keys depend
-    on the architecture (DeepFM and TwoTowerGAT have different hyperparameters).
-    `optuna` values are always typed specs.
+    `params` is kept as a flexible dict because it doubles as the base for
+    Optuna trial overrides (see `training_params`); `optuna` values are
+    always typed specs.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -150,6 +191,18 @@ class ModelConfig(BaseModel):
         """Hyperparameters that are not part of the search space — for Optuna,
         these are passed through unchanged."""
         return dict(self.params)
+
+    def training_params(
+        self, overrides: dict[str, Any] | None = None
+    ) -> TrainingParams:
+        """Validate `params` (optionally merged with Optuna trial overrides).
+
+        Args:
+            overrides: Trial-suggested values (e.g. from
+                ``PGenTuner._suggest_params``), layered over `self.params`.
+        """
+        merged = self.params | (overrides or {})
+        return TrainingParams.model_validate(merged)
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from __future__ import annotations
 import torch
 from torch_geometric.data import Batch, Data
 
-from src.model.architectures import PharmagenConfig, PharmagenTwoTower, TaskSpec
+from src.model.architectures import AxisSpec, PharmagenConfig, PharmagenTwoTower
 
 DRUG_IN_FEATURES = 6
 DRUG_EDGE_DIM = 4
@@ -76,8 +76,8 @@ def _poly_cfg(use_polypharmacy: bool = True, use_cross_attention: bool = True):
         use_polypharmacy=use_polypharmacy,
         use_cross_attention=use_cross_attention,
         axes={
-            "pheno": TaskSpec(dim=3, kind="multiclass"),
-            "outcome": TaskSpec(dim=1, kind="binary"),
+            "pheno": AxisSpec(dim=3, kind="multiclass"),
+            "outcome": AxisSpec(dim=1, kind="binary"),
         },
     )
 

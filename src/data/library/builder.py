@@ -1,7 +1,7 @@
 """Top-level orchestrator for a library build.
 
-Composes the drug + gene builders, owns the manifest lifecycle, and applies
-post-processing (file organization). Use as either:
+Composes the drug graph builder and the HGVS catalog builder and owns the
+manifest lifecycle. Use as either:
 
     >>> LibraryBuilder(LibraryBuildConfig.from_settings()).run()
 
@@ -14,10 +14,9 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from src.data.genotype.catalog import build_hgvs_catalog
 from src.data.library.admet import AdmetProvider, records_from_rows
 from src.data.library.drugs import DrugGraphBuilder, load_drug_records
-from src.data.library.genes import GenomicGraphBuilder
-from src.data.library.geno_func import GenoFuncProvider
 from src.data.library.manifest import BuildManifest
 
 if TYPE_CHECKING:
@@ -71,38 +70,15 @@ class LibraryBuilder:
             force=cfg.force_admet,
         )
 
-    def _build_geno_func_provider(self, cfg: LibraryBuildConfig) -> GenoFuncProvider:
-        """Build the per-variant functional provider for the genotype tower.
-
-        With ``skip_geno_func`` the provider is null (every variant gets a zero
-        ``geno_global_feats``); otherwise Layer A (PGx allele function) is loaded
-        from the local star-allele table and Layer B (pathogenicity) from the
-        optional AlphaMissense / CADD files when configured.
-        """
-        if cfg.skip_geno_func:
-            logger.info("Geno functional profile skipped — zero vectors.")
-            return GenoFuncProvider.null()
-
-        logger.info(
-            "GenoFunc: building profile (star_alleles=%s, hgvs_table=%s)",
-            cfg.star_alleles_tsv,
-            cfg.hgvs_table,
-        )
-        return GenoFuncProvider.from_sources(
-            cfg.star_alleles_tsv,
-            hgvs_table=cfg.hgvs_table,
-        )
-
     def run(self) -> BuildSummary:
         cfg = self.config
         cfg.ensure_outputs()
 
         manifest = BuildManifest.load_or_empty(cfg.manifest_path)
         logger.info(
-            "Library build starting → %s (force=%s, only_gene=%s)",
+            "Library build starting → %s (force=%s)",
             cfg.library_root,
             cfg.force,
-            cfg.only_gene,
         )
 
         drugs_built = drugs_skipped = drugs_failed = 0
@@ -131,33 +107,27 @@ class LibraryBuilder:
 
         genes_built = genes_failed = 0
         if not cfg.skip_genes:
-            func_provider = self._build_geno_func_provider(cfg)
-            gene_builder = GenomicGraphBuilder(
-                cfg.fasta_path,
-                cfg.pgx_dir,
-                only_gene=cfg.only_gene,
-                force=cfg.force,
-                func_provider=func_provider,
-            )
-            genes_built, genes_failed = gene_builder.build(
-                cfg.variants_tsv,
-                cfg.genes_out,
-                manifest=manifest,
-            )
-            if func_provider.misses:
-                logger.warning(
-                    "GenoFunc: %d variant graphs got a zero functional profile "
-                    "(no PGx-function and no pathogenicity annotation).",
-                    func_provider.misses,
+            try:
+                catalog = build_hgvs_catalog(
+                    snp_table=cfg.variants_tsv,
+                    pharmvar_dir=cfg.pgx_dir,
+                    kg_dir=cfg.kg_dir,
+                    star_alleles_tsv=cfg.star_alleles_tsv,
                 )
-            manifest.save(cfg.manifest_path)
+                catalog.save(cfg.hgvs_catalog_path)
+                genes_built = len(catalog.genes())
+            except Exception:
+                logger.exception("HGVS catalog build failed")
+                genes_failed = 1
+            manifest.stats.genes_built = genes_built
+            manifest.stats.genes_failed = genes_failed
         else:
-            logger.info("Skipping gene pipeline (skip_genes=True).")
+            logger.info("Skipping HGVS catalog (skip_genes=True).")
 
         manifest.save(cfg.manifest_path)
         logger.info(
             "Library build done → %d drugs (+%d skipped, -%d failed), "
-            "%d gene variants (-%d failed). Manifest at %s",
+            "HGVS catalog over %d genes (failed=%d). Manifest at %s",
             drugs_built,
             drugs_skipped,
             drugs_failed,

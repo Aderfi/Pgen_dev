@@ -7,13 +7,22 @@ lives here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
-if TYPE_CHECKING:
-    from src.domain.schemas.gene import StarAllele
-    from src.domain.schemas.prediction import PredictionResult
+from src.core import BioinformaticsError
+from src.domain.schemas.gene import StarAllele
+from src.domain.schemas.prediction import PredictionResult
+from src.genomics.hgvs_parser import parse as parse_hgvs
 
 
 class HealthResponse(BaseModel):
@@ -44,12 +53,53 @@ class ModelDetail(ModelSummary):
 
 
 class SinglePredictRequest(BaseModel):
-    """One (drug, allele) pair — the lowest-level prediction request."""
+    """One drug + one genotype — the lowest-level prediction request.
+
+    The genotype is stated as HGVS variants (``hgvs``), optionally with a star
+    allele (``allele``, expanded to its HGVS variants by the catalog) and the
+    observed ``alleles`` (zygosity, e.g. ``"CT"`` or ``"*1/*4"``). A gene with
+    no variants is the reference genotype.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     drug_cid: PositiveInt = Field(..., description="PubChem Compound ID.")
-    allele: StarAllele
+    gene: str | None = Field(
+        default=None,
+        min_length=1,
+        description="HGNC symbol (taken from `allele` if omitted).",
+    )
+    hgvs: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="HGVS expressions with reference, e.g. 'NC_000010.11:g.94781859G>A'.",
+    )
+    allele: StarAllele | None = None
+    alleles: str | None = Field(
+        default=None, description="Observed genotype / diplotype, e.g. 'CT' or '*1/*4'."
+    )
+
+    @field_validator("hgvs")
+    @classmethod
+    def _valid_hgvs(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if ":" not in value:
+                raise ValueError(f"HGVS {value!r} needs a reference sequence prefix")
+            try:
+                parse_hgvs(value)
+            except BioinformaticsError as e:
+                raise ValueError(f"invalid HGVS {value!r}: {e}") from e
+        return values
+
+    @model_validator(mode="after")
+    def _needs_gene(self) -> SinglePredictRequest:
+        if self.gene is None and self.allele is None:
+            raise ValueError("give 'gene' (with 'hgvs') or a star 'allele'")
+        return self
+
+    @property
+    def gene_symbol(self) -> str:
+        return self.gene or self.allele.gene.symbol  # type: ignore[union-attr]
 
 
 class BatchPredictRequest(BaseModel):

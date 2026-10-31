@@ -126,17 +126,18 @@ source .venv/bin/activate
 # Construir la librería offline (una sola vez, reanudable)
 python -m src.data.library
 
-# Entrenamiento estándar
-python main.py --mode train --model TwoTowerGAT --input train_data/train_data.tsv
+# Entrenamiento estándar (fichero TSV/CSV/parquet, o filas directamente de Neo4j)
+python main.py train -M TwoTowerGAT -i train_data/train_data.tsv
+python main.py train --neo4j
 
 # Búsqueda de hiperparámetros
-python main.py --mode train --optuna --optuna-trials 50 --optuna-epochs 30
+python main.py optuna --trials 50 --epochs 30
+
+# Predicción por lotes
+python main.py predict -i data/patients.csv
 
 # Inferencia (FastAPI)
 uvicorn src.api.main:app --reload          # → http://localhost:8000/docs
-
-# Menú CLI interactivo
-python main.py
 ```
 
 Predicción programática:
@@ -162,14 +163,15 @@ src/
 ├── core/        Transversal: excepciones, logging, validadores
 ├── config/      Pydantic Settings + archivos TOML de datos
 ├── domain/      Modelos de dominio Pydantic v2
+├── cli/         Línea de comandos (python main.py {train,optuna,predict})
 ├── data/        Carga, limpieza, normalización, library builder
-├── genomics/    Pipeline NGS, genoma de referencia, alelos estrella, variantes
-├── interface/   UI de consola y CLI interactiva
-├── model/       Arquitectura GATv2, entrenamiento, engine (engine/base.py es el bootstrap compartido)
+├── genomics/    Parser HGVS, anotación de genes, alelos estrella, variantes
+├── kg/          Grafo de conocimiento PharmGKB en Neo4j — fuente de filas de entrenamiento
+├── model/       Arquitectura GNN, Trainer, engine (engine/base.py es el bootstrap compartido)
 └── pipeline.py  Orquestador de entrenamiento
 
 data/
-├── library/     Caché de grafos en disco (drugs/, gene_graphs/) — Settings.paths.library
+├── library/     Caché de grafos (drugs/*.pt, hgvs_catalog.pt, kg/) — Settings.paths.library
 ├── dicts/       star_alleles.tsv y otras tablas estáticas
 └── …            raw/, processed/, ref_genome/
 

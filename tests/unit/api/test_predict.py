@@ -53,6 +53,25 @@ class TestSinglePredict:
         assert r.status_code == 422
 
 
+class TestHgvsPredict:
+    def test_accepts_hgvs_genotype(self, client: TestClient) -> None:
+        body = {
+            "drug_cid": 2244,
+            "gene": "CYP2C19",
+            "hgvs": ["NC_000010.11:g.94781859G>A"],
+            "alleles": "AG",
+        }
+        assert client.post("/v1/predict", json=body).status_code in {200, 503}
+
+    def test_rejects_invalid_hgvs(self, client: TestClient) -> None:
+        body = {"drug_cid": 2244, "gene": "CYP2C19", "hgvs": ["NC_000010.11:g.?xyz"]}
+        assert client.post("/v1/predict", json=body).status_code == 422
+
+    def test_rejects_hgvs_without_reference(self, client: TestClient) -> None:
+        body = {"drug_cid": 2244, "gene": "CYP2C19", "hgvs": ["c.681G>A"]}
+        assert client.post("/v1/predict", json=body).status_code == 422
+
+
 class TestBatchPredict:
     def test_rejects_empty_batch(self, client: TestClient) -> None:
         r = client.post("/v1/predict/batch", json={"pairs": []})

@@ -6,8 +6,7 @@ for input normalization) so the inference path can never drift from the
 training path. The saved checkpoint provides the model weights; the saved
 target-encoder bundle provides the label spaces.
 
-Public API (relied on by ``src/api/routers/predict.py``,
-``src/tui/app.py``, and the shelved ``src/interface/__cli.py``):
+Public API (relied on by ``src/api/routers/predict.py`` and ``src/cli``):
 
     predictor = PGenPredictor(model_name)
     predictor.predict_single({"drugs_cid": "12345", "genotype": "CYP2D6*1"})
@@ -21,35 +20,36 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import joblib
 import polars as pl
 import torch
 from torch.utils.data import DataLoader
 
 from src.config import get_axes_config, get_model_config, get_settings
-from src.core import EncoderError, ModelError
+from src.core import EncoderError, EvaluationError, ModelError
+from src.data.cache import GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
-from src.data.encoders import UNKNOWN_CATEGORY_LABEL
-from src.data.library.geno_store import GenoLibrary
+from src.data.encoders import UNKNOWN_CATEGORY_LABEL, TargetEncoder
+from src.data.genotype import GenotypeGraphBuilder, load_hgvs_catalog
 from src.data.loaders import TabularLoader
 from src.model.architectures.assembly import infer_axis_specs
 from src.model.architectures.config import AxisSpec
-from src.model.architectures.heads.label_table import CompositionalLabelTable
+from src.model.architectures.label_table import CompositionalLabelTable
+from src.model.artifacts import load_training_artifacts
 from src.model.checkpoint import CheckpointManager
 from src.model.engine.base import (
     GENE_COLUMN,
-    GENO_LIBRARY_FILE,
     build_gnn_model,
-    extract_tower_dims,
     resolve_device,
+    tower_dims,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from src.data.library.genotype_resolver import GenotypeResolver
+    import numpy as np
+
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +66,17 @@ class PGenPredictor:
     container — there is no per-request mutable state.
     """
 
-    def __init__(self, model_name: str, device: str | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        device: str | None = None,
+        *,
+        run_name: str | None = None,
+    ) -> None:
+        """``model_name`` selects the models.toml section; ``run_name`` (default:
+        ``model_name``) the checkpoint + artifact bundle, e.g. a scenario fold."""
         self.model_name = model_name
+        self.run_name = run_name or model_name
         self.device = resolve_device(device)
 
         logger.info(
@@ -77,13 +86,15 @@ class PGenPredictor:
         self.cfg = get_model_config(model_name)
         self.feature_cols = list(self.cfg.features)
         self.target_cols = list(self.cfg.targets)
-        self.params = self.cfg.params
+        self.params = self.cfg.training_params()
         self.multi_label_cols = get_settings().multi_label_set
 
-        self.dims = extract_tower_dims(self.cfg)
-
-        enc_path = get_settings().paths.encoders / f"encoders_{model_name}.pkl"
+        enc_path = get_settings().paths.encoders / f"encoders_{self.run_name}.pkl"
         bundle = self._load_training_artifacts(enc_path)
+        # v3 bundles carry the graph widths the model was trained with.
+        self.dims = (
+            GraphDims(**bundle["dims"]) if "dims" in bundle else tower_dims(self.cfg)
+        )
 
         encoders = bundle["encoders"]
         for col in self.target_cols:
@@ -98,14 +109,18 @@ class PGenPredictor:
         # the persisted switches decide whether poly / cross-attention submodules
         # exist, so a strict state_dict load matches.
         self._switches = bundle.get("switches")
+        # Scenario-fold runs record the split they were trained on (schema v5+).
+        self.split_info: dict[str, Any] | None = bundle.get("split")
+        # Gene vocabulary of the HGVS genotype tower (schema v4+).
+        self.gene_vocab: dict[str, int] = bundle.get("gene_vocab") or {}
         self._axis_specs: dict[str, AxisSpec] | None = None
-        if bundle.get("schema_version") == 2 and bundle.get("axis_specs"):
+        if bundle.get("axis_specs"):
             self._axis_specs = {
                 name: AxisSpec(**spec) for name, spec in bundle["axis_specs"].items()
             }
 
         self.cleaner = PharmacogenomicCleaner(multi_label_cols=self.multi_label_cols)
-        self._resolver: GenotypeResolver | None = None
+        self._genotype_builder: GenotypeGraphBuilder | None = None
         self.collater = DoubleTowerCollater(inference_mode=True)
 
         self.model = self._load_model()
@@ -137,51 +152,8 @@ class PGenPredictor:
 
     @staticmethod
     def _load_training_artifacts(path: Path) -> dict[str, Any]:
-        """Load and normalize the encoder bundle persisted by the training pipeline.
-
-        Supports three on-disk formats, always returned as a single dict with
-        at least ``encoders`` and ``schema_version`` keys:
-
-        1. **Schema v2** — the full bundle written by
-           ``_persist_training_artifacts`` in ``src/pipeline.py``: ``encoders``,
-           ``drug_dim``, ``geno_dim``, ``edge_dims``, ``aux_dims``,
-           ``axis_specs``, ``label_table``, ``switches``, ``schema_version=2``.
-           Returned as-is.
-        2. **Schema v1** — the older bundle with just ``encoders``,
-           ``drug_dim``, ``geno_dim``, ``schema_version=1``. Returned as-is
-           (``schema_version`` normalized to ``1`` if missing/other).
-        3. **Legacy plain dict** — ``{target_col: encoder}`` written by even
-           older pipelines, with no ``schema_version`` at all. Wrapped as
-           ``{"encoders": payload, "schema_version": 1}`` with a warning;
-           dims are then inferred from ``cfg.extras`` by the caller, which is
-           fragile but preserves backward compatibility.
-        """
-        if not path.exists():
-            raise FileNotFoundError(f"Encoders file not found: {path}")
-
-        # joblib.load unpickles a local artifact written by this project's own
-        # `pipeline._persist_training_artifacts` — not attacker-controlled
-        # input, so the arbitrary-code-execution risk of pickle does not
-        # apply here (same trust boundary as the rest of the checkpoint I/O).
-        payload = joblib.load(path)
-        if not isinstance(payload, dict):
-            raise EncoderError(
-                f"Encoder artifact at {path} is not a dict "
-                f"(got {type(payload).__name__})"
-            )
-
-        if "encoders" in payload and isinstance(payload["encoders"], dict):
-            bundle = dict(payload)
-            if bundle.get("schema_version") not in (1, 2):
-                bundle["schema_version"] = 1
-            return bundle
-
-        logger.warning(
-            "Loading legacy encoders pickle at %s — drug_dim / geno_dim will "
-            "fall back to cfg.extras defaults; retrain to refresh the bundle.",
-            path,
-        )
-        return {"encoders": payload, "schema_version": 1}
+        """See :func:`src.model.artifacts.load_training_artifacts`."""
+        return load_training_artifacts(path)
 
     def _infer_axes(self):
         """Rebuild the per-axis specs from the loaded encoders.
@@ -210,7 +182,9 @@ class PGenPredictor:
         """Prefer the dim persisted at training time; fall back to cfg.extras."""
         if saved is not None:
             return saved
-        return self.dims[fallback_key]["features"]
+        if fallback_key == "drugs":
+            return self.dims.drug_features
+        return self.dims.geno_features
 
     def _load_model(self):
         """Instantiate the architecture and load the best checkpoint."""
@@ -219,7 +193,6 @@ class PGenPredictor:
         geno_dim = self._resolve_tower_dim(self._saved_geno_dim, "geno")
 
         model = build_gnn_model(
-            model_name=self.model_name,
             dims=self.dims,
             drug_dim=drug_dim,
             geno_dim=geno_dim,
@@ -227,12 +200,13 @@ class PGenPredictor:
             params=self.params,
             device=self.device,
             switches=self._switches,
+            gene_vocab=self.gene_vocab or None,
         )
 
-        manager = CheckpointManager(model_name=self.model_name)
+        manager = CheckpointManager(model_name=self.run_name)
         if manager.get_best_checkpoint_path() is None:
             raise FileNotFoundError(
-                f"No best checkpoint for model '{self.model_name}' under {manager.save_dir}"
+                f"No best checkpoint for model '{self.run_name}' under {manager.save_dir}"
             )
 
         try:
@@ -240,28 +214,32 @@ class PGenPredictor:
             model.load_state_dict(checkpoint["model_state_dict"])
         except Exception as e:
             raise ModelError(
-                f"Failed to load weights for '{self.model_name}': {e}"
+                f"Failed to load weights for '{self.run_name}': {e}"
             ) from e
 
         return model
 
     @property
-    def resolver(self) -> GenotypeResolver:
-        """Lazily load the genotype library + resolver on first prediction.
+    def genotype_builder(self) -> GenotypeGraphBuilder:
+        """Lazily load the HGVS catalog on first prediction.
 
         Kept out of ``__init__`` so constructing a predictor (e.g. for a health
-        check or artifact inspection) doesn't require the on-disk gene library.
+        check or artifact inspection) doesn't require the catalog on disk.
         """
-        if self._resolver is None:
-            self._resolver = GenoLibrary.load(
-                get_settings().paths.library / GENO_LIBRARY_FILE
-            ).resolver()
-        return self._resolver
+        if self._genotype_builder is None:
+            self._genotype_builder = GenotypeGraphBuilder(
+                load_hgvs_catalog(), self.gene_vocab
+            )
+        return self._genotype_builder
 
     # ----- input normalization -------------------------------------------- #
 
     def _input_to_dataframe(self, sample: Mapping[str, Any]) -> pl.DataFrame:
-        """Coerce a free-form input dict into a 1-row training-shaped frame."""
+        """Coerce a free-form input dict into a 1-row training-shaped frame.
+
+        ``hgvs`` (a string or a list of HGVS expressions) is the primary way to
+        state a genotype; ``genotype`` may also carry rsIDs or star alleles.
+        """
         normalized = {str(k).lower().strip(): v for k, v in sample.items()}
 
         drug = normalized.get("drugs_cid") or normalized.get("drug")
@@ -269,11 +247,16 @@ class PGenPredictor:
             raise ValueError("missing required field 'drugs_cid' (or 'drug')")
 
         gene = normalized.get("gene")
-        genotype = normalized.get("genotype", "")
-        alleles = normalized.get("alleles", "")
+        genotype = normalized.get("genotype", "") or ""
+        alleles = normalized.get("alleles", "") or ""
+        hgvs = normalized.get("hgvs") or []
+        if isinstance(hgvs, str):
+            hgvs = [hgvs]
+        if hgvs:
+            genotype = "|".join([*map(str, hgvs), *([genotype] if genotype else [])])
 
         # API-style single inputs collapse gene + allele into a single label
-        # like "CYP2D6*1"; split it back out so the resolver keys (gene, genotype).
+        # like "CYP2D6*1"; split it back out into (gene, genotype).
         if not gene and isinstance(genotype, str):
             match = _STAR_ALLELE_RE.match(genotype.strip())
             if match:
@@ -286,10 +269,10 @@ class PGenPredictor:
                 "shorthand in 'genotype'"
             )
 
-        # Ensure the cleaner's drop filter doesn't remove our single row: it
-        # requires non-empty gene + genotype strings.
+        # The cleaner drops rows with an empty genotype; a gene with no stated
+        # variants is the reference genotype.
         if not genotype:
-            genotype = alleles or gene
+            genotype = alleles or "REF_SEQ"
 
         return pl.DataFrame(
             {
@@ -311,9 +294,9 @@ class PGenPredictor:
             target_cols=[],  # no target encoding needed at inference
             multilabel_cols=set(),
             gene_col=GENE_COLUMN,
-            genotype_resolver=self.resolver,
+            genotype_builder=self.genotype_builder,
             preload_ram=False,
-            input_dimensions=self.dims,
+            dims=self.dims,
             inference_mode=True,
         )
 
@@ -451,6 +434,31 @@ class PGenPredictor:
         )
         logits = self._forward_loader(loader)
         return self._decode_logits(logits)
+
+    # ----- evaluation API -------------------------------------------------- #
+
+    def predict_logits(
+        self, df: pl.DataFrame, batch_size: int = 256
+    ) -> dict[str, torch.Tensor]:
+        """Raw logits per target for already-clean rows, in ``df``'s order."""
+        dataset = self._build_inference_dataset(df)
+        if len(dataset) != len(df):
+            raise EvaluationError(
+                f"cleaning dropped {len(df) - len(dataset)} of {len(df)} rows; "
+                "evaluation frames must already be clean"
+            )
+        loader = DataLoader(
+            dataset, batch_size=batch_size, shuffle=False, collate_fn=self.collater
+        )
+        logits = self._forward_loader(loader)
+        return {t: logits[t] for t in self.target_cols}
+
+    def encode_targets(self, df: pl.DataFrame) -> dict[str, np.ndarray]:
+        """Targets of ``df`` through the run's fitted encoders."""
+        encoder = TargetEncoder(
+            self.target_cols, self.multi_label_cols, encoders=self.encoders
+        )
+        return {k: v.numpy() for k, v in encoder.fit_transform(df).items()}
 
 
 __all__ = ["PGenPredictor"]

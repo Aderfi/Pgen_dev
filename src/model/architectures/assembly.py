@@ -1,21 +1,19 @@
-"""Model assembly helpers: turn fitted encoders + config into a live model.
+"""Bridge fitted encoders to the model's declarative axis specs.
 
-``infer_axis_specs`` bridges the gap between what :class:`TargetEncoder`
-learned from the training data (per-axis label encoders) and the declarative
+``infer_axis_specs`` turns what :class:`TargetEncoder` learned from the
+training data (per-axis label encoders) into the declarative
 :class:`~src.model.architectures.config.AxisSpec` each prediction head needs.
-``create_gnn_model`` wires inferred dims + axis specs into a
-:class:`~src.model.architectures.config.PharmagenConfig` and instantiates the
-resulting :class:`~src.model.architectures.model.PharmagenTwoTower`.
+Assembling the model itself from those specs is
+:meth:`~src.model.architectures.config.PharmagenConfig.from_dims`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 
-from src.model.architectures.config import AxisSpec, PharmagenConfig
-from src.model.architectures.model import PharmagenTwoTower
+from src.model.architectures.config import AxisSpec
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -106,70 +104,4 @@ def infer_axis_specs(
     return specs
 
 
-def create_gnn_model(
-    *,
-    dims: dict[str, dict[str, int]],
-    drug_dim: int,
-    geno_dim: int,
-    axes: dict[str, AxisSpec],
-    params: dict[str, Any],
-    switches: dict[str, bool] | None = None,
-) -> PharmagenTwoTower:
-    """Assemble a :class:`PharmagenTwoTower` from dims, axes, and hyperparameters.
-
-    Args:
-        dims: Nested per-tower dim spec as produced by
-            ``src.model.engine.base.extract_tower_dims`` (``{"drugs": {...},
-            "geno": {...}}``). ``edges`` feeds the edge_dim, ``global``/
-            ``admet`` feed the drug tower's auxiliary MLPs, and ``function``
-            feeds the genotype tower's auxiliary MLP.
-        drug_dim: Drug-tower node feature width, inferred from a real graph.
-        geno_dim: Genotype-tower node feature width, inferred from a real
-            graph.
-        axes: One :class:`AxisSpec` per prediction head (see
-            ``infer_axis_specs``).
-        params: Model hyperparameters. Requires ``embedding_dim``,
-            ``hidden_dim``, ``dropout_rate``, ``n_layers``, ``heads``.
-        switches: Structural ablation flags (``use_polypharmacy``,
-            ``use_cross_attention``). Both default to ``False`` when omitted
-            or when a key is absent.
-
-    Returns:
-        An instantiated (not yet ``.to(device)``-moved) ``PharmagenTwoTower``.
-
-    Raises:
-        KeyError: If ``params`` is missing a required hyperparameter.
-    """
-    required = ("embedding_dim", "hidden_dim", "dropout_rate", "n_layers", "heads")
-    missing = [key for key in required if key not in params]
-    if missing:
-        raise KeyError(f"Missing model parameters: {missing}")
-
-    switches = switches or {}
-    drug_dims = dims.get("drugs", {})
-    geno_dims = dims.get("geno", {})
-
-    cfg = PharmagenConfig(
-        drug_in_features=drug_dim,
-        drug_edge_dim=drug_dims.get("edges") or None,
-        drug_hidden_dim=params["hidden_dim"],
-        drug_global_dim=drug_dims.get("global", 0),
-        drug_admet_dim=drug_dims.get("admet", 0),
-        geno_in_features=geno_dim,
-        geno_edge_dim=geno_dims.get("edges") or None,
-        geno_hidden_dim=params["hidden_dim"],
-        # The geno tower's aux "global" branch is fed the graph-level PGx
-        # function vector (``geno_function``), tracked under the "function" key.
-        geno_global_dim=geno_dims.get("function", 0),
-        embedding_dim=params["embedding_dim"],
-        num_layers=params["n_layers"],
-        heads=params["heads"],
-        dropout=params["dropout_rate"],
-        use_polypharmacy=switches.get("use_polypharmacy", False),
-        use_cross_attention=switches.get("use_cross_attention", False),
-        axes=axes,
-    )
-    return PharmagenTwoTower(cfg)
-
-
-__all__ = ["create_gnn_model", "infer_axis_specs"]
+__all__ = ["infer_axis_specs"]

@@ -64,6 +64,10 @@ class ValidationError(PharmagenException):
     """Input or configuration failed schema or range validation."""
 
 
+class EvaluationError(PharmagenException):
+    """Evaluation protocol misuse: stale split, missing fold run, bad scenario."""
+
+
 # ---------------------------------------------------------------------------
 # Derived exceptions
 # ---------------------------------------------------------------------------

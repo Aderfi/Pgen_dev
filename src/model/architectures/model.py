@@ -45,11 +45,11 @@ from torch_geometric.nn import (
 )
 from torch_geometric.utils import to_dense_batch
 
-from .fusion.cross_attention import CrossAttentionFusion
-from .heads.axis_heads import AxisHeads
-from .heads.compose import ComposeHead
-from .towers.blocks import branch_mlp
-from .towers.graph_tower import GraphTower
+from .axis_heads import AxisHeads
+from .blocks import branch_mlp
+from .compose import ComposeHead
+from .cross_attention import CrossAttentionFusion
+from .graph_tower import GraphTower
 
 if TYPE_CHECKING:
     from torch_geometric.data import Data
@@ -80,8 +80,10 @@ class PharmagenTwoTower(nn.Module):
             for co-medication context. When present (polypharmacy), it marks
             the focal node for the DDI tower and anchors the drug-side readout.
 
-    ``geno_data`` (PyG ``Batch`` of genotype graphs, one per patient):
-        x, edge_index, edge_attr, batch  -- variants/genes -> patients
+    ``geno_data`` (PyG ``Batch`` of HGVS genotype graphs, one per patient):
+        x, edge_index, edge_attr, batch  -- gene hubs + HGVS variants -> patients
+        gene_token    : [num_nodes] gene-vocabulary index of gene hub nodes
+            (0 on variant nodes); required when gene_vocab_size > 0.
         geno_function : [num_patients, geno_global_dim]
     """
 
@@ -165,10 +167,10 @@ class PharmagenTwoTower(nn.Module):
             # readout). Zero-initialised: no effect until training moves it.
             self.focal_marker = nn.Parameter(torch.zeros(dim))
 
-        # --- Genotype tower: GATv2 -----------------------------------------
-        # Gene/variant graphs carry noisy, partly spurious edges (pathway and
-        # interaction databases are far from clean), so learned edge weighting
-        # is worth its cost here.
+        # --- Genotype tower: GATv2 over the HGVS variant graph ---------------
+        # Gene hubs attend over their HGVS variants (and variants over their
+        # cis neighbours): attention learns which variants of a genotype matter.
+        # LayerNorm, not GraphNorm: these graphs have a handful of nodes.
         self.geno_tower = GraphTower(
             in_channels=cfg.geno_in_features,
             hidden_channels=cfg.geno_hidden_dim,
@@ -178,7 +180,14 @@ class PharmagenTwoTower(nn.Module):
             heads=cfg.heads,
             dropout=cfg.dropout,
             edge_dim=cfg.geno_edge_dim,
+            norm="layer",
         )
+        # Gene identity: the same HGVS change means different things in
+        # different genes. Row 0 (variant nodes) stays zero.
+        if cfg.gene_vocab_size > 0:
+            self.gene_embedding = nn.Embedding(
+                cfg.gene_vocab_size, cfg.geno_hidden_dim, padding_idx=0
+            )
 
         if cfg.geno_global_dim > 0:
             self.geno_global_mlp = branch_mlp(cfg.geno_global_dim, dim, cfg.dropout)
@@ -199,7 +208,6 @@ class PharmagenTwoTower(nn.Module):
         # substrates), which a plain concatenation forces the MLP to learn from
         # scratch and typically learns badly.
         combined_dim = dim * 4
-
         self.interaction_mlp = nn.Sequential(
             nn.Linear(combined_dim, combined_dim),
             nn.LayerNorm(combined_dim),
@@ -415,6 +423,18 @@ class PharmagenTwoTower(nn.Module):
             )
         return drug_nodes, drug_graph_emb
 
+    def _gene_embedding(self, geno_data: Data) -> Tensor | None:
+        """Gene-identity vectors for every genotype node (zero on variant nodes)."""
+        if self.config.gene_vocab_size == 0:
+            return None
+        tokens: Tensor | None = getattr(geno_data, "gene_token", None)
+        if tokens is None or tokens.numel() != geno_data.num_nodes:
+            raise ValueError(
+                "geno_data.gene_token must hold one gene-vocabulary index per node "
+                f"when gene_vocab_size={self.config.gene_vocab_size}."
+            )
+        return self.gene_embedding(tokens.long())
+
     @staticmethod
     def _validate_batch_inputs(drug_data: Data, geno_data: Data) -> None:
         """Fail fast on malformed batches (missing x/edge_index/batch)."""
@@ -540,6 +560,7 @@ class PharmagenTwoTower(nn.Module):
             edge_index=geno_data.edge_index,
             edge_attr=getattr(geno_data, "edge_attr", None),
             batch=geno_data.batch,
+            node_embedding=self._gene_embedding(geno_data),
         )
 
         if cfg.geno_global_dim > 0:

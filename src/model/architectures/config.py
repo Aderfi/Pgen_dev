@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from src.config.models import TrainingParams
+    from src.data.cache import GraphDims
 
 ConvType = Literal["gine", "gatv2"]
 TaskKind = Literal["binary", "multiclass", "regression", "ordinal"]
@@ -49,11 +53,6 @@ class AxisSpec(BaseModel):
         return value
 
 
-# Backward-compatible alias; kept for one release so `losses`/`calibration`
-# modules that import `TaskSpec` keep working unchanged.
-TaskSpec = AxisSpec
-
-
 # ---------------------------------------------------------------------------
 # Main model config
 # ---------------------------------------------------------------------------
@@ -85,10 +84,12 @@ class PharmagenConfig(BaseModel):
     # scope note in the task brief).
     poly_max_neighbors: int = 8
 
-    # --- Genotype tower ---
+    # --- Genotype tower (HGVS variant graph, src/data/genotype) ---
     geno_in_features: int = 0
     geno_edge_dim: int | None = None
     geno_hidden_dim: int = 256
+    # Rows of the gene-identity embedding added to gene hub nodes (0 disables).
+    gene_vocab_size: int = 0
 
     # --- Shared ---
     embedding_dim: int = 256
@@ -109,7 +110,7 @@ class PharmagenConfig(BaseModel):
     # --- Axes (prediction heads) ---
     axes: dict[str, AxisSpec] = Field(default_factory=dict)
 
-    # --- Factorized-axes composition (see heads/axis_heads.py + heads/compose.py) ---
+    # --- Factorized-axes composition (see axis_heads.py + compose.py) ---
     label_out_dim: int = 128
     use_compositional_output: bool = True
 
@@ -122,5 +123,62 @@ class PharmagenConfig(BaseModel):
             )
         return value
 
+    @classmethod
+    def from_dims(
+        cls,
+        *,
+        dims: GraphDims,
+        drug_dim: int,
+        geno_dim: int,
+        axes: dict[str, AxisSpec],
+        params: TrainingParams,
+        switches: dict[str, bool] | None = None,
+        gene_vocab_size: int = 0,
+    ) -> PharmagenConfig:
+        """Assemble a config from dataset-inferred dims + fitted axis specs.
 
-__all__ = ["ConvType", "TaskKind", "TaskSpec", "AxisSpec", "PharmagenConfig"]
+        `drug_dim`, `geno_dim`, and `axes` are only known once real graphs and
+        fitted target encoders exist, so they can't live in a static
+        TOML-backed model the way `params` does — this classmethod is where
+        they and `params` (architecture hyperparameters) meet.
+
+        Args:
+            dims: Graph feature widths (edge dims + auxiliary descriptor
+                widths; see :class:`~src.data.cache.GraphDims`).
+            drug_dim: Drug-tower node feature width, inferred from a real graph.
+            geno_dim: Genotype-tower node feature width, inferred from a real
+                graph.
+            axes: One :class:`AxisSpec` per prediction head (see
+                ``src.model.architectures.assembly.infer_axis_specs``).
+            params: Architecture hyperparameters (embedding_dim, hidden_dim,
+                n_layers, heads, dropout_rate).
+            switches: Structural ablation flags (``use_polypharmacy``,
+                ``use_cross_attention``). Absent keys default to ``False``.
+            gene_vocab_size: Gene-embedding rows (see
+                ``src.data.genotype.gene_vocab_size``); 0 disables it.
+        """
+        switches = switches or {}
+        return cls(
+            drug_in_features=drug_dim,
+            drug_edge_dim=dims.drug_edges or None,
+            drug_hidden_dim=params.hidden_dim,
+            drug_global_dim=dims.drug_global,
+            drug_admet_dim=dims.drug_admet,
+            geno_in_features=geno_dim,
+            geno_edge_dim=dims.geno_edges or None,
+            geno_hidden_dim=params.hidden_dim,
+            gene_vocab_size=gene_vocab_size,
+            # The geno tower's aux "global" branch is fed the graph-level PGx
+            # function vector (``geno_function``).
+            geno_global_dim=dims.geno_function,
+            embedding_dim=params.embedding_dim,
+            num_layers=params.n_layers,
+            heads=params.heads,
+            dropout=params.dropout_rate,
+            use_polypharmacy=switches.get("use_polypharmacy", False),
+            use_cross_attention=switches.get("use_cross_attention", False),
+            axes=axes,
+        )
+
+
+__all__ = ["ConvType", "TaskKind", "AxisSpec", "PharmagenConfig"]

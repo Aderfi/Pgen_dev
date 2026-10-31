@@ -46,20 +46,29 @@ def sample_df():
     )
 
 
-class _FakeResolver:
-    """Stand-in GenotypeResolver: returns a fixed subgraph for any genotype."""
+class _FakeBuilder:
+    """Stand-in GenotypeGraphBuilder: a fixed 2-node graph for any genotype."""
 
-    def resolve(self, gene: str, genotype: str):  # noqa: ARG002
+    def __init__(self) -> None:
+        from collections import Counter
+
+        self.stats = Counter()
+
+    def build(self, gene, genotype, alleles=None, annotation_id=None):  # noqa: ARG002
         from torch_geometric.data import Data
 
         g = Data(
-            x=torch.randn(2, 30),
+            x=torch.randn(2, 45),
             edge_index=torch.tensor([[0], [1]]),
-            edge_attr=torch.zeros(1, 2),
+            edge_attr=torch.zeros(1, 3),
         )
         g.geno_function = torch.zeros(1, 6)
-        g.gene = gene
+        g.gene_token = torch.tensor([1, 0])
+        g.hgvs = []
         return g
+
+    def log_coverage(self) -> None:
+        pass
 
 
 # --- TESTS DE PREPROCESAMIENTO (ENCODERS) ---
@@ -159,7 +168,7 @@ class TestDoubleTowerDataset:
                 drug_col="drug_id",
                 geno_col="genotype",
                 gene_col="gene",
-                genotype_resolver=_FakeResolver(),
+                genotype_builder=_FakeBuilder(),
                 target_cols=["outcome", "side_effects"],
                 multilabel_cols=["side_effects"],
                 preload_ram=True,
@@ -173,8 +182,8 @@ class TestDoubleTowerDataset:
             assert "geno_data" in sample
             assert "targets" in sample
 
-            # Genotype subgraph comes from the resolver (30-dim nodes).
-            assert sample["geno_data"].x.shape[1] == 30
+            # Genotype graph comes from the builder (45-dim HGVS nodes).
+            assert sample["geno_data"].x.shape[1] == 45
             assert isinstance(sample["targets"]["outcome"], torch.Tensor)
             assert isinstance(sample["targets"]["side_effects"], torch.Tensor)
 
@@ -182,13 +191,10 @@ class TestDoubleTowerDataset:
             assert sample["targets"]["side_effects"].dtype == torch.float32
 
     @patch("pathlib.Path.exists", return_value=True)
-    def test_unresolved_genotype_falls_back_to_empty(self, mock_exists, sample_df):
-        """A gene the resolver can't place yields a placeholder geno graph."""
+    def test_unlinked_genotype_is_the_gene_hub_alone(self, mock_exists, sample_df):
+        """A genotype the catalog cannot link to HGVS is the reference: gene node only."""
         from src.data.datasets import DoubleTowerDataset
-
-        class _NullResolver:
-            def resolve(self, gene, genotype):  # noqa: ARG002
-                return None
+        from src.data.genotype import GenotypeGraphBuilder, HgvsCatalog
 
         with patch(
             "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
@@ -199,12 +205,14 @@ class TestDoubleTowerDataset:
                 drug_col="drug_id",
                 geno_col="genotype",
                 gene_col="gene",
-                genotype_resolver=_NullResolver(),
+                genotype_builder=GenotypeGraphBuilder(HgvsCatalog(), {}),
                 target_cols=["outcome"],
                 multilabel_cols=[],
             )
             geno = dataset[0]["geno_data"]
-            assert geno.x.shape == (1, 30)  # placeholder dims
+            assert geno.x.shape == (1, 45)
+            assert geno.x[0, 0] == 1.0  # gene hub
+            assert geno.gene_token.tolist() == [1]  # UNK gene
             assert geno.geno_function.shape == (1, 6)
 
     def test_polars_row_access_optimization(self, sample_df):

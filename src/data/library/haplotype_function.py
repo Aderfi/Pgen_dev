@@ -15,11 +15,10 @@ Vector layout (``PATH_FUNCTION_DIM`` = 6):
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 import polars as pl
-
-from src.data.library.geno_func import parse_activity_score
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,6 +33,28 @@ FUNC_STATUSES: tuple[str, ...] = (
 )
 PATH_FUNCTION_DIM: int = len(FUNC_STATUSES) + 2  # status one-hot + activity + known = 6
 _STATUS_INDEX: dict[str, int] = {s: i for i, s in enumerate(FUNC_STATUSES)}
+# CPIC-style activity score per function status, used when the star-allele
+# row carries no explicit "AS x.x" note.
+_FUNC_DEFAULT_AS: dict[str, float] = {
+    "no_function": 0.0,
+    "decreased_function": 0.5,
+    "normal_function": 1.0,
+    "increased_function": 1.5,
+}
+_AS_RE = re.compile(r"AS\s+([0-9]+(?:\.[0-9]+)?)")
+
+
+def parse_activity_score(notes: str | None, function: str) -> float:
+    """Activity score from a star-allele ``notes`` cell, else the function default.
+
+    Parses an ``"AS x.x"`` token (``"AS 1.0+"`` → 1.0) when present; otherwise
+    falls back to the CPIC-style default for the function status.
+    """
+    if notes:
+        match = _AS_RE.search(notes)
+        if match:
+            return float(match.group(1))
+    return _FUNC_DEFAULT_AS.get(function, 1.0)
 
 
 def _core_allele(label: str) -> str:
@@ -96,4 +117,5 @@ class HaplotypeFunctionProvider:
 __all__ = [
     "PATH_FUNCTION_DIM",
     "HaplotypeFunctionProvider",
+    "parse_activity_score",
 ]

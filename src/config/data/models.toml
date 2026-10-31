@@ -5,12 +5,14 @@
 # src/config/data/models.toml
 
 # ==========================================
-# MODELO 1: Phenotype_Effect_Outcome
+# MODEL 1: Phenotype_Effect_Outcome
 # ==========================================
 [TwoTowerGAT]
 # Features && Targets Definition
 
-cols = ["drugs_cid", "drugs", "genotype", "gene", "phenotype_category"]
+# alleles (zygosity / star diplotype) and variant_annotation_id (allele-specific
+# HGVS link from the KG) feed the HGVS genotype graph.
+cols = ["drugs_cid", "drugs", "genotype", "gene", "alleles", "variant_annotation_id", "pmid", "phenotype_category"]
 features = ["drugs_cid", "genotype"]
 targets = ["phenotype_category"]
 #stratify_col = "phenotype_category"  # Column used for stratified splitting
@@ -35,20 +37,23 @@ drug_admet_features = 41      # predicted ADMET/CYP profile (ADMET-AI); see src/
     #            toxicity[19] = 41 predicted endpoints (decoupled from GLOBAL)
 
 
-# Genotype Tower — per-gene variation graph (src/data/library/gene_graph.py)
-geno_node_features = 30  # GENE_NODE_DIM: struct[9] + SO consequence[13] + protein change[8]
-geno_attrs_features = 2  # GENE_EDGE_DIM: [gap_fraction, edge_kind]
-geno_function_features = 6   # graph-level PGx function vector (PATH_FUNCTION_DIM)
+# Genotype Tower — HGVS variant graph (src/data/genotype): gene hub node(s) +
+# one node per HGVS variant, cis-adjacency in genomic order.
+geno_node_features = 45  # HGVS_NODE_DIM: node type[2] + edit kind[8] + level[3]
+                         # + coding region[5] + sequence change[4]
+                         # + SO consequence[13] + protein change[8] + dosage[2]
+geno_attrs_features = 3  # GENO_EDGE_DIM: [membership, adjacency, log distance]
+geno_function_features = 6   # star-allele PGx function vector (PATH_FUNCTION_DIM)
     # GENO FUNCTION --> PGx function one-hot[no,decreased,normal,increased]
-    #                   + activity_score + pgx_known mask (6). Consequence + protein
-    #                   change moved into the per-node features (dim 30).
+    #                   + activity_score + pgx_known mask (6), averaged over the
+    #                   star alleles the genotype names.
 
 
 
 # --- OPTUNA SEARCH SPACE ---
 # These define the range/choices for the Tuner
 [TwoTowerGAT.optuna]
-### --- Arquitectura (GNN & Towers) --- ###
+### --- Architecture (GNN & towers) --- ###
 patience = 10
 epochs = 100
 # "categorical" 
@@ -73,15 +78,6 @@ weight_decay = ["log", 1e-5, 1e-4]
 # Batch size affects generalization and VRAM usage.
 batch_size = ["categorical", 64, 128]
 
-# --- Loss hyperparameters ---
-# Legacy search-space keys, unused by the current MultiTaskLoss (which reads
-# per-axis focal_gamma from AxisSpec instead — see src/config/axes.py). Kept
-# here only for optuna-history compatibility.
-# gamma: how strongly hard examples are penalized.
-gamma = ["float", 2.0, 3.5]
-# asl_clip: legacy AsymmetricLoss easy-negative clipping factor.
-asl_clip = ["float", 0.1, 0.25]
-
 [TwoTowerGAT.params]
 # Architecture
 embedding_dim = 256
@@ -93,8 +89,6 @@ dropout_rate = 0.4859822310846825
 learning_rate = 0.00040560545904101556
 weight_decay = 4.089545393645109e-05
 batch_size = 64
-gamma = 2.912048826308894
-asl_clip = 0.1575118661574606
 
 
 # ==========================================

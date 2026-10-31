@@ -76,13 +76,11 @@ dependencies = [
     "polars>=1.39.3",
     "pandas>=2.3.0",
     "numpy>=2.0.0",
-    "networkx<=3.5",
     "scikit-learn",
     "joblib>=1.5.0",
     "tqdm",
     # Deep learning — CUDA 13.0 wheels routed via [tool.uv.sources]
     "torch==2.12.1",
-    "torchvision==0.27.1",
     "torch-geometric>=2.6.0",
     "pyg_lib",
     "torch_scatter",
@@ -92,15 +90,15 @@ dependencies = [
     "rdkit>=2025.9.6",
     "pysam>=0.22.0",
     "pyfaidx>=0.9.0.4",
-    "biopython>=1.85",
     # API service
     "fastapi>=0.135.2",
     "uvicorn>=0.30.0",
     # Misc
     "requests>=2.32.0",
-    "matplotlib>=3.10.0",
+    "matplotlib>=3.10.0",  # Optuna report plots
     "admet-ai>=2.0.1",
-    "graphifyy>=0.9.3",
+    "neo4j>=5.28",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -111,6 +109,10 @@ dev = [
     "ruff>=0.0.280",
     "mypy>=1.3.0",
     "coverage>=7.0.0",
+    "graphifyy>=0.9.3",  # codebase knowledge graph (graphify-out/)
+]
+viz = [
+    "networkx>=3.4",  # scripts/viz*.py graph drawing
 ]
 
 [project.urls]
@@ -139,7 +141,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu132" }
-torchvision = { index = "pytorch-cu132" }
 pyg_lib = { index = "pyg" }
 torch_scatter = { index = "pyg" }
 torch_sparse = { index = "pyg" }

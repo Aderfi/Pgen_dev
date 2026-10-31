@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.config import get_settings
+from src.data.genotype.catalog import HGVS_CATALOG_FILE
 
 
 class LibraryBuildConfig(BaseModel):
@@ -22,32 +23,30 @@ class LibraryBuildConfig(BaseModel):
 
     # Inputs
     variants_tsv: Path = Field(
-        ..., description="Pan-gene variant TSV (snp_data_output.tsv style)."
+        ..., description="Pan-gene SNP table (snp_data_output.tsv style)."
     )
     drugs_tsv: Path = Field(
         ...,
         description="Drug catalog: .tsv/.csv (cid, smiles, cmpd_name_cleaned) "
         "or .json ({cid: smiles}).",
     )
-    fasta_path: Path = Field(
-        ..., description="Reference FASTA (must be indexed; .fai required)."
-    )
     pgx_dir: Path = Field(
-        ..., description="Per-gene PharmVar VCF folder (one subdir per gene)."
+        ..., description="PharmVar haplotype folder (one subdir per gene)."
+    )
+    kg_dir: Path = Field(
+        ...,
+        description="Knowledge-graph exports (allele_variants / annotation_variants "
+        "parquet from 'python -m src.kg export') — the canonical HGVS links.",
     )
 
     # Outputs
     library_root: Path = Field(
-        ..., description="Root of the produced library (drugs/ and gene_graphs/)."
+        ..., description="Root of the produced library (drugs/ and hgvs_catalog.pt)."
     )
 
     # Behaviour
     force: bool = Field(
         default=False, description="Overwrite existing .pt files (default: skip)."
-    )
-    only_gene: str | None = Field(
-        default=None,
-        description="If set, build only this gene's variants — useful for verification.",
     )
     skip_drugs: bool = False
     skip_genes: bool = False
@@ -63,20 +62,10 @@ class LibraryBuildConfig(BaseModel):
     admet_cache: Path = Field(
         ..., description="Parquet cache for the predicted ADMET profile table."
     )
-    skip_geno_func: bool = Field(
-        default=False,
-        description="Skip the genotype functional profile; variant graphs get a "
-        "zero geno_global_feats vector instead of PGx-function + pathogenicity.",
-    )
     star_alleles_tsv: Path = Field(
         ...,
-        description="Star-allele function table (gene, allele, rsids, function, "
-        "notes) — Layer A of geno_global_feats.",
-    )
-    hgvs_table: Path | None = Field(
-        default=None,
-        description="Optional (rsid, hgvs_p) table of dbSNP protein HGVS "
-        "expressions — Layer C. Absent ⇒ the protein block stays zero.",
+        description="Star-allele function table (gene, allele, function, notes) "
+        "— the PGx function of star alleles in the genotype graphs.",
     )
     strip_salts: bool = Field(
         default=True,
@@ -97,8 +86,8 @@ class LibraryBuildConfig(BaseModel):
     @field_validator(
         "variants_tsv",
         "drugs_tsv",
-        "fasta_path",
         "pgx_dir",
+        "kg_dir",
         "library_root",
         "admet_cache",
         "star_alleles_tsv",
@@ -113,8 +102,8 @@ class LibraryBuildConfig(BaseModel):
         return self.library_root / "drugs"
 
     @property
-    def genes_out(self) -> Path:
-        return self.library_root / "gene_graphs"
+    def hgvs_catalog_path(self) -> Path:
+        return self.library_root / HGVS_CATALOG_FILE
 
     @property
     def manifest_path(self) -> Path:
@@ -124,7 +113,6 @@ class LibraryBuildConfig(BaseModel):
         """Create output directories. Inputs are NOT created — they must exist."""
         self.library_root.mkdir(parents=True, exist_ok=True)
         self.drugs_out.mkdir(parents=True, exist_ok=True)
-        self.genes_out.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def from_settings(
@@ -133,12 +121,10 @@ class LibraryBuildConfig(BaseModel):
         variants_tsv: Path | None = None,
         drugs_tsv: Path | None = None,
         force: bool = False,
-        only_gene: str | None = None,
         skip_drugs: bool = False,
         skip_genes: bool = False,
         skip_admet: bool = False,
         force_admet: bool = False,
-        skip_geno_func: bool = False,
         strip_salts: bool = True,
     ) -> LibraryBuildConfig:
         """Build a config rooted at the project's standard paths."""
@@ -149,24 +135,19 @@ class LibraryBuildConfig(BaseModel):
         library_logs = settings.paths.logs / "library"
         log_failures_path = library_logs / f"drug_build_failures_{stamp}.log"
         log_saturation_path = library_logs / f"drug_feature_saturation_{stamp}.log"
-        # Layer C (HGVS protein) auto-enables when the cached table is present.
-        hgvs_default = dicts_dir / "dbsnp_hgvs.parquet"
         return cls(
             variants_tsv=variants_tsv or data_dir / "snp_data_output.tsv",
             drugs_tsv=drugs_tsv or data_dir / "drugs_cid.tsv",
-            fasta_path=settings.paths.ref_genome_fasta,
+            kg_dir=settings.paths.library / "kg",
             pgx_dir=data_dir / "haplotype_variants",
             library_root=settings.paths.library,
             admet_cache=settings.paths.library / "admet_profile.parquet",
             star_alleles_tsv=dicts_dir / "star_alleles.tsv",
-            hgvs_table=hgvs_default if hgvs_default.exists() else None,
             force=force,
-            only_gene=only_gene,
             skip_drugs=skip_drugs,
             skip_genes=skip_genes,
             skip_admet=skip_admet,
             force_admet=force_admet,
-            skip_geno_func=skip_geno_func,
             strip_salts=strip_salts,
             log_failures_path=log_failures_path,
             log_saturation_path=log_saturation_path,

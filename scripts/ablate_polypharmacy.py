@@ -51,9 +51,9 @@ from torch_geometric.data import Batch, Data  # noqa: E402
 
 from src.core import setup_logging  # noqa: E402
 from src.model.architectures import (  # noqa: E402
+    AxisSpec,
     PharmagenConfig,
     PharmagenTwoTower,
-    TaskSpec,
 )
 
 logger = logging.getLogger("pharmagen.ablate_polypharmacy")
@@ -121,8 +121,8 @@ def build_config(use_polypharmacy: bool) -> PharmagenConfig:
         use_polypharmacy=use_polypharmacy,
         use_cross_attention=use_polypharmacy,
         axes={
-            "pheno": TaskSpec(dim=3, kind="multiclass"),
-            "outcome": TaskSpec(dim=1, kind="binary"),
+            "pheno": AxisSpec(dim=3, kind="multiclass"),
+            "outcome": AxisSpec(dim=1, kind="binary"),
         },
     )
 

@@ -1,12 +1,12 @@
 """dbSNP E-utilities ESummary domain models.
 
 Structured shape of a single ``<DocumentSummary>`` record from an NCBI
-E-utilities ``esummary`` response (``db=snp``). Parsing lives in
-``src.genomics.dbsnp_summary``; this module only describes shape.
+E-utilities ``esummary`` response (``db=snp``); this module only describes
+shape, no parser consumes it yet.
 
 Coordinate convention (project-wide): ``Position.pos`` and ``SpdiAllele.pos``
-are **1-based**. NCBI SPDI is natively 0-based, so the parser adds 1 when it
-builds these models — anything 0-based stays inside the parser.
+are **1-based**. NCBI SPDI is natively 0-based, so a future parser must add 1
+when building these models — anything 0-based stays parser-internal.
 """
 
 from __future__ import annotations
@@ -105,7 +105,6 @@ class SpdiAllele(GenomicDomainModel):
 
 class DbSnpSummary(GenomicDomainModel):
     """One ``<DocumentSummary>`` record, reduced to the PGx-relevant fields."""
-
 
     snp_id: int = Field(..., ge=1, description="dbSNP numeric ID (without 'rs').")
     chromosome: str | None = Field(default=None, description="Normalized chromosome.")

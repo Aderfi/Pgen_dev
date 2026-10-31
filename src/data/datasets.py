@@ -15,75 +15,26 @@ import torch
 from torch.utils.data import Dataset
 
 from src.config import get_settings
-from src.core import DataError
-from src.data.cache import GraphCache, GraphDims, make_empty_graph
+from src.data.cache import GraphCache, GraphDims, PackedGraphs
 from src.data.collator import PolyData
 from src.data.encoders import TargetEncoder
+from src.data.genotype import GenotypeGraphBuilder, load_hgvs_catalog
 from src.data.graph_indexing import GraphIndexBuilder
-from src.data.library.geno_store import GenoLibrary
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Set
     from pathlib import Path
 
-    from src.data.library.genotype_resolver import GenotypeResolver
     from src.data.polypharmacy import PseudoPatientBuilder
 
 logger = logging.getLogger(__name__)
 
-_LIBRARY = get_settings().paths.library
-_GENO_LIBRARY_FILE = "geno_graphs.pt"
-
 # Threshold above which RAM preloading is suspicious (warn, don't refuse).
 PRELOAD_THRESHOLD = 5000
 
-# Default tower dimensions when callers don't override.
-DEFAULT_DIMENSIONS: dict[str, dict[str, int]] = {
-    "drugs": {"features": 61, "edges": 18, "attrs": 0, "global": 1038, "admet": 41},
-    "geno": {"features": 30, "edges": 2, "attrs": 0, "function": 6},
-}
 
-
-# --------------------------------------------------------------------------- #
-# DoubleTowerDataset — active GNN dataset.
-# --------------------------------------------------------------------------- #
-
-
-def _dims_from_input(input_dimensions: dict[str, dict[str, int]] | None) -> GraphDims:
-    """Translate the legacy nested-dict dim spec into a typed GraphDims."""
-    if not input_dimensions:
-        return GraphDims()
-
-    drugs = input_dimensions.get("drugs", {})
-    geno = input_dimensions.get("geno", {})
-    return GraphDims(
-        drug_features=drugs.get("features", DEFAULT_DIMENSIONS["drugs"]["features"]),
-        drug_edges=drugs.get("edges", DEFAULT_DIMENSIONS["drugs"]["edges"]),
-        drug_global=drugs.get("global", DEFAULT_DIMENSIONS["drugs"]["global"]),
-        drug_admet=drugs.get("admet", DEFAULT_DIMENSIONS["drugs"]["admet"]),
-        geno_features=geno.get("features", DEFAULT_DIMENSIONS["geno"]["features"]),
-        geno_edges=geno.get("edges", DEFAULT_DIMENSIONS["geno"]["edges"]),
-        geno_function=geno.get("function", DEFAULT_DIMENSIONS["geno"]["function"]),
-    )
-
-
-def _validate_input_dims(dims: dict[str, dict[str, int]]) -> None:
-    required_subkeys = ("features", "edges", "attrs")
-    for kind in ("drugs", "geno"):
-        if kind not in dims:
-            continue
-        if not isinstance(dims[kind], dict):
-            msg = f"dimension {kind!r} must be a dict, got {type(dims[kind]).__name__}"
-            raise DataError(msg)
-        for subkey in required_subkeys:
-            if subkey not in dims[kind]:
-                continue
-            v = dims[kind][subkey]
-            if not isinstance(v, int) or v < 0:
-                msg = (
-                    f"invalid dimension {kind}.{subkey}: {v} (must be non-negative int)"
-                )
-                raise DataError(msg)
+ALLELES_COLUMN = "alleles"
+ANNOTATION_ID_COLUMN = "variant_annotation_id"
 
 
 class DoubleTowerDataset(Dataset):
@@ -92,7 +43,7 @@ class DoubleTowerDataset(Dataset):
     Composition:
         - ``GraphIndexBuilder``  — discovers the on-disk drug library.
         - ``GraphCache``         — owns the in-memory drug cache + dummy fallback.
-        - ``GenotypeResolver``   — resolves ``(gene, genotype)`` to a subgraph.
+        - ``GenotypeGraphBuilder`` — reads each genotype as an HGVS variant graph.
         - ``TargetEncoder``      — fits/applies sklearn encoders to target cols.
 
     The dataset itself just glues these together and exposes ``__getitem__``.
@@ -100,25 +51,24 @@ class DoubleTowerDataset(Dataset):
     Args:
         df: Polars DataFrame with the join columns.
         drug_col: Column name containing drug IDs.
-        geno_col: Column name containing the genotype string (star/rsID tokens).
+        geno_col: Column with the genotype tokens (HGVS, rsIDs, star alleles).
         target_cols: Target column names.
         multilabel_cols: Subset of ``target_cols`` that are multi-label.
         encoders: Pre-fitted encoders (REQUIRED for val/test sets to keep
             the same class layout as training).
         gene_col: Column name containing the HGNC gene symbol.
-        genotype_resolver: Resolver over the ``GenoLibrary`` (loaded from
-            config when omitted; shared across train/val for one RAM copy).
-        drug_lib: Override drug library path (default from config).
+        genotype_builder: HGVS genotype-graph builder (shared across splits so
+            they use the same gene vocabulary). Default: the project catalog
+            with an empty vocabulary (every gene → UNK).
+        drug_lib: Override drug library path (default: ``paths.library/drugs``).
         preload_ram: If True, eagerly loads all unique drug graphs into RAM.
-        input_dimensions: Legacy nested-dict dim spec; converts to ``GraphDims``.
-        type_data: Unused, kept for back-compat.
+        dims: Graph feature widths (sizes the placeholder graphs).
         inference_mode: If True, preserves identifying metadata on returned graphs.
         pseudo_patient_builder: Optional ``PseudoPatientBuilder``. When given,
             ``__getitem__`` returns a molecule-level polypharmacy drug graph
             (focal drug + kept DDI neighbours as a :class:`~src.data.collator.PolyData`)
             instead of the single-molecule drug graph. When omitted (the
             default), behaviour is unchanged — single-molecule path only.
-
             NOTE: this emits one row per molecule using each molecule's
             precomputed ``global_feats`` descriptor, not a full atom-level
             encoding of every molecule. Wiring the true two-level
@@ -136,11 +86,10 @@ class DoubleTowerDataset(Dataset):
         multilabel_cols: Iterable[str] | Set[str],
         encoders: dict[str, Any] | None = None,
         gene_col: str = "gene",
-        genotype_resolver: GenotypeResolver | None = None,
-        drug_lib: Path = _LIBRARY / "drugs",
+        genotype_builder: GenotypeGraphBuilder | None = None,
+        drug_lib: Path | None = None,
         preload_ram: bool = False,
-        input_dimensions: dict[str, dict[str, int]] | None = None,
-        type_data: str | None = None,  # noqa: ARG002 (legacy arg)
+        dims: GraphDims | None = None,
         inference_mode: bool = False,
         pseudo_patient_builder: PseudoPatientBuilder | None = None,
     ) -> None:
@@ -154,9 +103,7 @@ class DoubleTowerDataset(Dataset):
             msg = f"df must be a Polars DataFrame, got {type(df).__name__}"
             raise TypeError(msg)
 
-        if input_dimensions:
-            _validate_input_dims(input_dimensions)
-        self.dims = _dims_from_input(input_dimensions)
+        self.dims = dims or GraphDims()
 
         if preload_ram and len(self.df) > PRELOAD_THRESHOLD:
             logger.warning(
@@ -174,7 +121,9 @@ class DoubleTowerDataset(Dataset):
         self.pseudo_patient_builder = pseudo_patient_builder
 
         # 2. Drug index + cache
-        drug_index = GraphIndexBuilder.build_drug_index(drug_lib)
+        drug_index = GraphIndexBuilder.build_drug_index(
+            drug_lib or get_settings().paths.library / "drugs"
+        )
         logger.info("Indexed %d drugs", len(drug_index))
         self.cache = GraphCache(
             drug_index=drug_index,
@@ -182,8 +131,19 @@ class DoubleTowerDataset(Dataset):
             inference_mode=inference_mode,
         )
 
-        # 2b. Genotype resolver over the single-file GenoLibrary.
-        self.resolver = genotype_resolver or self._default_resolver()
+        # 2b. Genotype graphs: built once per row (small, reused every epoch).
+        builder = genotype_builder or GenotypeGraphBuilder(load_hgvs_catalog(), {})
+        builder.stats.clear()
+        graphs = [
+            builder.build(*row) for row in zip(*self._genotype_columns(), strict=True)
+        ]
+        self.geno_hgvs = [g.hgvs for g in graphs]
+        self.geno_graphs = PackedGraphs(
+            graphs,
+            node_keys=("x", "gene_token"),
+            graph_keys=("geno_function",),
+        )
+        builder.log_coverage()
 
         # 3. Encoders + targets
         self.target_encoder = TargetEncoder(
@@ -195,12 +155,6 @@ class DoubleTowerDataset(Dataset):
 
         # 4. Random-access lookups (avoid Polars indexing per __getitem__)
         self.lookup_drugs = self.df[self.drug_col].to_list()
-        self.lookup_genes = (
-            self.df[self.gene_col].to_list()
-            if self.gene_col in self.df.columns
-            else [""] * len(self.df)
-        )
-        self.lookup_genotypes = self.df[self.geno_col].to_list()
 
         # 5. Optional drug preload
         if preload_ram:
@@ -213,10 +167,19 @@ class DoubleTowerDataset(Dataset):
             self.cache.preload_drugs(unique_drugs)
             logger.info("Cached %d drugs", self.cache.cached_drug_count)
 
-    @staticmethod
-    def _default_resolver() -> GenotypeResolver:
-        """Load the project ``GenoLibrary`` and build a resolver over it."""
-        return GenoLibrary.load(_LIBRARY / _GENO_LIBRARY_FILE).resolver()
+    def _genotype_columns(self) -> tuple[list[Any], ...]:
+        """(gene, genotype, alleles, annotation id) per row; absent columns → None."""
+        n = len(self.df)
+
+        def column(name: str) -> list[Any]:
+            return self.df[name].to_list() if name in self.df.columns else [None] * n
+
+        return (
+            column(self.gene_col),
+            column(self.geno_col),
+            column(ALLELES_COLUMN),
+            column(ANNOTATION_ID_COLUMN),
+        )
 
     # ----- Dataset API ----------------------------------------------------- #
 
@@ -229,13 +192,7 @@ class DoubleTowerDataset(Dataset):
             drug = self._build_poly_drug_data(drug_cid)
         else:
             drug = self.cache.get_drug(drug_cid)
-        gene = str(self.lookup_genes[idx])
-        genotype = str(self.lookup_genotypes[idx])
-        geno = self.resolver.resolve(gene, genotype)
-        if geno is None:
-            geno = make_empty_graph("geno", graph_id=gene, dims=self.dims)
-        # String attrs (gene/labels) are stripped by DoubleTowerCollater before
-        # batching; in inference mode it extracts them as ids first.
+        geno = self.geno_graphs[idx]
         targets = {col: self.targets[col][idx] for col in self.target_cols}
         return {"drug_data": drug, "geno_data": geno, "targets": targets}
 
@@ -288,7 +245,8 @@ class DoubleTowerDataset(Dataset):
 
 
 __all__ = [
-    "DEFAULT_DIMENSIONS",
-    "DoubleTowerDataset",
+    "ALLELES_COLUMN",
+    "ANNOTATION_ID_COLUMN",
     "PRELOAD_THRESHOLD",
+    "DoubleTowerDataset",
 ]

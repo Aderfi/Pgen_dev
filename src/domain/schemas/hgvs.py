@@ -150,6 +150,18 @@ class ProteinPosition(GenomicDomainModel):
 # --------------------------------------------------------------------------- #
 # Change models                                                                #
 # --------------------------------------------------------------------------- #
+class RepeatSegment(GenomicDomainModel):
+    """One ``UNIT[count]`` block of a repeated-sequence variant."""
+
+    model_config = ConfigDict(frozen=True)
+
+    unit: str = Field(..., min_length=1, description="Repeated unit, e.g. 'CAG'.")
+    count: int = Field(..., ge=0, description="Copies of `unit` (the `[N]` value).")
+
+    def __str__(self) -> str:
+        return f"{self.unit}[{self.count}]"
+
+
 class NucleotideChange(GenomicDomainModel):
     """A single elementary change at the DNA or RNA level."""
 
@@ -175,13 +187,35 @@ class NucleotideChange(GenomicDomainModel):
         ),
     )
     repeat_unit: str | None = Field(
-        default=None, description="The repeated unit (e.g. 'CAG') for `kind=repeat`."
+        default=None,
+        description=(
+            "The repeated unit (e.g. 'CAG') for a single-unit `kind=repeat`; "
+            "None for composite repeats (see `repeat_segments`)."
+        ),
     )
     repeat_count: int | None = Field(
         default=None,
         ge=0,
-        description="Observed repeat count (the integer inside `[N]`).",
+        description=(
+            "Observed repeat count (the integer inside `[N]`) for a single-unit "
+            "repeat; None for composite repeats."
+        ),
     )
+    repeat_segments: list[RepeatSegment] | None = Field(
+        default=None,
+        description=(
+            "Every `UNIT[N]` block in order, e.g. `T[5]GTT[1]` → "
+            "[T×5, GTT×1]. Set whenever the units are stated (one block for a "
+            "simple repeat); None for unit-less `pos[N]`."
+        ),
+    )
+
+    @property
+    def repeat_length(self) -> int | None:
+        """Length in bases of the repeated stretch on this allele, if stated."""
+        if not self.repeat_segments:
+            return None
+        return sum(len(s.unit) * s.count for s in self.repeat_segments)
 
 
 class ProteinChange(GenomicDomainModel):

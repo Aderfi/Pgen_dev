@@ -101,6 +101,7 @@ class DoubleTowerCollater:
             "smiles",
             "gene_context",
             "graph_id",
+            "hgvs",
         ]
 
     def _sanitize_graphs(self, graph_list: list[Data]) -> None:

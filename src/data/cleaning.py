@@ -6,11 +6,10 @@ The pre-refactor ``DataLoaderUtils.clean_and_prepare_data`` bundled three jobs:
 2. Build a synthetic ``geno_key`` join column against the gene-graph library.
 3. Apply multi-label normalization and add a stratification column.
 
-Step 2 is gone. The genotype tower now keys on ``(gene, genotype)`` directly and
-resolves each pair to a subgraph at access time via ``GenotypeResolver`` over the
-single-file ``GenoLibrary`` — there is no per-variant join key to precompute. The
+Step 2 is gone. The genotype tower reads ``(gene, genotype, alleles)`` as an HGVS
+variant graph (``src.data.genotype``) — there is no join key to precompute. The
 cleaner therefore just normalizes ``gene``/``genotype`` (and optional multi-label
-targets) and leaves the biology to the resolver.
+targets) and leaves the biology to the genotype graph builder.
 """
 
 from __future__ import annotations

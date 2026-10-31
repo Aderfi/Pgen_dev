@@ -1,8 +1,7 @@
 """Training checkpoint management.
 
 :class:`CheckpointManager` handles atomic saves, best-model tracking,
-and rolling cleanup of old epoch checkpoints. :func:`save_model_only` /
-:func:`load_model_only` provide lightweight helpers for inference-only use.
+and rolling cleanup of old epoch checkpoints.
 """
 
 import json
@@ -195,31 +194,3 @@ class CheckpointManager:
         for ckpt in checkpoints[: -self.keep_last_n]:
             ckpt.unlink()
             logger.debug("Deleted old checkpoint: %s", ckpt.name)
-
-
-def save_model_only(
-    model: torch.nn.Module,
-    model_name: str,
-    save_path: Path | None = None,
-) -> Path:
-    if save_path is None:
-        save_path = get_settings().paths.models / f"{model_name}.pt"
-    torch.save(model.state_dict(), save_path)
-    logger.info("Saved model weights to %s", save_path)
-    return save_path
-
-
-def load_model_only(
-    model: torch.nn.Module,
-    model_path: Path,
-    strict: bool = True,
-) -> torch.nn.Module:
-    if not model_path.exists():
-        raise ModelError(f"Model file not found: {model_path}")
-    try:
-        state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(state_dict, strict=strict)
-        logger.info("Loaded model weights from %s", model_path)
-        return model
-    except Exception as e:
-        raise ModelError(f"Failed to load model: {e}") from e

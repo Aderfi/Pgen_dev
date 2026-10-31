@@ -7,7 +7,8 @@ Turns an HGVS string into the structured ``HGVSVariant`` model defined in
     ``LRG_8t1:p.``, ``ENST00000012048:c.``...), with optional gene symbol
     inside parentheses (``NM_004006.2(DMD):c.93+1G>T``).
   * Single elementary changes at the nucleotide level: substitution, silent,
-    deletion, duplication, insertion, delins, inversion, conversion, repeat.
+    deletion, duplication, insertion, delins, inversion, conversion, repeat
+    (single-unit ``CAG[19]`` and composite ``CAG[19]CAA[4]``).
   * Single elementary changes at the protein level: substitution (incl.
     nonsense ``Gln1812*`` / ``Gln1812Ter``), silent, deletion, duplication,
     insertion, delins, frameshift, N-terminal and C-terminal extension,
@@ -35,6 +36,7 @@ from src.domain.schemas.hgvs import (
     ProteinChange,
     ProteinPosition,
     ReferenceSequenceKind,
+    RepeatSegment,
     SequencePosition,
     VariantKind,
     VariantPhase,
@@ -70,6 +72,13 @@ _RE_NUCL_CON = re.compile(
 )
 # Repeat: pos[N], pos_pos[N], or posUNIT[N] (e.g. `c.10CAG[5]`).
 _RE_NUCL_REPEAT = re.compile(rf"^{_NUCL_RANGE}(?P<unit>{_BASES})?\[(?P<n>\d+)\]$")
+# Composite repeat: two or more UNIT[N] blocks over one range, e.g.
+# `g.123_191CAG[19]CAA[4]` or `g.85554455_85554456T[5]GTT[1]`.
+_REPEAT_SEGMENT = rf"(?P<unit>{_BASES})\[(?P<n>\d+)\]"
+_RE_NUCL_COMPOSITE_REPEAT = re.compile(
+    rf"^{_NUCL_RANGE}(?P<segments>(?:{_BASES}\[\d+\]){{2,}})$"
+)
+_RE_REPEAT_SEGMENT = re.compile(_REPEAT_SEGMENT)
 
 # --- Protein elementary-change patterns ----------------------------------- #
 _RE_PROT_UNKNOWN = re.compile(r"^\?$")
@@ -346,18 +355,41 @@ def _parse_nucleotide(fragment: str, raw: str) -> NucleotideChange:  # noqa: PLR
             inserted_sequence=m["target"],
         )
 
+    repeat = _parse_repeat(s, raw)
+    if repeat is not None:
+        return repeat
+
+    msg = f"unrecognized nucleotide change {fragment!r} in {raw!r}"
+    raise BioinformaticsError(msg)
+
+
+def _parse_repeat(s: str, raw: str) -> NucleotideChange | None:
+    """Single-unit (``CAG[19]``, ``[7]``) or composite (``CAG[19]CAA[4]``) repeat."""
     m = _RE_NUCL_REPEAT.fullmatch(s)
+    if m:
+        unit = m["unit"].upper() if m["unit"] else None
+        count = int(m["n"])
+        return NucleotideChange(
+            kind=VariantKind.REPEAT,
+            start=_parse_seq_position(m["start"], raw),
+            end=_parse_seq_position(m["end"], raw) if m["end"] else None,
+            repeat_unit=unit,
+            repeat_count=count,
+            repeat_segments=[RepeatSegment(unit=unit, count=count)] if unit else None,
+        )
+
+    m = _RE_NUCL_COMPOSITE_REPEAT.fullmatch(s)
     if m:
         return NucleotideChange(
             kind=VariantKind.REPEAT,
             start=_parse_seq_position(m["start"], raw),
             end=_parse_seq_position(m["end"], raw) if m["end"] else None,
-            repeat_unit=m["unit"].upper() if m["unit"] else None,
-            repeat_count=int(m["n"]),
+            repeat_segments=[
+                RepeatSegment(unit=seg["unit"].upper(), count=int(seg["n"]))
+                for seg in _RE_REPEAT_SEGMENT.finditer(m["segments"])
+            ],
         )
-
-    msg = f"unrecognized nucleotide change {fragment!r} in {raw!r}"
-    raise BioinformaticsError(msg)
+    return None
 
 
 _RE_PURE_BASES = re.compile(rf"^{_BASE}+$")

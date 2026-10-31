@@ -70,8 +70,9 @@ class TabularLoader:
         null_values: list[str] | None = None,
         separator: str | None = None,
     ) -> pl.DataFrame:
-        """Read ``path`` (CSV or TSV) into a Polars DataFrame.
+        """Read ``path`` (CSV, TSV or parquet) into a Polars DataFrame.
 
+        - ``.parquet`` files carry their own schema: only ``columns`` applies.
         - ``separator`` defaults to ``\\t`` for non-``.csv`` files.
         - ``schema`` left unspecified means TRAIN_DATA_SCHEMA. Pass ``None``
           to disable the schema entirely (let Polars infer all dtypes), or
@@ -82,6 +83,8 @@ class TabularLoader:
         expected to wrap with their domain-specific error type.
         """
         path_str = str(path)
+        if path_str.endswith(".parquet"):
+            return pl.read_parquet(path_str, columns=columns)
         sep = (
             separator
             if separator is not None

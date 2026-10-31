@@ -1,114 +1,89 @@
-"""Shared bootstrap helpers for training, tuning, and inference engines.
+"""Shared bootstrap for the training, tuning, and inference engines.
 
-The three engines (``StandardTrainer`` orchestrated by ``train_pipeline``,
-``PGenTuner`` for Optuna, and ``PGenPredictor`` for inference) all need the
-same plumbing: pick a device, load + clean the training data, split it,
-build ``DoubleTowerDataset`` pairs, infer tower dimensions, assemble
-``DataLoader``s, and instantiate the GNN model with the correct
-``create_gnn_model`` signature. Pulling that out of each engine removes
-~200 lines of duplication and keeps the architectural contract in one place.
+``train_pipeline`` (standard training), ``PGenTuner`` (Optuna) and
+``PGenPredictor`` (inference) all need the same plumbing. It lives here once:
 
-Each helper is intentionally pure: no global state, no side effects beyond
-filesystem access for data loading.
+* :func:`prepare_training_data` — load (TSV/CSV/parquet file or Neo4j), clean,
+  split, build the paired datasets, infer tower widths and axis specs.
+* :func:`build_gnn_model` — ``PharmagenConfig.from_dims`` + ``PharmagenTwoTower``.
+* :func:`build_trainer` — loss modules, optimizer, scheduler and ``Trainer``.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import torch
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.config import get_settings
-from src.core import (
-    ConfigurationError,
-    ConfigValidator,
-    DataError,
-    DataValidator,
-    ModelError,
-)
+from src.config import get_axes_config, get_settings
+from src.core import ConfigValidator, DataError, DataValidator, ModelError
+from src.data.cache import GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
-from src.data.datasets import DoubleTowerDataset
-from src.data.library.geno_store import GenoLibrary
+from src.data.datasets import PRELOAD_THRESHOLD, DoubleTowerDataset
+from src.data.genotype import (
+    GenotypeGraphBuilder,
+    build_gene_vocab,
+    gene_vocab_size,
+    load_hgvs_catalog,
+)
 from src.data.loaders import TabularLoader
-from src.model.architectures.assembly import create_gnn_model
+from src.model.architectures.assembly import infer_axis_specs
+from src.model.architectures.config import PharmagenConfig
+from src.model.architectures.model import PharmagenTwoTower
+from src.model.checkpoint import CheckpointManager
+from src.model.factories import build_optimizer, build_scheduler
+from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
+from src.model.training import Trainer
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import polars as pl
 
+    from src.config.models import ModelConfig, TrainingParams
+    from src.evaluation.runs import FoldRef
     from src.model.architectures.config import AxisSpec
 
 logger = logging.getLogger(__name__)
 
-
-PRELOAD_THRESHOLD = 10_000
 DEFAULT_NUM_WORKERS = 4
 MIN_DATASET_SIZE = 100
 GENE_COLUMN = "gene"
-GENO_LIBRARY_FILE = "geno_graphs.pt"
+NEO4J_SOURCE = "neo4j"
+
+#: Where training rows come from: a TSV/CSV/parquet file, or the live KG.
+DataSource = Path | Literal["neo4j"]
 
 
 # --------------------------------------------------------------------------- #
-# Device
+# Device + config-derived values
 # --------------------------------------------------------------------------- #
 
 
 def resolve_device(override: str | None = None) -> torch.device:
-    """Return a torch.device, preferring an explicit override.
-
-    ``override`` accepts the same strings as ``torch.device`` ("cuda", "cpu",
-    "cuda:0", …). When None, picks CUDA if available, else CPU.
-    """
+    """``torch.device(override)`` if given, else CUDA when available, else CPU."""
     if override:
         return torch.device(override)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# --------------------------------------------------------------------------- #
-# Tower dimensions (legacy nested-dict spec consumed by DoubleTowerDataset)
-# --------------------------------------------------------------------------- #
+def tower_dims(cfg: ModelConfig) -> GraphDims:
+    """Graph feature widths for ``cfg`` (``models.toml`` extras over defaults)."""
+    return GraphDims.from_extras(cfg.extras)
 
 
-def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
-    """Build the nested ``{tower: {features, edges, attrs}}`` dim spec.
-
-    Values come from ``cfg.extras`` with sensible defaults. Each value must
-    be a non-negative int — otherwise a ConfigurationError is raised.
-    """
-    extras = cfg.extras
-    # Keys match src/config/data/models.toml. Drug defaults must equal
-    # DRUG_NODE_DIM / DRUG_EDGE_DIM in src/data/library/drugs.py (61 / 18).
-    dims = {
-        "drugs": {
-            "features": extras.get("drug_node_features", 61),
-            "edges": extras.get("drug_attrs_features", 18),
-            "attrs": extras.get("drug_in_attributes", 0),
-            "global": extras.get("drug_global_features", 1038),
-            "admet": extras.get("drug_admet_features", 41),
-        },
-        "geno": {
-            "features": extras.get("geno_node_features", 30),
-            "edges": extras.get("geno_attrs_features", 2),
-            "attrs": extras.get("haplo_in_attributes", 0),
-            "function": extras.get("geno_function_features", 6),
-        },
+def model_switches(cfg: ModelConfig) -> dict[str, bool]:
+    """Structural ablation switches declared in ``models.toml``."""
+    return {
+        key: bool(cfg.extras.get(key, False))
+        for key in ("use_polypharmacy", "use_cross_attention")
     }
-    for tower, sub in dims.items():
-        for name, value in sub.items():
-            if not isinstance(value, int) or value < 0:
-                raise ConfigurationError(
-                    f"Invalid dimension '{tower}.{name}': {value} (must be >= 0 integer)"
-                )
-    return dims
 
 
 # --------------------------------------------------------------------------- #
@@ -116,48 +91,55 @@ def extract_tower_dims(cfg) -> dict[str, dict[str, int]]:
 # --------------------------------------------------------------------------- #
 
 
-def load_and_clean_data(
-    csv_path: str | Path,
-    cfg,
-    *,
-    enforce_min_size: int = MIN_DATASET_SIZE,
-) -> pl.DataFrame:
-    """Load a CSV/TSV through TabularLoader and run PharmacogenomicCleaner.
+def load_frame(source: DataSource, cfg: ModelConfig) -> pl.DataFrame:
+    """Raw training rows from a file (TSV/CSV/parquet) or from Neo4j.
 
-    Validates the result against the configured features/targets and warns
-    on high missingness. Raises DataError on any failure that would prevent
-    a meaningful training run.
+    Projected onto ``cfg.cols``; optional columns (``alleles``,
+    ``variant_annotation_id``) are kept only when the source has them — the
+    required features/targets are validated afterwards.
+    """
+    if source == NEO4J_SOURCE:
+        from src.kg.training import load_training_rows
+
+        df = load_training_rows()
+    else:
+        df = TabularLoader.load(source)
+    return df.select([c for c in cfg.cols if c in df.columns]) if cfg.cols else df
+
+
+def load_and_clean_data(
+    source: DataSource,
+    cfg: ModelConfig,
+    *,
+    min_size: int = MIN_DATASET_SIZE,
+) -> pl.DataFrame:
+    """Load ``source`` and run ``PharmacogenomicCleaner``, validating the result.
+
+    Raises DataError on anything that would prevent a meaningful training run.
     """
     try:
-        raw_df = TabularLoader.load(csv_path, columns=cfg.cols or None)
         df = PharmacogenomicCleaner(
             multi_label_cols=get_settings().multi_label_set,
-        ).clean(raw_df, stratify_col=cfg.stratify_col)
+        ).clean(load_frame(source, cfg), stratify_col=cfg.stratify_col)
+    except DataError:
+        raise
     except Exception as e:
-        raise DataError(f"Failed to load data from {csv_path}: {e}") from e
+        raise DataError(f"Failed to load data from {source}: {e}") from e
 
-    if len(df) < enforce_min_size:
-        raise DataError(
-            f"Dataset too small: {len(df)} samples (minimum: {enforce_min_size})"
-        )
+    if len(df) < min_size:
+        raise DataError(f"Dataset too small: {len(df)} samples (minimum: {min_size})")
 
     try:
         ConfigValidator.validate_data_columns(df.columns, cfg.features, cfg.targets)
     except ValueError as e:
         raise DataError(str(e)) from e
 
-    missing_stats = DataValidator.check_missing_values(
+    missing = DataValidator.check_missing_values(
         df, cfg.features + cfg.targets, threshold=0.5
     )
-    if any(frac > 0.1 for frac in missing_stats.values()):
-        logger.warning("High missing values detected: %s", missing_stats)
-
+    if any(frac > 0.1 for frac in missing.values()):
+        logger.warning("High missing values detected: %s", missing)
     return df
-
-
-# --------------------------------------------------------------------------- #
-# Train / val split
-# --------------------------------------------------------------------------- #
 
 
 def stratified_split(
@@ -183,78 +165,119 @@ def stratified_split(
 def build_two_tower_datasets(
     train_df: pl.DataFrame,
     val_df: pl.DataFrame,
-    cfg,
-    dims: dict[str, dict[str, int]],
+    cfg: ModelConfig,
+    dims: GraphDims,
     *,
+    genotype_builder: GenotypeGraphBuilder,
     preload_ram: bool | None = None,
 ) -> tuple[DoubleTowerDataset, DoubleTowerDataset]:
-    """Construct paired train/val DoubleTowerDatasets.
+    """Paired train/val datasets; val reuses train's fitted target encoders.
 
-    The val dataset reuses the train dataset's fitted target encoders so
-    label spaces stay aligned.
+    Both splits share ``genotype_builder`` (one HGVS catalog, one gene
+    vocabulary fitted on the training split).
     """
     if preload_ram is None:
         preload_ram = len(train_df) < PRELOAD_THRESHOLD
-
-    multi_label_cols = list(get_settings().multi_label_set)
-
-    # Load the single-file genotype library once and share the resolver across
-    # both datasets so there is a single in-RAM copy of the gene graphs.
-    resolver = GenoLibrary.load(
-        get_settings().paths.library / GENO_LIBRARY_FILE
-    ).resolver()
-
-    train_dataset = DoubleTowerDataset(
-        df=train_df,
-        drug_col=cfg.features[0],
-        geno_col=cfg.features[1],
-        target_cols=cfg.targets,
-        multilabel_cols=multi_label_cols,
-        gene_col=GENE_COLUMN,
-        genotype_resolver=resolver,
-        preload_ram=preload_ram,
-        input_dimensions=dims,
-    )
-
+    common = {
+        "drug_col": cfg.features[0],
+        "geno_col": cfg.features[1],
+        "target_cols": cfg.targets,
+        "multilabel_cols": list(get_settings().multi_label_set),
+        "gene_col": GENE_COLUMN,
+        "genotype_builder": genotype_builder,
+        "preload_ram": preload_ram,
+        "dims": dims,
+    }
+    train_dataset = DoubleTowerDataset(df=train_df, **common)
     val_dataset = DoubleTowerDataset(
-        df=val_df,
-        drug_col=cfg.features[0],
-        geno_col=cfg.features[1],
-        target_cols=cfg.targets,
-        multilabel_cols=multi_label_cols,
-        encoders=train_dataset.target_encoder.encoders,
-        gene_col=GENE_COLUMN,
-        genotype_resolver=resolver,
-        preload_ram=preload_ram,
-        input_dimensions=dims,
+        df=val_df, encoders=train_dataset.target_encoder.encoders, **common
     )
-
     return train_dataset, val_dataset
 
 
-def infer_dimensions(
-    train_dataset: DoubleTowerDataset,
-    cfg,
-) -> tuple[int, int]:
-    """Probe a sample to learn the per-tower feature widths.
-
-    Axis (per-target) sizing has moved to
-    ``src.model.architectures.assembly.infer_axis_specs`` — this helper is now
-    concerned only with the tower feature widths shared by every axis.
-    """
+def infer_dimensions(train_dataset: DoubleTowerDataset) -> tuple[int, int]:
+    """Probe one sample for the (drug, genotype) node feature widths."""
     try:
         sample = train_dataset[0]
         drug_dim = sample["drug_data"].x.shape[1]
         geno_dim = sample["geno_data"].x.shape[1]
     except Exception as e:
         raise DataError(f"Failed to infer dimensions from dataset: {e}") from e
-
     if drug_dim <= 0 or geno_dim <= 0:
         raise DataError(
             f"Invalid inferred dimensions: drug={drug_dim}, geno={geno_dim}"
         )
-
     return drug_dim, geno_dim
+
+
+@dataclass
+class PreparedData:
+    """Everything training needs to know about the data, computed once."""
+
+    train: DoubleTowerDataset
+    val: DoubleTowerDataset
+    dims: GraphDims
+    drug_dim: int
+    geno_dim: int
+    axes: dict[str, AxisSpec]
+    gene_vocab: dict[str, int]
+    split_sha256: str | None = None
+
+
+def prepare_training_data(
+    cfg: ModelConfig,
+    source: DataSource,
+    *,
+    validation_split: float = 0.2,
+    seed: int | None = None,
+    preload_ram: bool | None = None,
+    min_size: int = MIN_DATASET_SIZE,
+    split: FoldRef | None = None,
+) -> PreparedData:
+    """Load → clean → split → gene vocab → datasets → tower widths → axis specs.
+
+    With ``split`` the train/val rows come from that persisted scenario fold
+    (``src.evaluation``); its test rows are never loaded into a dataset.
+    """
+    split_sha: str | None = None
+    if split is not None:
+        from src.evaluation.runs import load_fold_frames
+
+        train_df, val_df, _test, manifest = load_fold_frames(
+            source, cfg, split, min_size=min_size
+        )
+        split_sha = manifest.split_sha256
+    else:
+        df = load_and_clean_data(source, cfg, min_size=min_size)
+        train_df, val_df = stratified_split(df, validation_split, seed=seed)
+    logger.info(
+        "Loaded samples from %s (train=%d, val=%d, split=%s)",
+        source,
+        len(train_df),
+        len(val_df),
+        split,
+    )
+
+    dims = tower_dims(cfg)
+    gene_vocab = build_gene_vocab(train_df[GENE_COLUMN].to_list())
+    logger.info("Gene vocabulary: %d genes (+UNK)", len(gene_vocab))
+    builder = GenotypeGraphBuilder(load_hgvs_catalog(), gene_vocab)
+    train, val = build_two_tower_datasets(
+        train_df, val_df, cfg, dims, genotype_builder=builder, preload_ram=preload_ram
+    )
+    drug_dim, geno_dim = infer_dimensions(train)
+    axes = infer_axis_specs(
+        train.target_encoder.encoders,
+        train.targets,
+        get_settings().multi_label_set,
+        get_axes_config(),
+    )
+    logger.info(
+        "Inferred dims drug=%d geno=%d, axes=%s", drug_dim, geno_dim, list(axes)
+    )
+    return PreparedData(
+        train, val, dims, drug_dim, geno_dim, axes, gene_vocab, split_sha
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -268,82 +291,119 @@ def build_train_val_loaders(
     batch_size: int,
     *,
     num_workers: int | None = None,
-    collater: DoubleTowerCollater | None = None,
 ) -> tuple[DataLoader, DataLoader]:
-    """Build paired train + val DataLoaders with the project's standard knobs."""
-    collater = collater or DoubleTowerCollater()
+    """Paired train + val DataLoaders with the project's standard knobs."""
     if num_workers is None:
-        preload_ram = len(train_dataset) < PRELOAD_THRESHOLD
         cpu_count = os.cpu_count() or 1
         num_workers = (
-            2 if preload_ram else min(DEFAULT_NUM_WORKERS, max(cpu_count - 1, 1))
+            2
+            if len(train_dataset) < PRELOAD_THRESHOLD
+            else min(DEFAULT_NUM_WORKERS, max(cpu_count - 1, 1))
         )
-
-    pin = torch.cuda.is_available()
-    persistent = num_workers > 0
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collater,
-        num_workers=num_workers,
-        pin_memory=pin,
-        persistent_workers=persistent,
+    if num_workers > 0:
+        # Workers receive the datasets' tensors as shared-memory handles; the
+        # default fd-passing strategy hits the descriptor limit with thousands
+        # of cached graphs.
+        torch.multiprocessing.set_sharing_strategy("file_system")
+    common = {
+        "batch_size": batch_size,
+        "collate_fn": DoubleTowerCollater(),
+        "num_workers": num_workers,
+        "pin_memory": torch.cuda.is_available(),
+        "persistent_workers": num_workers > 0,
+    }
+    return (
+        DataLoader(train_dataset, shuffle=True, **common),
+        DataLoader(val_dataset, shuffle=False, **common),
     )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=collater,
-        num_workers=num_workers,
-        pin_memory=pin,
-        persistent_workers=persistent,
-    )
-    return train_loader, val_loader
 
 
 # --------------------------------------------------------------------------- #
-# Model construction
+# Model + trainer
 # --------------------------------------------------------------------------- #
 
 
 def build_gnn_model(
     *,
-    model_name: str,
-    dims: dict[str, dict[str, int]],
+    dims: GraphDims,
     drug_dim: int,
     geno_dim: int,
     axes: dict[str, AxisSpec],
-    params: dict[str, Any],
+    params: TrainingParams,
     device: torch.device,
     switches: dict[str, bool] | None = None,
+    gene_vocab: dict[str, int] | None = None,
 ) -> nn.Module:
-    """Instantiate PharmagenTwoTower with the inferred / configured shapes."""
+    """Instantiate ``PharmagenTwoTower`` with the inferred / configured shapes."""
     try:
-        model = create_gnn_model(
+        config = PharmagenConfig.from_dims(
             dims=dims,
             drug_dim=drug_dim,
             geno_dim=geno_dim,
             axes=axes,
             params=params,
             switches=switches,
-        ).to(device)
+            gene_vocab_size=gene_vocab_size(gene_vocab)
+            if gene_vocab is not None
+            else 0,
+        )
+        return PharmagenTwoTower(config).to(device)
     except Exception as e:
-        raise ModelError(f"Failed to create model '{model_name}': {e}") from e
-    return model
+        raise ModelError(f"Failed to create model: {e}") from e
+
+
+def build_trainer(
+    model: nn.Module,
+    cfg: ModelConfig,
+    axes: dict[str, AxisSpec],
+    params: TrainingParams,
+    device: torch.device,
+    *,
+    checkpoint_name: str | None = None,
+) -> Trainer:
+    """Losses + optimizer + scheduler + :class:`Trainer`.
+
+    With ``checkpoint_name`` the trainer checkpoints improvements, compiles the
+    model and shows progress (standard training); without it, it is a light
+    in-memory trainer (Optuna trials).
+    """
+    multitask_loss = MultiTaskLoss(axes).to(device)
+    optimizer = build_optimizer(
+        model=model, params=params, uncertainty_module=multitask_loss
+    )
+    standard = checkpoint_name is not None
+    return Trainer(
+        model=model,
+        optimizer=optimizer,
+        scheduler=build_scheduler(optimizer, params),
+        device=device,
+        target_cols=cfg.targets,
+        multi_label_cols=get_settings().multi_label_set,
+        multitask_loss=multitask_loss,
+        compose_loss=CompositionalLabelLoss(),
+        compose_weight=params.compose_loss_weight,
+        checkpoint=CheckpointManager(checkpoint_name) if standard else None,
+        compile_model=standard,
+        show_progress=standard,
+    )
 
 
 __all__ = [
-    "DEFAULT_NUM_WORKERS",
+    "GENE_COLUMN",
     "MIN_DATASET_SIZE",
-    "PRELOAD_THRESHOLD",
+    "NEO4J_SOURCE",
+    "DataSource",
+    "PreparedData",
     "build_gnn_model",
     "build_train_val_loaders",
+    "build_trainer",
     "build_two_tower_datasets",
-    "extract_tower_dims",
     "infer_dimensions",
     "load_and_clean_data",
+    "load_frame",
+    "model_switches",
+    "prepare_training_data",
     "resolve_device",
     "stratified_split",
+    "tower_dims",
 ]

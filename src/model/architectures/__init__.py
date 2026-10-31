@@ -1,4 +1,4 @@
-from .config import AxisSpec, PharmagenConfig, TaskSpec
+from .config import AxisSpec, PharmagenConfig
 from .model import PharmagenTwoTower
 
-__all__ = ["AxisSpec", "PharmagenConfig", "PharmagenTwoTower", "TaskSpec"]
+__all__ = ["AxisSpec", "PharmagenConfig", "PharmagenTwoTower"]

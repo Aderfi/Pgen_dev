@@ -107,7 +107,7 @@ class TestVariant:
         assert v.rsid == "rs1801133"
 
     def test_invalid_rsid_rejected(self) -> None:
-        with pytest.raises(ValueError, match="invalid rsID"):
+        with pytest.raises(ValueError, match="rsid"):
             Variant(position=self._pos(), ref="G", alt="A", rsid="1801133")
 
 

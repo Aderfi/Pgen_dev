@@ -30,6 +30,7 @@ _REFSEQ_HUMAN = re.compile(r"^NC_0+(\d+)\.\d+$")
 # Special-case sex/mitochondrial chromosomes; autosomes pass through unchanged.
 _REFSEQ_NON_AUTOSOME = {"23": "X", "24": "Y", "12920": "MT"}
 
+
 def normalize_chromosome(chrom: str) -> str:
     """Normalize a chromosome label to the bare-token form used by Ensembl FASTA.
 
@@ -55,8 +56,10 @@ def normalize_chromosome(chrom: str) -> str:
 
     return bare
 
+
 ChromLabel = Annotated[str, BeforeValidator(normalize_chromosome)]
 GenomicPosition = Annotated[int, Field(ge=1, description="1-based genomic position.")]
+
 
 class Position(BaseModel):
     """A point on a reference genome.
@@ -67,22 +70,18 @@ class Position(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    chrom: str = Field(
+    chrom: ChromLabel = Field(
         ..., description="Chromosome label, normalized (no 'chr' prefix)."
     )
     pos: int = Field(..., ge=1, description="1-based genomic position.")
     build: GenomeBuild = Field(default=GenomeBuild.GRCH38)
-
-    #@field_validator("chrom", mode="before")
-    #@classmethod
-    #def _normalize_chrom(cls, v: str) -> str:
-    #    return normalize_chromosome(v)
 
     def __str__(self) -> str:
         return f"{self.build.value}:{self.chrom}:{self.pos}"
 
 
 _ALLELE_PATTERN = re.compile(r"^[ACGTN]+$|^\.$|^-$")
+
 
 def _normalize_allele(v: str) -> str:
     if not isinstance(v, str):
@@ -94,14 +93,13 @@ def _normalize_allele(v: str) -> str:
         raise ValueError(msg)
     return upper
 
+
 Allele = Annotated[
     str,
     BeforeValidator(_normalize_allele),
     Field(min_length=1, description="Reference/alternate allele (uppercase ACGTN)."),
 ]
 RsId = Annotated[str, StringConstraints(pattern=r"^rs\d+$")]
-
-
 
 
 class Variant(BaseModel):
@@ -144,5 +142,3 @@ class Genotype(BaseModel):
     variant: Variant
     zygosity: Zygosity
     sample_id: str | None = None
-
-

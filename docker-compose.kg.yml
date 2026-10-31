@@ -1,0 +1,21 @@
+# Local Neo4j for the Pharmagen knowledge graph (src/kg).
+#
+#   docker compose -f docker-compose.kg.yml up -d
+#   export PHARMAGEN_KG__PASSWORD=pharmagen-dev
+#   uv run python -m src.kg ingest && uv run python -m src.kg export
+#
+# Browser: http://localhost:7474
+services:
+  neo4j:
+    image: neo4j:2026.09
+    container_name: pharmagen-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${PHARMAGEN_KG__PASSWORD:-pharmagen-dev}
+    volumes:
+      - pharmagen-neo4j-data:/data
+
+volumes:
+  pharmagen-neo4j-data:

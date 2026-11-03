@@ -110,7 +110,9 @@ def test_train_then_predict(sandbox, monkeypatch):
     best = _train(data, monkeypatch)
     assert best < float("inf")
     assert (tmp_path / "encoders" / "encoders_TwoTowerGAT.pkl").exists()
-    ckpt = tmp_path / "models" / "checkpoints" / "TwoTowerGAT" / "best_model.pt"
+    ckpt = (
+        tmp_path / "models" / "checkpoints" / "TwoTowerGAT" / "best_model.safetensors"
+    )
     assert ckpt.exists()
 
     from src.model.engine.predictor import PGenPredictor
@@ -175,7 +177,9 @@ def test_split_then_train_a_fold(sandbox, monkeypatch):
     ref = FoldRef(scenario=Scenario.DRUG_COLD, fold=0)
     assert _train(data, monkeypatch, split=ref) < float("inf")
     run = "TwoTowerGAT__drug_cold__fold0"
-    assert (tmp_path / "models" / "checkpoints" / run / "best_model.pt").exists()
+    assert (
+        tmp_path / "models" / "checkpoints" / run / "best_model.safetensors"
+    ).exists()
     bundle = joblib.load(tmp_path / "encoders" / f"encoders_{run}.pkl")
     assert bundle["split"]["split_sha256"] == manifest.split_sha256
 

@@ -75,10 +75,12 @@ class GraphTower(nn.Module):
         # Triple readout: add preserves cardinality (molecule size), mean gives a
         # size-invariant view, max captures dominant substructures.
         self.post_pool_mlp = nn.Sequential(
+            nn.LayerNorm(dim * 3),
             nn.Linear(dim * 3, dim),
             nn.ELU(),
             nn.Dropout(dropout),
             nn.Linear(dim, out_channels),
+            nn.LayerNorm(out_channels),
         )
 
     def forward(

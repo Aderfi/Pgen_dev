@@ -23,7 +23,16 @@ from src.evaluation.schemas import (
     StratumResult,
 )
 
-SECTIONS = ["1 ·", "3 ·", "4 ·", "5 ·", "6 ·", "7 ·", "8 ·"]
+SECTIONS = [
+    "overview",
+    "aggregate",
+    "folds",
+    "classes",
+    "curves",
+    "leakage",
+    "baselines",
+    "predictions",
+]
 
 
 def _ci(v: float | None) -> MetricCI:
@@ -161,18 +170,61 @@ def _write(dir_, report: EvaluationReport) -> None:
 def test_render_has_sections_in_order(tmp_path) -> None:
     _write(tmp_path / "e", _report("drug_cold", 0.4, 0.25))
     html = render(tmp_path / "e").read_text()
-    positions = [html.index(f"<h2>{s}") for s in SECTIONS]
+    positions = [html.index(f'<section id="{s}"') for s in SECTIONS]
     assert positions == sorted(positions)
     assert "<script src=" not in html
     assert not re.search(r"<link[^>]+href=\"http", html)
-    assert "data:image/png;base64," in html
+    assert html.count('<figure class="chart card">') == 3  # PR, ROC, reliability
 
 
 def test_render_marks_unreliable_class_and_violations(tmp_path) -> None:
     _write(tmp_path / "e", _report("drug_cold", 0.4, 0.25))
     html = render(tmp_path / "e").read_text()
-    assert "not reliable" in html
-    assert "shared_drugs" in html
+    assert "fewer than 10 positives" in html
+    assert '<span class="badge bad">shared_drugs</span>' in html
+
+
+def test_render_shows_every_aggregate_metric(tmp_path) -> None:
+    report = _report("drug_cold", 0.4, 0.25)
+    report.aggregate["recall_samples"] = _ci(0.3)  # outside the old headline list
+    report.aggregate["new_metric"] = _ci(0.2)  # unknown to the renderer
+    _write(tmp_path / "e", report)
+    html = render(tmp_path / "e").read_text()
+    for key in report.aggregate:
+        assert f"<td><b>{key}</b>" in html
+
+
+def test_render_one_prediction_row_per_record(tmp_path) -> None:
+    _write(tmp_path / "e", _report("drug_cold", 0.4, 0.25))
+    html = render(tmp_path / "e").read_text()
+    preds = html.split('id="preds"', 1)[1].split("</table>", 1)[0]
+    assert preds.count("<tr data-exact=") == 5
+    assert "p_Toxicity</th>" in preds
+
+
+def test_render_per_fold_table(tmp_path) -> None:
+    report = _report("drug_cold", 0.4, 0.25)
+    report.per_fold = [
+        FoldResult(fold=1, n_test=4, aggregate={"f1_macro": 0.3, "ece": 0.2}),
+        FoldResult(fold=0, n_test=3, aggregate={"f1_macro": 0.5, "ece": None}),
+    ]
+    _write(tmp_path / "e", report)
+    html = render(tmp_path / "e").read_text()
+    folds = html.split('id="foldt"', 1)[1].split("</table>", 1)[0]
+    assert folds.index("fold 0<small>n=3</small>") < folds.index(
+        "fold 1<small>n=4</small>"
+    )
+    assert 'class="hm best" style="--p:50" data-v="0.5"' in folds  # best f1_macro
+    assert '<td class="ci">0.200</td>' in folds  # spread 0.5 - 0.3
+    assert "<td>—</td>" in folds  # ece missing on fold 0
+
+
+def test_render_lists_every_evaluated_class(tmp_path) -> None:
+    _write(tmp_path / "e", _report("drug_cold", 0.4, 0.25))
+    hero = render(tmp_path / "e").read_text().split('id="overview"', 1)[1]
+    hero = hero.split("</section>", 1)[0]
+    assert '<span class="pl c0">Toxicity</span>' in hero
+    assert '<span class="pl nh c1" data-tip="fewer than 10 positives' in hero
 
 
 def test_compare_delta_and_lift(tmp_path) -> None:
@@ -184,7 +236,15 @@ def test_compare_delta_and_lift(tmp_path) -> None:
     assert row.delta_vs_random["f1_macro"] == pytest.approx(-0.2)
     assert row.lift_over_prevalence["f1_macro"] == pytest.approx(0.15)
     html = (out / "report.html").read_text()
-    assert "<h2>2 ·" in html
+    assert '<section id="scenarios"' in html
+    assert (
+        '<span class="chip neg" data-tip="f1_macro: scenario − random">-0.200</span>'
+        in html
+    )
+    assert (
+        '<span class="chip pos" data-tip="f1_macro: model − prevalence">+0.150</span>'
+        in html
+    )
 
 
 def test_compare_without_random(tmp_path) -> None:

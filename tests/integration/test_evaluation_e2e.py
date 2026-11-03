@@ -95,7 +95,7 @@ def test_evaluate_all_folds(sandbox, monkeypatch):  # noqa: F811
     from src.evaluation.report import render
 
     html = render(out).read_text()
-    assert "<h2>8 ·" in html
+    assert '<section id="predictions"' in html
 
     for ci in _all_cis(json.loads((out / "metrics.json").read_text())):
         if ci["low"] is not None and ci["high"] is not None and ci["value"] is not None:

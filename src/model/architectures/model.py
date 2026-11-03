@@ -532,10 +532,10 @@ class PharmagenTwoTower(nn.Module):
         assert drug_data.batch is not None
         assert geno_data.batch is not None
 
-        num_patients = int(geno_data.batch.max().item()) + 1
+        num_patients = geno_data.num_graphs
 
         # ---------------- Drug side: molecule level ----------------
-        num_molecules = int(drug_data.batch.max().item()) + 1
+        num_molecules = drug_data.num_graphs
         mol_to_patient = self._resolve_mol_to_patient(
             drug_data, num_molecules, num_patients
         )

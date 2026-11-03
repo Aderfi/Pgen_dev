@@ -99,6 +99,7 @@ dependencies = [
     "admet-ai>=2.0.1",
     "neo4j>=5.28",
     "openpyxl>=3.1",
+    "safetensors>=0.8.0",
 ]
 
 [project.optional-dependencies]

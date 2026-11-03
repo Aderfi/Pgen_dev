@@ -237,8 +237,11 @@ class Trainer:
                 self.best_loss = val_loss
                 self.patience_counter = 0
                 if self.checkpoint is not None:
+                    # Save the uncompiled module: torch.compile prefixes every
+                    # state_dict key with "_orig_mod.", which the predictor's
+                    # plain model cannot load.
                     self.checkpoint.save_checkpoint(
-                        model=self.model,
+                        model=self._raw_model,
                         optimizer=self.optimizer,
                         scheduler=self.scheduler,
                         epoch=epoch,
@@ -260,7 +263,7 @@ class Trainer:
         if self.checkpoint is not None and self.best_loss < float("inf"):
             # Hand the caller the best weights, not the last ones.
             info = self.checkpoint.resume_training(
-                model=self.model,
+                model=self._raw_model,
                 optimizer=self.optimizer,
                 scheduler=self.scheduler,
                 uncertainty_module=self.multitask_loss,

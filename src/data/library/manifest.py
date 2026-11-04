@@ -29,12 +29,16 @@ class ManifestStats(BaseModel):
     genes_built: int = 0
     genes_failed: int = 0
     variants_total: int = 0
+    pharm_built: int = 0
+    pharm_skipped: int = 0
+    pharm_failed: int = 0
 
 
 class BuildManifest(BaseModel):
     """Persistent record of what's been produced so far."""
 
     model_config = ConfigDict()
+    completed_pharm_cids: list[int] = Field(default_factory=list)
 
     started_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
@@ -83,6 +87,13 @@ class BuildManifest(BaseModel):
         key = f"{gene}/{variant}"
         if key not in self.completed_gene_keys:
             self.completed_gene_keys.append(key)
+
+    def mark_pharm_done(self, cid: int) -> None:
+        if cid not in self.completed_pharm_cids:
+            self.completed_pharm_cids.append(cid)
+
+    def mark_pharm_failed(self, cid: int, reason: str) -> None:
+        self.failed[f"pharm:{cid}"] = reason
 
     def mark_drug_failed(self, cid: int, reason: str) -> None:
         self.failed[f"drug:{cid}"] = reason

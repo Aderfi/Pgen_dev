@@ -18,6 +18,7 @@ from src.data.genotype.catalog import build_hgvs_catalog
 from src.data.library.admet import AdmetProvider, records_from_rows
 from src.data.library.drugs import DrugGraphBuilder, load_drug_records
 from src.data.library.manifest import BuildManifest
+from src.data.library.pharmacophore import PharmacophoreGraphBuilder
 
 if TYPE_CHECKING:
     from src.data.library.config import LibraryBuildConfig
@@ -32,6 +33,9 @@ class BuildSummary:
     drugs_failed: int
     genes_built: int
     genes_failed: int
+    pharm_built: int = 0
+    pharm_skipped: int = 0
+    pharm_failed: int = 0
 
 
 class LibraryBuilder:
@@ -105,6 +109,21 @@ class LibraryBuilder:
         else:
             logger.info("Skipping drug pipeline (skip_drugs=True).")
 
+        pharm_built = pharm_skipped = pharm_failed = 0
+        if not cfg.skip_pharm:
+            pharm_builder = PharmacophoreGraphBuilder(
+                cfg.pharm_out,
+                force=cfg.force,
+                failures_log=cfg.log_pharm_failures_path,
+                strip_salts=cfg.strip_salts,
+            )
+            pharm_built, pharm_skipped, pharm_failed = pharm_builder.build(
+                cfg.drugs_tsv, manifest=manifest
+            )
+            manifest.save(cfg.manifest_path)
+        else:
+            logger.info("Skipping pharmacophore pipeline (skip_pharm=True).")
+
         genes_built = genes_failed = 0
         if not cfg.skip_genes:
             try:
@@ -141,4 +160,7 @@ class LibraryBuilder:
             drugs_failed=drugs_failed,
             genes_built=genes_built,
             genes_failed=genes_failed,
+            pharm_built=pharm_built,
+            pharm_skipped=pharm_skipped,
+            pharm_failed=pharm_failed,
         )

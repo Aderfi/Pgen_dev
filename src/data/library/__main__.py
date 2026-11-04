@@ -55,6 +55,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-drugs", action="store_true", help="Skip the drug pipeline.")
     p.add_argument("--skip-genes", action="store_true", help="Skip the HGVS catalog.")
     p.add_argument(
+        "--skip-pharm", action="store_true", help="Skip the pharmacophore graphs."
+    )
+    p.add_argument(
         "--skip-admet",
         action="store_true",
         help="Skip ADMET prediction; drug graphs get a zero admet_feats vector "
@@ -88,18 +91,24 @@ def main(argv: list[str] | None = None) -> int:
         skip_admet=args.skip_admet,
         force_admet=args.force_admet,
         strip_salts=not args.keep_salts,
+        skip_pharm=args.skip_pharm,
     )
 
     summary = LibraryBuilder(cfg).run()
     logger.info(
-        "Drugs: built=%d skipped=%d failed=%d | Genes: built=%d failed=%d",
+        "Drugs: built=%d skipped=%d failed=%d | Pharm: built=%d skipped=%d failed=%d "
+        "| Genes: built=%d failed=%d",
         summary.drugs_built,
         summary.drugs_skipped,
         summary.drugs_failed,
+        summary.pharm_built,
+        summary.pharm_skipped,
+        summary.pharm_failed,
         summary.genes_built,
         summary.genes_failed,
     )
-    return 0 if summary.drugs_failed == 0 and summary.genes_failed == 0 else 2
+    ok = summary.drugs_failed == 0 and summary.pharm_failed == 0
+    return 0 if ok and summary.genes_failed == 0 else 2
 
 
 if __name__ == "__main__":

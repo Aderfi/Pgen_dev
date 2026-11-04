@@ -50,6 +50,10 @@ class LibraryBuildConfig(BaseModel):
     )
     skip_drugs: bool = False
     skip_genes: bool = False
+
+    skip_pharm: bool = Field(
+        default=False, description="Skip the pharmacophore graph pipeline."
+    )
     skip_admet: bool = Field(
         default=False,
         description="Skip ADMET prediction; drug graphs get a zero admet_feats "
@@ -83,6 +87,12 @@ class LibraryBuildConfig(BaseModel):
         "logs/library/drug_feature_saturation_<date>.log.",
     )
 
+    log_pharm_failures_path: Path | None = Field(
+        default=None,
+        description="Path for the pharmacophore failure report; defaults to "
+        "logs/library/pharm_build_failures_<date>.log.",
+    )
+
     @field_validator(
         "variants_tsv",
         "drugs_tsv",
@@ -102,6 +112,10 @@ class LibraryBuildConfig(BaseModel):
         return self.library_root / "drugs"
 
     @property
+    def pharm_out(self) -> Path:
+        return self.library_root / "pharmacophores"
+
+    @property
     def hgvs_catalog_path(self) -> Path:
         return self.library_root / HGVS_CATALOG_FILE
 
@@ -113,6 +127,7 @@ class LibraryBuildConfig(BaseModel):
         """Create output directories. Inputs are NOT created — they must exist."""
         self.library_root.mkdir(parents=True, exist_ok=True)
         self.drugs_out.mkdir(parents=True, exist_ok=True)
+        self.pharm_out.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def from_settings(
@@ -126,6 +141,7 @@ class LibraryBuildConfig(BaseModel):
         skip_admet: bool = False,
         force_admet: bool = False,
         strip_salts: bool = True,
+        skip_pharm: bool = False,
     ) -> LibraryBuildConfig:
         """Build a config rooted at the project's standard paths."""
         settings = get_settings()
@@ -135,6 +151,7 @@ class LibraryBuildConfig(BaseModel):
         library_logs = settings.paths.logs / "library"
         log_failures_path = library_logs / f"drug_build_failures_{stamp}.log"
         log_saturation_path = library_logs / f"drug_feature_saturation_{stamp}.log"
+        log_pharm_failures_path = library_logs / f"pharm_build_failures_{stamp}.log"
         return cls(
             variants_tsv=variants_tsv or data_dir / "snp_data_output.tsv",
             drugs_tsv=drugs_tsv or data_dir / "drugs_cid.tsv",
@@ -151,4 +168,6 @@ class LibraryBuildConfig(BaseModel):
             strip_salts=strip_salts,
             log_failures_path=log_failures_path,
             log_saturation_path=log_saturation_path,
+            skip_pharm=skip_pharm,
+            log_pharm_failures_path=log_pharm_failures_path,
         )

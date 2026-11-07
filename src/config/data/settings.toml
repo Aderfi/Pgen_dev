@@ -31,6 +31,7 @@ cache = "data/cache/modephere"     # PubChem raw cache (drugs ChEMBL cannot reso
 chembl = "data/chembl"             # staged ChEMBL releases; the newest is used
 pgx_export = "data/library/pgx"    # Modephere pgx export tables
 logs = "logs/library"              # build failure / saturation reports
+max_heavy_atoms = 300              # standardizer cap (exenatide 295, liraglutide 266)
 
 [modephere.kg]
 # Modephere's Neo4j, read by 'python -m src.data.library --refresh-pgx'.

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from modephere.config import KGSettings as ModephereKGSettings
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, PositiveInt, SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -95,6 +95,11 @@ class ModephereSettings(BaseModel):
     logs: Path = Field(
         default=Path("logs/library"),
         description="Library build failure / feature-saturation reports.",
+    )
+    max_heavy_atoms: PositiveInt = Field(
+        default=300,
+        description="Heavy-atom cap of the standardizer (peptides such as "
+        "exenatide, 295, fit under 300).",
     )
     kg: ModephereKGSettings = Field(
         default_factory=ModephereKGSettings,

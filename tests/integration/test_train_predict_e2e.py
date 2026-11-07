@@ -208,3 +208,48 @@ def test_train_split_rejects_changed_data(sandbox, monkeypatch):
     rows.head(150).write_csv(data, separator="\t")
     with pytest.raises(EvaluationError, match="changed"):
         _train(data, monkeypatch, split=FoldRef(scenario=Scenario.DRUG_COLD, fold=0))
+
+
+@pytest.mark.parametrize("use_pharmacophore", [True, False])
+def test_train_and_predict_drug_sets(sandbox, monkeypatch, use_pharmacophore):
+    """Rows with combinations and a drug class, 3D + 2D-only compounds, both
+    drug towers (2D-only and 2D + pharmacophore): train, then predict."""
+    import src.pipeline as pipeline_module
+
+    tmp_path, rows = sandbox
+    library = get_settings().paths.library
+    make_modephere_library(
+        library, {"CHEMBL25": DRUGS["CHEMBL25"]}, three_d={"CHEMBL25"}
+    )
+    pgx = tmp_path / "pgx"
+    pgx.mkdir()
+    pl.DataFrame(
+        {"atc_code": ["X01", "X01"], "chembl_id": ["CHEMBL25", "CHEMBL545"]}
+    ).write_parquet(pgx / "atc_members.parquet")
+    monkeypatch.setenv("PHARMAGEN_MODEPHERE__PGX_EXPORT", str(pgx))
+    get_settings.cache_clear()
+
+    entities = ["CHEMBL25", "CHEMBL112|CHEMBL113", "ATC:X01", "CHEMBL545|ATC:X01"]
+    data_rows = rows.with_columns(
+        pl.Series("drugs_chembl", [entities[i % 4] for i in range(N_ROWS)]),
+        pl.Series("is_class_row", [i % 4 >= 2 for i in range(N_ROWS)]),
+    )
+    data = tmp_path / "train_sets.tsv"
+    data_rows.write_csv(data, separator="\t")
+
+    real = pipeline_module.model_switches
+    monkeypatch.setattr(
+        pipeline_module,
+        "model_switches",
+        lambda cfg: real(cfg) | {"use_pharmacophore": use_pharmacophore},
+    )
+    assert _train(data, monkeypatch) < float("inf")
+
+    from src.model.engine.predictor import PGenPredictor
+
+    predictor = PGenPredictor("TwoTowerGAT", device="cpu")
+    assert predictor.model.config.use_pharmacophore is use_pharmacophore
+    for drugs in ("CHEMBL25", "CHEMBL112|CHEMBL113", "ATC:X01"):
+        assert predictor.predict_single(
+            {"drugs_chembl": drugs, "gene": "CYP2D6", "hgvs": [HGVS], "alleles": "CT"}
+        )

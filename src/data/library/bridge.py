@@ -168,9 +168,39 @@ def class_members(key: str, members: Mapping[str, frozenset[str]]) -> frozenset[
 
 
 def annotation_chembl_ids(settings: ModephereSettings | None = None) -> list[str]:
-    """Distinct ChEMBL parent IDs of the annotation drugs: the library catalog."""
-    ids = annotation_drugs(settings)["chembl_id"].drop_nulls().unique().sort()
-    return ids.to_list()
+    """Distinct ChEMBL parent IDs the training rows can read: the library catalog.
+
+    Single drugs, the resolved components of combinations, and the members of
+    every drug class (an annotation drug with ATC codes and no ChEMBL ID; see
+    :func:`atc_members`).
+    """
+    drugs = annotation_drugs(settings)
+    ids = set(drugs["chembl_id"].drop_nulls().to_list())
+    for parts in drugs.filter(pl.col("chembl_id").is_null())["components"].to_list():
+        ids.update(c["chembl_id"] for c in parts or [] if c["chembl_id"])
+    keys = class_entity_keys(drugs)
+    if keys:
+        try:
+            members = atc_members(settings)
+        except ConfigurationError as e:
+            logger.warning("%d drug classes not expanded: %s", len(keys), e)
+        else:
+            for key in keys:
+                ids |= class_members(key, members)
+    return sorted(ids)
+
+
+def class_entity_keys(drugs: pl.DataFrame) -> list[str]:
+    """Class entity keys of :func:`annotation_drugs` rows (drugs with ATC codes,
+    no ChEMBL ID and no resolved component), sorted."""
+    keys = {
+        class_entity_key(codes)
+        for chembl_id, codes, parts in drugs.select(
+            "chembl_id", "atc_codes", "components"
+        ).iter_rows()
+        if chembl_id is None and codes and not any(c["chembl_id"] for c in parts or [])
+    }
+    return sorted(keys)
 
 
 def chembl_index(store: LibraryStore | Path | None = None) -> dict[str, str]:
@@ -227,6 +257,7 @@ __all__ = [
     "atc_members",
     "chembl_index",
     "class_entity_key",
+    "class_entity_keys",
     "class_members",
     "is_class_key",
     "library_build_config",

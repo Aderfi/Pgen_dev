@@ -100,6 +100,7 @@ dependencies = [
     "neo4j>=5.28",
     "openpyxl>=3.1",
     "safetensors>=0.8.0",
+    "modephere[all]",
 ]
 
 [project.optional-dependencies]
@@ -145,6 +146,7 @@ torch = { index = "pytorch-cu132" }
 pyg_lib = { index = "pyg" }
 torch_scatter = { index = "pyg" }
 torch_sparse = { index = "pyg" }
+modephere = { url = "https://github.com/Aderfi/Modephere/releases/download/v0.1.2/modephere-0.1.2-py3-none-any.whl" }
 
 
 # =============================================================================

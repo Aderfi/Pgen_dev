@@ -105,3 +105,53 @@ def test_forward_runs_one_pass_per_conformer(pharm_library):
     predictor = _predictor(k=3)
     predictor._forward_dataset(flat, batch_size=8)
     assert len(predictor.model.positions) == 1  # 2D-only: one pass
+
+
+def test_predict_single_rejects_unknown_drugs(pharm_library):
+    # final review #5: never answer from the placeholder graph
+    from src.core import UnknownDrugError
+    from src.data.cleaning import PharmacogenomicCleaner
+
+    store, keys = pharm_library
+    predictor = _predictor(k=1)
+    predictor.feature_cols = ["drugs_chembl", "genotype"]
+    predictor.cleaner = PharmacogenomicCleaner()
+    predictor.dims = GraphCache(keys).dims
+    predictor._genotype_builder = GenotypeGraphBuilder(HgvsCatalog(), {})
+    predictor._drug_cache = GraphCache(keys, store=store, inference_mode=True)
+    from sklearn.preprocessing import LabelEncoder
+
+    predictor.encoders = {"t": LabelEncoder().fit(["a", "b"])}
+    predictor.label_table = None
+    sample = {"gene": "CYP2D6", "genotype": "rs1"}
+    with pytest.raises(UnknownDrugError, match="CHEMBL999"):
+        predictor.predict_single(sample | {"drugs_chembl": "CHEMBL999"})
+    with pytest.raises(UnknownDrugError, match="ATC:N02X"):
+        predictor.predict_single(sample | {"drugs_chembl": "ATC:N02X"})
+    assert predictor.predict_single(sample | {"drugs_chembl": "CHEMBL25"}) is not None
+
+
+def test_api_maps_unknown_drugs_to_422(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from src.api import deps
+    from src.api.main import create_app
+    from src.core import UnknownDrugError
+
+    class _Predictor:
+        def predict_single(self, features):  # noqa: ANN001, ANN201
+            raise UnknownDrugError("no readable drug: CHEMBL999")
+
+    class _Registry:
+        def get(self, name):  # noqa: ANN001, ANN201
+            return _Predictor()
+
+    app = create_app()
+    app.dependency_overrides[deps.get_registry] = _Registry
+    body = {
+        "drug_ids": ["CHEMBL999"],
+        "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
+    }
+    r = TestClient(app).post("/v1/predict", json=body)
+    assert r.status_code == 422
+    assert "CHEMBL999" in r.json()["detail"]

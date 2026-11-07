@@ -25,7 +25,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.config import get_axes_config, get_model_config, get_settings
-from src.core import EncoderError, EvaluationError, ModelError
+from src.core import EncoderError, EvaluationError, ModelError, UnknownDrugError
 from src.data.cache import GraphCache, GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
@@ -476,14 +476,25 @@ class PGenPredictor:
         """Run inference on a single (drug, allele) pair.
 
         Returns the decoded targets, or None if the input could not be turned
-        into a valid graph pair (logged at error level).
+        into a valid graph pair (logged at error level). Raises
+        :class:`~src.core.UnknownDrugError` when no named drug is readable —
+        a prediction from the placeholder graph would be meaningless.
         """
         try:
             df = self._input_to_dataframe(input_dict)
             dataset = self._build_inference_dataset(df)
+            if dataset.rows_without_drug:
+                keys = "|".join(dataset.lookup_entities[0]) or "(none)"
+                msg = (
+                    f"no readable drug in {keys}: not in the library, or a class "
+                    "without built members"
+                )
+                raise UnknownDrugError(msg)
             logits = self._forward_dataset(dataset, batch_size=1)
             results = self._decode_logits(logits)
             return results[0] if results else None
+        except UnknownDrugError:
+            raise
         except Exception as e:
             logger.error("Single prediction failed: %s", e)
             return None

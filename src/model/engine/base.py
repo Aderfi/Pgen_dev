@@ -28,7 +28,7 @@ from src.core import ConfigValidator, DataError, DataValidator, ModelError
 from src.data.cache import GraphCache, GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
-from src.data.datasets import PRELOAD_THRESHOLD, DoubleTowerDataset
+from src.data.datasets import PRELOAD_THRESHOLD, DoubleTowerDataset, seed_worker
 from src.data.genotype import (
     GenotypeGraphBuilder,
     build_gene_vocab,
@@ -191,14 +191,17 @@ def fold_drug_caches(
     drug_col: str,
 ) -> tuple[GraphCache, GraphCache]:
     """``(train_cache, val_cache)``: in ``drug_cold`` the training view's class
-    pools leave out every drug of the held-out rows; otherwise both are ``cache``.
+    pools leave out every drug of the held-out rows. Validation (early stopping,
+    thresholds, temperature) reads the lowest-energy conformer; training
+    samples.
     """
     from src.data.datasets import ENTITY_SEP
     from src.data.library.bridge import is_class_key
     from src.evaluation.entities import Scenario as _Scenario
 
+    val_cache = cache.with_conformer(0)
     if scenario is not _Scenario.DRUG_COLD:
-        return cache, cache
+        return cache, val_cache
     held = {
         key
         for frame in holdout
@@ -207,7 +210,7 @@ def fold_drug_caches(
         if key and not is_class_key(key)
     }
     logger.info("drug_cold: %d held-out drugs removed from class pools", len(held))
-    return cache.without_members(held), cache
+    return cache.without_members(held), val_cache
 
 
 # --------------------------------------------------------------------------- #
@@ -328,7 +331,9 @@ def prepare_training_data(
             members=cache.class_members,
             resolver=EntityResolver(load_hgvs_catalog(), drug_col=cfg.features[0]),
         )
-        train_cache = val_cache = cache
+        train_cache, val_cache = fold_drug_caches(
+            cache, None, [], drug_col=cfg.features[0]
+        )
     logger.info(
         "Loaded samples from %s (train=%d, val=%d, split=%s)",
         source,
@@ -396,6 +401,7 @@ def build_train_val_loaders(
         "num_workers": num_workers,
         "pin_memory": torch.cuda.is_available(),
         "persistent_workers": num_workers > 0,
+        "worker_init_fn": seed_worker,
     }
     return (
         DataLoader(train_dataset, shuffle=True, **common),

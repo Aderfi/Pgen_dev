@@ -109,3 +109,44 @@ def test_collate_mixed_pharmacophores(cache) -> None:
     # point -> molecule index follows the molecules' point counts
     counts = torch.bincount(drug.pharm_x_batch, minlength=3).tolist()
     assert counts == [m.pharm_x.size(0) for _, mols in entities for m in mols]
+
+
+def test_collate_real_then_dummy_drug(cache) -> None:
+    # final review #1: PyG collates on the first item's keys; a dummy without
+    # the real drug's attributes (z) broke [real, dummy] batches
+    ds = _dataset(cache, ["CHEMBL25", "CHEMBL999", "ATC:E"])
+    for order in ([0, 1, 2], [1, 0, 2]):
+        batch = DoubleTowerCollater()([ds[i] for i in order])
+        assert batch["drug_batch"].num_graphs == 3
+        assert batch["drug_batch"].z.numel() == batch["drug_batch"].x.size(0)
+
+
+def test_sampling_is_seeded_from_settings(pharm_library) -> None:
+    # final review #7: conformer and member sampling are reproducible
+    store, keys = pharm_library
+
+    def draws() -> list[float]:
+        c = GraphCache(keys, store=store, class_members=MEMBERS)
+        ds = _dataset(c, ["ATC:BIG"], max_class_members=2)
+        members = [m.x.size(0) for m in ds[0]["drug_data"][0][1]]
+        return [
+            *members,
+            *(c.get_drug("CHEMBL25").pharm_pos.sum().item() for _ in range(5)),
+        ]
+
+    assert draws() == draws()
+
+
+def test_worker_init_reseeds_per_worker(cache, monkeypatch) -> None:
+    import torch.utils.data as tud
+
+    from src.data.datasets import seed_worker
+
+    ds = _dataset(cache, ["CHEMBL25"])
+    states = []
+    for wid, seed in ((0, 100), (1, 101)):
+        info = type("W", (), {"dataset": ds, "id": wid, "seed": seed})()
+        monkeypatch.setattr(tud, "get_worker_info", lambda info=info: info)
+        seed_worker(wid)
+        states.append((ds._rng.random(), ds.cache._rng.random()))
+    assert states[0] != states[1]

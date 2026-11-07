@@ -20,6 +20,7 @@ from src.core.exceptions import (
     PharmagenMemoryError,
     ResourceError,
     TrainingError,
+    UnknownDrugError,
     ValidationError,
 )
 from src.core.log import setup_logging
@@ -35,6 +36,7 @@ __all__ = [
     "EncoderError",
     "EvaluationError",
     "GraphError",
+    "UnknownDrugError",
     "HardwareError",
     "ModelError",
     "OptimizationError",

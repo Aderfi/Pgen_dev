@@ -89,5 +89,9 @@ class GraphError(DataError):
     """Graph data is invalid or corrupt (missing node features, bad edge indices)."""
 
 
+class UnknownDrugError(DataError):
+    """A request names no drug the library can read (unbuilt, unknown or empty class)."""
+
+
 class HardwareError(ResourceError):
     """GPU / CUDA / device error (OOM, device mismatch)."""

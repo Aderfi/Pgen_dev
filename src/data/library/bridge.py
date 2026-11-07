@@ -128,15 +128,21 @@ def annotation_drugs(settings: ModephereSettings | None = None) -> pl.DataFrame:
     (``{name, chembl_id}`` in order) for a combination.
     """
     rows = pgx_table(ANNOTATION_ROWS_FILE, settings)
-    return (
+    drugs = (
         rows.select("annotation_id", "drugs")
         .with_columns(pl.int_ranges(pl.col("drugs").list.len()).alias("position"))
         .explode("drugs", "position")
         .drop_nulls("drugs")
         .unnest("drugs")
-        .select(
-            "annotation_id", "position", "name", "chembl_id", "atc_codes", "components"
-        )
+    )
+    # exports written before Modephere 0.1.3 have no classes / components
+    if "atc_codes" not in drugs.columns:
+        drugs = drugs.with_columns(pl.lit([], pl.List(pl.String)).alias("atc_codes"))
+    if "components" not in drugs.columns:
+        component = pl.Struct({"name": pl.String, "chembl_id": pl.String})
+        drugs = drugs.with_columns(pl.lit([], pl.List(component)).alias("components"))
+    return drugs.select(
+        "annotation_id", "position", "name", "chembl_id", "atc_codes", "components"
     )
 
 

@@ -93,7 +93,8 @@ def test_class_rows_never_in_val_or_test(frame, resolver, scenario):
 
 def test_class_row_mask(frame):
     assert class_row_mask(frame).sum() == 4
-    assert class_row_mask(frame.drop("is_class_row")).sum() == 0
+    plain = frame.filter(~pl.col("is_class_row")).drop("is_class_row")
+    assert class_row_mask(plain).sum() == 0
 
 
 def test_class_row_with_unrelated_drug_kept(frame, resolver):
@@ -174,3 +175,26 @@ def test_drug_cold_removes_heldout_members_from_train_pools(pharm_library):
         cache, Scenario.GENE_COLD, [held], drug_col="drugs_chembl"
     )
     assert same.entity_members("ATC:X") == ["CHEMBL25", "CHEMBL545"]
+
+
+def test_class_row_mask_from_keys_without_column(frame):
+    # final review #4: a source without is_class_row still has its ATC keys
+    no_column = frame.drop("is_class_row")
+    assert class_row_mask(no_column).sum() == 4
+
+
+def test_validation_reads_the_lowest_energy_conformer(pharm_library):
+    # final review #9: val (early stopping, thresholds, temperature) is
+    # deterministic; training keeps sampling
+    from src.data.cache import GraphCache
+    from src.model.engine.base import fold_drug_caches
+
+    store, keys = pharm_library
+    cache = GraphCache(keys, store=store)
+    held = pl.DataFrame({"drugs_chembl": ["CHEMBL25"]})
+    for scenario in (Scenario.DRUG_COLD, Scenario.GENE_COLD, None):
+        train_cache, val_cache = fold_drug_caches(
+            cache, scenario, [held], drug_col="drugs_chembl"
+        )
+        assert train_cache.conformer is None
+        assert val_cache.conformer == 0

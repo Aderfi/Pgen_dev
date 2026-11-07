@@ -132,6 +132,10 @@ class DoubleTowerDataset(Dataset):
         self.inference_mode = inference_mode
         self.pseudo_patient_builder = pseudo_patient_builder
         self.max_class_members = max_class_members
+        if seed is None:
+            from src.config import get_settings
+
+            seed = get_settings().seed
         self._rng = random.Random(seed)
 
         # 2. Drug cache (Modephere library + ADMET profiles)
@@ -280,6 +284,21 @@ class DoubleTowerDataset(Dataset):
         return self.cache.stats()
 
 
+def seed_worker(worker_id: int) -> None:
+    """``DataLoader`` ``worker_init_fn``: a distinct sampling stream per worker.
+
+    Member and conformer sampling use Python RNGs that forked workers would
+    otherwise share; each worker reseeds them from its torch seed.
+    """
+    info = torch.utils.data.get_worker_info()
+    if info is None:
+        return
+    dataset = info.dataset
+    if isinstance(dataset, DoubleTowerDataset):
+        dataset._rng = random.Random(info.seed)
+        dataset.cache._rng = random.Random(info.seed + 1)
+
+
 __all__ = [
     "ALLELES_COLUMN",
     "ANNOTATION_ID_COLUMN",
@@ -287,4 +306,5 @@ __all__ = [
     "MAX_CLASS_MEMBERS",
     "PRELOAD_THRESHOLD",
     "DoubleTowerDataset",
+    "seed_worker",
 ]

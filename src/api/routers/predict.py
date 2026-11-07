@@ -19,6 +19,7 @@ from src.api.schemas import (
     BatchPredictResponse,
     SinglePredictRequest,
 )
+from src.core import UnknownDrugError
 from src.domain.schemas.prediction import PredictionResult, TargetPrediction
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,16 @@ def _request_to_features(req: SinglePredictRequest) -> dict[str, Any]:
         "genotype": "|".join(tokens),
         "alleles": req.alleles or "",
     }
+
+
+def _predict(predictor: Any, features: dict[str, Any]) -> dict[str, Any] | None:
+    """``predict_single``; a request naming no readable drug is a 422."""
+    try:
+        return predictor.predict_single(features)
+    except UnknownDrugError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
 
 
 def _wrap_prediction(
@@ -87,7 +98,7 @@ def predict(
 
     request_id = uuid.uuid4().hex
     features = _request_to_features(req)
-    raw = predictor.predict_single(features)
+    raw = _predict(predictor, features)
     return _wrap_prediction(
         raw, model_name=name, settings=settings, request_id=request_id
     )
@@ -105,7 +116,7 @@ def predict_batch(
     results: list[PredictionResult] = []
     for pair in req.pairs:
         request_id = uuid.uuid4().hex
-        raw = predictor.predict_single(_request_to_features(pair))
+        raw = _predict(predictor, _request_to_features(pair))
         results.append(
             _wrap_prediction(
                 raw, model_name=name, settings=settings, request_id=request_id

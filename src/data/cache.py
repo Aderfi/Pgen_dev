@@ -192,6 +192,9 @@ def make_empty_graph(
         # never breaks batching of the ``global_feats`` / ``admet_feats`` attrs.
         data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
         data.admet_feats = torch.zeros((1, d.drug_admet), dtype=torch.float)
+        # one placeholder atom (atomic number 0): real graphs carry ``z`` and
+        # PyG collates on the first item's keys
+        data.z = torch.zeros(1, dtype=torch.long)
         _empty_pharmacophore(data, d)
     if kind == "geno":
         data.graph_id = str(graph_id)
@@ -278,6 +281,12 @@ def _ptr(counts: list[int]) -> torch.Tensor:
 DRUG_IDENTITY_ATTRS = ("drug_id", "inchikey")
 
 
+def _default_seed() -> int:
+    from src.config import get_settings
+
+    return get_settings().seed
+
+
 @dataclass(frozen=True)
 class _Compound:
     """Cached tensors of one stored compound (shared by every view)."""
@@ -323,7 +332,7 @@ class GraphCache:
         self.class_members: Mapping[str, frozenset[str]] = dict(class_members or {})
         self.conformer = conformer
         self.excluded: frozenset[str] = frozenset()
-        self._rng = rng or random.Random()
+        self._rng = rng or random.Random(_default_seed())
 
         self._compounds: dict[str, _Compound] = {}
         self._failed: set[str] = set()

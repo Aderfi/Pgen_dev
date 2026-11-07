@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from src.data.library.bridge import class_members, is_class_key
+from src.data.library.bridge import CLASS_PREFIX, class_members, is_class_key
 from src.evaluation.entities import Scenario
 
 if TYPE_CHECKING:
@@ -34,11 +34,20 @@ if TYPE_CHECKING:
 CLASS_ROW_COLUMN = "is_class_row"
 
 
-def class_row_mask(df: pl.DataFrame) -> pl.Series:
-    """Boolean series: which rows are class rows (all false without the column)."""
-    if CLASS_ROW_COLUMN not in df.columns:
-        return pl.Series(CLASS_ROW_COLUMN, [False] * len(df), dtype=pl.Boolean)
-    return df[CLASS_ROW_COLUMN].cast(pl.Boolean).fill_null(value=False)
+def class_row_mask(df: pl.DataFrame, drug_col: str = "drugs_chembl") -> pl.Series:
+    """Boolean series: which rows are class rows.
+
+    ``is_class_row`` when the frame has it, or any ``ATC:`` entity key in
+    ``drug_col`` (sources written without the column).
+    """
+    mask = pl.Series(CLASS_ROW_COLUMN, [False] * len(df), dtype=pl.Boolean)
+    if CLASS_ROW_COLUMN in df.columns:
+        mask = df[CLASS_ROW_COLUMN].cast(pl.Boolean).fill_null(value=False)
+    if drug_col in df.columns:
+        keys = df[drug_col].cast(pl.String).fill_null("")
+        has_class = keys.str.contains(rf"(^|\|){CLASS_PREFIX}")
+        mask = (mask | has_class).alias(CLASS_ROW_COLUMN)
+    return mask
 
 
 @dataclass(frozen=True)
@@ -60,7 +69,7 @@ def row_facts(
     scenario: Scenario | None = None,
 ) -> list[RowFacts]:
     """:class:`RowFacts` of every row of ``df``."""
-    mask = class_row_mask(df).to_list()
+    mask = class_row_mask(df, resolver.drug_col).to_list()
     by_scenario = {
         Scenario.PAIR: resolver.pair,
         Scenario.PMID: resolver.pmid,

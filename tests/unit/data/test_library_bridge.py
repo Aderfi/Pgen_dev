@@ -105,3 +105,39 @@ def test_annotation_drugs_carry_classes_and_components(tmp_path):
         "components",
     ]
     assert [c["chembl_id"] for c in frame["components"][0]] == ["CHEMBL443", "CHEMBL22"]
+
+
+def test_annotation_drugs_reads_a_0_1_2_export(tmp_path):
+    # final review #2: exports written before Modephere 0.1.3 lack the drug
+    # struct's atc_codes / components
+    s = _settings(tmp_path)
+    s.pgx_export.mkdir(parents=True)
+    old_drug = pl.Struct(
+        {
+            "name": pl.String,
+            "cid": pl.Int64,
+            "chembl_id": pl.String,
+            "inchikey": pl.String,
+        }
+    )
+    pl.DataFrame(
+        {
+            "annotation_id": ["1"],
+            "drugs": [
+                [
+                    {
+                        "name": "aspirin",
+                        "cid": 2244,
+                        "chembl_id": "CHEMBL25",
+                        "inchikey": None,
+                    }
+                ]
+            ],
+        },
+        schema={"annotation_id": pl.String, "drugs": pl.List(old_drug)},
+    ).write_parquet(s.pgx_export / "annotation_rows.parquet")
+    frame = bridge.annotation_drugs(s)
+    assert frame["chembl_id"].to_list() == ["CHEMBL25"]
+    assert frame["atc_codes"].to_list() == [[]]
+    assert frame["components"].to_list() == [[]]
+    assert bridge.annotation_chembl_ids(s) == ["CHEMBL25"]

@@ -7,6 +7,7 @@ lives here.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from modephere.types import ChemblID
@@ -53,6 +54,10 @@ class ModelDetail(ModelSummary):
     extras: dict[str, Any] = Field(default_factory=dict)
 
 
+#: A drug entity key: one drug (ChEMBL ID) or an ATC class (codes, comma-separated).
+_ENTITY_KEY = re.compile(r"CHEMBL\d+|ATC:[A-Z0-9]+(,[A-Z0-9]+)*")
+
+
 class SinglePredictRequest(BaseModel):
     """One drug + one genotype — the lowest-level prediction request.
 
@@ -64,8 +69,16 @@ class SinglePredictRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    drug_chembl_id: ChemblID = Field(
-        ..., description="ChEMBL parent ID of the drug, e.g. 'CHEMBL1771'."
+    drug_chembl_id: ChemblID | None = Field(
+        default=None, description="ChEMBL parent ID of the drug, e.g. 'CHEMBL1771'."
+    )
+    drug_ids: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+        description="The drugs taken together: ChEMBL parent IDs and/or ATC "
+        "classes ('ATC:N02A'), e.g. ['CHEMBL443', 'CHEMBL22']. Give this or "
+        "'drug_chembl_id'.",
     )
     gene: str | None = Field(
         default=None,
@@ -93,6 +106,32 @@ class SinglePredictRequest(BaseModel):
             except BioinformaticsError as e:
                 raise ValueError(f"invalid HGVS {value!r}: {e}") from e
         return values
+
+    @field_validator("drug_ids")
+    @classmethod
+    def _entity_keys(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        keys = [v.strip().upper() for v in values]
+        bad = [k for k in keys if not _ENTITY_KEY.fullmatch(k)]
+        if bad:
+            raise ValueError(
+                f"not a ChEMBL ID or ATC class key (CHEMBL<n> / ATC:<code>): {bad}"
+            )
+        return keys
+
+    @model_validator(mode="after")
+    def _one_drug_field(self) -> SinglePredictRequest:
+        if (self.drug_chembl_id is None) == (self.drug_ids is None):
+            raise ValueError("give exactly one of 'drug_chembl_id' or 'drug_ids'")
+        return self
+
+    @property
+    def drug_entities(self) -> list[str]:
+        """The request's drug entity keys (upper case)."""
+        if self.drug_ids is not None:
+            return self.drug_ids
+        return [str(self.drug_chembl_id).upper()]
 
     @model_validator(mode="after")
     def _needs_gene(self) -> SinglePredictRequest:

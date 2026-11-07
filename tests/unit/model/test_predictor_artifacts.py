@@ -50,6 +50,7 @@ def patched_predictor(monkeypatch, tmp_path):
         return SimpleNamespace(
             paths=fake_paths,
             multi_label_set=real.multi_label_set,
+            inference_conformers=real.inference_conformers,
         )
 
     monkeypatch.setattr(predictor_module, "get_settings", fake_get_settings)

@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 
 from src.config import get_axes_config, get_model_config, get_settings
 from src.core import EncoderError, EvaluationError, ModelError
-from src.data.cache import GraphDims
+from src.data.cache import GraphCache, GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import DoubleTowerDataset
@@ -46,7 +46,12 @@ from src.model.engine.base import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping, Sequence, Set
+    from typing import Protocol
+
+    class _ConformerSource(Protocol):
+        def entity_members(self, key: str) -> list[str]: ...
+        def n_conformers(self, drug_id: str) -> int: ...
 
     import numpy as np
 
@@ -56,6 +61,48 @@ logger = logging.getLogger(__name__)
 
 # "CYP2D6*1" or "CYP2D6 *1" → (gene, allele).
 _STAR_ALLELE_RE = re.compile(r"^([A-Z0-9]+)\s*(\*[A-Za-z0-9]+)$")
+
+
+def conformer_passes(
+    cache: _ConformerSource, rows: Iterable[Sequence[str]], k: int
+) -> int:
+    """Forward passes to average: ``min(k, most conformers of any molecule)``.
+
+    ``rows`` are the entity keys of each row; at least one pass (2D-only or
+    unknown drugs).
+    """
+    most = max(
+        (
+            cache.n_conformers(m)
+            for keys in rows
+            for key in keys
+            for m in cache.entity_members(key)
+        ),
+        default=0,
+    )
+    return max(1, min(k, most))
+
+
+def average_predictions(
+    passes: list[dict[str, torch.Tensor]], *, multi_label_cols: Set[str]
+) -> dict[str, torch.Tensor]:
+    """Average predictions (probabilities) of several passes, back as logits.
+
+    Multi-label heads average sigmoids and return their logit; the others
+    average softmaxes and return the log (valid logits); ``_z`` is averaged.
+    """
+    if len(passes) == 1:
+        return passes[0]
+    out: dict[str, torch.Tensor] = {}
+    for key in passes[0]:
+        stack = torch.stack([p[key] for p in passes])
+        if key.startswith("_"):
+            out[key] = stack.mean(0)
+        elif key in multi_label_cols:
+            out[key] = torch.logit(torch.sigmoid(stack).mean(0), eps=1e-6)
+        else:
+            out[key] = torch.log(torch.softmax(stack, dim=-1).mean(0).clamp_min(1e-12))
+    return out
 
 
 class PGenPredictor:
@@ -119,6 +166,8 @@ class PGenPredictor:
                 name: AxisSpec(**spec) for name, spec in bundle["axis_specs"].items()
             }
 
+        self.inference_conformers = get_settings().inference_conformers
+        self._drug_cache: GraphCache | None = None
         self.cleaner = PharmacogenomicCleaner(multi_label_cols=self.multi_label_cols)
         self._genotype_builder: GenotypeGraphBuilder | None = None
         self.collater = DoubleTowerCollater(inference_mode=True)
@@ -298,7 +347,17 @@ class PGenPredictor:
             preload_ram=False,
             dims=self.dims,
             inference_mode=True,
+            drug_cache=self.drug_cache,
         )
+
+    @property
+    def drug_cache(self) -> GraphCache:
+        """One library cache for every request (conformer views share it)."""
+        if self._drug_cache is None:
+            self._drug_cache = GraphCache.from_settings(
+                dims=self.dims, inference_mode=True
+            )
+        return self._drug_cache
 
     # ----- forward + decode ----------------------------------------------- #
 
@@ -322,6 +381,34 @@ class PGenPredictor:
         if z_chunks:
             result["_z"] = torch.cat(z_chunks, dim=0)
         return result
+
+    def _forward_dataset(
+        self, dataset: DoubleTowerDataset, batch_size: int
+    ) -> dict[str, torch.Tensor]:
+        """Predictions averaged over the lowest-energy conformers.
+
+        Pass ``i`` reads conformer ``i`` of every molecule (clamped to the
+        molecule's own count); the number of passes is
+        :func:`conformer_passes` over the dataset's drugs.
+        """
+        base = dataset.cache
+        n = conformer_passes(base, dataset.lookup_entities, self.inference_conformers)
+        passes: list[dict[str, torch.Tensor]] = []
+        try:
+            for i in range(n):
+                dataset.cache = base.with_conformer(i)
+                loader = DataLoader(
+                    dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=self.collater,
+                )
+                passes.append(self._forward_loader(loader))
+        finally:
+            dataset.cache = base
+        if n > 1:
+            logger.debug("Averaged predictions over %d conformers", n)
+        return average_predictions(passes, multi_label_cols=self.multi_label_cols)
 
     def _decode_logits(self, logits: dict[str, torch.Tensor]) -> list[dict[str, Any]]:
         if not logits:
@@ -394,10 +481,7 @@ class PGenPredictor:
         try:
             df = self._input_to_dataframe(input_dict)
             dataset = self._build_inference_dataset(df)
-            loader = DataLoader(
-                dataset, batch_size=1, shuffle=False, collate_fn=self.collater
-            )
-            logits = self._forward_loader(loader)
+            logits = self._forward_dataset(dataset, batch_size=1)
             results = self._decode_logits(logits)
             return results[0] if results else None
         except Exception as e:
@@ -426,13 +510,7 @@ class PGenPredictor:
         if len(dataset) == 0:
             return []
 
-        loader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=self.collater,
-        )
-        logits = self._forward_loader(loader)
+        logits = self._forward_dataset(dataset, batch_size)
         return self._decode_logits(logits)
 
     # ----- evaluation API -------------------------------------------------- #
@@ -447,10 +525,7 @@ class PGenPredictor:
                 f"cleaning dropped {len(df) - len(dataset)} of {len(df)} rows; "
                 "evaluation frames must already be clean"
             )
-        loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, collate_fn=self.collater
-        )
-        logits = self._forward_loader(loader)
+        logits = self._forward_dataset(dataset, batch_size)
         return {t: logits[t] for t in self.target_cols}
 
     def encode_targets(self, df: pl.DataFrame) -> dict[str, np.ndarray]:
@@ -461,4 +536,4 @@ class PGenPredictor:
         return {k: v.numpy() for k, v in encoder.fit_transform(df).items()}
 
 
-__all__ = ["PGenPredictor"]
+__all__ = ["PGenPredictor", "average_predictions", "conformer_passes"]

@@ -54,6 +54,45 @@ class TestSinglePredict:
         assert r.status_code == 422
 
 
+class TestDrugLists:
+    def test_predict_accepts_drug_ids_list(self, client: TestClient) -> None:
+        body = {
+            "drug_ids": ["chembl443", "CHEMBL22", "ATC:N02A"],
+            "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
+        }
+        assert client.post("/v1/predict", json=body).status_code in {200, 503}
+
+    def test_predict_rejects_both_or_neither_drug_fields(
+        self, client: TestClient
+    ) -> None:
+        allele = {"gene": {"symbol": "CYP2D6"}, "allele": "4"}
+        both = {
+            "drug_chembl_id": "CHEMBL25",
+            "drug_ids": ["CHEMBL25"],
+            "allele": allele,
+        }
+        assert client.post("/v1/predict", json=both).status_code == 422
+        assert client.post("/v1/predict", json={"allele": allele}).status_code == 422
+        empty = {"drug_ids": [], "allele": allele}
+        assert client.post("/v1/predict", json=empty).status_code == 422
+
+    def test_predict_rejects_malformed_entity_keys(self, client: TestClient) -> None:
+        allele = {"gene": {"symbol": "CYP2D6"}, "allele": "4"}
+        for key in ("2244", "ATC:", "aspirin"):
+            body = {"drug_ids": [key], "allele": allele}
+            assert client.post("/v1/predict", json=body).status_code == 422
+
+    def test_request_features_join_the_drug_ids(self) -> None:
+        from src.api.routers.predict import _request_to_features
+        from src.api.schemas import SinglePredictRequest
+
+        req = SinglePredictRequest(
+            drug_ids=["chembl443", "atc:n02a"],
+            allele={"gene": {"symbol": "CYP2D6"}, "allele": "4"},
+        )
+        assert _request_to_features(req)["drugs_chembl"] == "CHEMBL443|ATC:N02A"
+
+
 class TestHgvsPredict:
     def test_accepts_hgvs_genotype(self, client: TestClient) -> None:
         body = {

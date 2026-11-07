@@ -140,6 +140,9 @@ class Settings(BaseSettings):
 
     # Behavior
     seed: int = 711
+    #: Inference averages predictions over this many lowest-energy conformers
+    #: (fewer when a drug has fewer; one pass for 2D-only drugs).
+    inference_conformers: PositiveInt = 3
     log_level: str = "WARNING"
     multi_label_cols: list[str] = Field(default_factory=list)
     genome_build: GenomeBuild = GenomeBuild.GRCH38

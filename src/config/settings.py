@@ -19,8 +19,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from modephere.config import KGSettings as ModephereKGSettings
+from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
 
 from src.config.paths import Paths
 from src.domain.schemas.variant import GenomeBuild
@@ -56,6 +62,52 @@ class NCBISettings(BaseModel):
     tool: str = "pharmagen"
 
 
+class ModephereSettings(BaseModel):
+    """Where Modephere reads and writes when dev_Pgen drives it.
+
+    Everything Modephere touches for dev_Pgen comes from here and is passed to
+    it explicitly (``src.data.library.bridge``); Modephere's own settings,
+    ``MODEPHERE_*`` variables and working directory are never consulted.
+    Relative paths resolve against the project root. Override with
+    ``PHARMAGEN_MODEPHERE__<FIELD>``, e.g. ``PHARMAGEN_MODEPHERE__LIBRARY``,
+    ``PHARMAGEN_MODEPHERE__KG__DATABASE`` or ``PHARMAGEN_MODEPHERE__KG__PASSWORD``.
+    """
+
+    library: Path = Field(
+        default=Path("data/library"),
+        description="Modephere LibraryStore root: compounds/<InChIKey>.safetensors "
+        "plus compounds / conformers / failures parquet.",
+    )
+    cache: Path = Field(
+        default=Path("data/cache/modephere"),
+        description="Modephere's raw PubChem cache (drugs ChEMBL cannot resolve).",
+    )
+    chembl: Path = Field(
+        default=Path("data/chembl"),
+        description="Staged ChEMBL releases (chembl_<N>/); the newest resolves "
+        "ChEMBL IDs offline.",
+    )
+    pgx_export: Path = Field(
+        default=Path("data/library/pgx"),
+        description="Modephere pgx export tables (annotation_rows, allele_variants, "
+        "annotation_variants, annotation_genotypes, variants).",
+    )
+    logs: Path = Field(
+        default=Path("logs/library"),
+        description="Library build failure / feature-saturation reports.",
+    )
+    kg: ModephereKGSettings = Field(
+        default_factory=ModephereKGSettings,
+        description="Modephere's Neo4j (pgx layer), read by 'library --refresh-pgx'.",
+    )
+
+    @field_validator("library", "cache", "chembl", "pgx_export", "logs")
+    @classmethod
+    def _absolute(cls, v: Path) -> Path:
+        v = v.expanduser()
+        return v if v.is_absolute() else PROJECT_ROOT / v
+
+
 class Settings(BaseSettings):
     """Top-level project settings.
 
@@ -64,12 +116,16 @@ class Settings(BaseSettings):
       2. Environment variables (PHARMAGEN_* prefix)
       3. ``src/config/data/{paths,settings}.toml``
       4. Field defaults
+
+    ``[modephere]`` in ``settings.toml`` is read as a settings source, below the
+    environment, so ``PHARMAGEN_MODEPHERE__*`` variables win over it.
     """
 
     model_config = SettingsConfigDict(
         env_prefix="PHARMAGEN_",
         env_nested_delimiter="__",
         extra="ignore",
+        toml_file=CONFIG_DATA_DIR / "settings.toml",
     )
 
     # Metadata
@@ -87,8 +143,22 @@ class Settings(BaseSettings):
     kg: KGSettings = Field(default_factory=KGSettings)
     ncbi: NCBISettings = Field(default_factory=NCBISettings)
 
+    # Modephere (drug library + pgx exports) — see ModephereSettings
+    modephere: ModephereSettings = Field(default_factory=ModephereSettings)
+
     # Filesystem
     paths: Paths
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (init_settings, env_settings, TomlConfigSettingsSource(settings_cls))
 
     @property
     def multi_label_set(self) -> set[str]:

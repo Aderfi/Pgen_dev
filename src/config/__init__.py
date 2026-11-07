@@ -24,6 +24,7 @@ from src.config.paths import Paths
 from src.config.settings import (
     PROJECT_ROOT,
     KGSettings,
+    ModephereSettings,
     NCBISettings,
     Settings,
     configure_logging_level,
@@ -38,6 +39,7 @@ __all__ = [
     "IntSpec",
     "KGSettings",
     "LogSpec",
+    "ModephereSettings",
     "NCBISettings",
     "ModelConfig",
     "OptunaSpec",

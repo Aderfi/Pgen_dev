@@ -23,3 +23,18 @@ seed = 711
 # embedding_dim = 64
 # enabled = true
 
+[modephere]
+# Modephere drives the drug library and the HGVS catalog inputs. Relative paths
+# resolve against the project root; PHARMAGEN_MODEPHERE__<FIELD> overrides.
+library = "data/library"           # LibraryStore: compounds/<InChIKey>.safetensors + parquet
+cache = "data/cache/modephere"     # PubChem raw cache (drugs ChEMBL cannot resolve)
+chembl = "data/chembl"             # staged ChEMBL releases; the newest is used
+pgx_export = "data/library/pgx"    # Modephere pgx export tables
+logs = "logs/library"              # build failure / saturation reports
+
+[modephere.kg]
+# Modephere's Neo4j, read by 'python -m src.data.library --refresh-pgx'.
+# Password: PHARMAGEN_MODEPHERE__KG__PASSWORD (never in this file).
+uri = "bolt://localhost:7688"
+user = "neo4j"
+database = "neo4j"

@@ -12,7 +12,9 @@
 
 # alleles (zygosity / star diplotype) and variant_annotation_id (allele-specific
 # HGVS link from the KG) feed the HGVS genotype graph.
-cols = ["drugs_chembl", "drugs", "genotype", "gene", "alleles", "variant_annotation_id", "pmid", "phenotype_category"]
+# drugs_chembl holds drug entity keys (CHEMBL<n>, or ATC:<codes> for a drug
+# class); is_class_row marks rows with a class entity (train-only).
+cols = ["drugs_chembl", "drugs", "is_class_row", "genotype", "gene", "alleles", "variant_annotation_id", "pmid", "phenotype_category"]
 features = ["drugs_chembl", "genotype"]
 targets = ["phenotype_category"]
 #stratify_col = "phenotype_category"  # Column used for stratified splitting

@@ -109,6 +109,10 @@ class GraphDims:
         )
 
 
+#: Entity kinds of a row's drug set: one drug, or one ATC class (pooled members).
+ENTITY_DRUG = 0
+ENTITY_CLASS = 1
+
 #: Pharmacophore attributes of a :class:`DrugData`.
 PHARM_ATTRS = (
     "pharm_x",
@@ -378,6 +382,32 @@ class GraphCache:
         return view
 
     # ----- lookup ---------------------------------------------------------- #
+
+    def entity_members(self, key: str) -> list[str]:
+        """Drug IDs an entity key reads that are in the library index.
+
+        ``CHEMBL…``: the drug itself; ``ATC:…``: the class members, minus the
+        :meth:`without_members` exclusions, sorted.
+        """
+        from src.data.library.bridge import class_members, is_class_key
+
+        if is_class_key(key):
+            members = class_members(key, self.class_members) - self.excluded
+            return sorted(m for m in members if m in self.drug_index)
+        return [key] if key in self.drug_index else []
+
+    def get_entity(self, key: str) -> tuple[int, list[DrugData]]:
+        """``(kind, molecules)`` of an entity key; molecules that fail to load
+        are left out (an unbuilt drug or an empty class gives ``[]``)."""
+        from src.data.library.bridge import is_class_key
+
+        kind = ENTITY_CLASS if is_class_key(key) else ENTITY_DRUG
+        drugs = [
+            self.get_drug(m)
+            for m in self.entity_members(key)
+            if self._compound(m, count=False) is not None
+        ]
+        return kind, drugs
 
     def n_conformers(self, drug_id: str) -> int:
         """Conformers stored for ``drug_id`` (0: 2D-only or not in the library)."""

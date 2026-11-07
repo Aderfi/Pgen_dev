@@ -176,9 +176,13 @@ class TestDoubleTowerDataset:
         assert "geno_data" in sample
         assert "targets" in sample
 
-        assert sample["drug_data"].x.shape == (13, 61)  # aspirin, Modephere layout
-        assert sample["drug_data"].admet_feats.shape == (1, 41)
-        assert dataset[2]["drug_data"].name == "dummy_drug"  # not in the library
+        # each row is a list of (entity kind, molecules)
+        ((kind, (aspirin,)),) = sample["drug_data"]
+        assert kind == 0
+        assert aspirin.x.shape == (13, 61)  # aspirin, Modephere layout
+        assert aspirin.admet_feats.shape == (1, 41)
+        ((_, (dummy,)),) = dataset[2]["drug_data"]
+        assert dummy.name == "dummy_drug"  # not in the library
         # Genotype graph comes from the builder (45-dim HGVS nodes).
         assert sample["geno_data"].x.shape[1] == 45
         assert isinstance(sample["targets"]["outcome"], torch.Tensor)

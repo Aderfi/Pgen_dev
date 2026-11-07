@@ -8,13 +8,14 @@ tensorization).
 from __future__ import annotations
 
 import logging
+import random
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
 import torch
 from torch.utils.data import Dataset
 
-from src.data.cache import GraphCache, GraphDims, PackedGraphs
+from src.data.cache import ENTITY_DRUG, GraphCache, GraphDims, PackedGraphs
 from src.data.collator import PolyData
 from src.data.encoders import TargetEncoder
 from src.data.genotype import GenotypeGraphBuilder, load_hgvs_catalog
@@ -32,6 +33,10 @@ PRELOAD_THRESHOLD = 5000
 
 ALLELES_COLUMN = "alleles"
 ANNOTATION_ID_COLUMN = "variant_annotation_id"
+#: Entity keys of one row are ``|``-joined in the drug column.
+ENTITY_SEP = "|"
+#: Class members read per item in training (randomly sampled above this).
+MAX_CLASS_MEMBERS = 64
 
 
 class DoubleTowerDataset(Dataset):
@@ -47,7 +52,11 @@ class DoubleTowerDataset(Dataset):
 
     Args:
         df: Polars DataFrame with the join columns.
-        drug_col: Column name containing drug IDs (ChEMBL parent IDs).
+        drug_col: Column with the row's drug entity keys, ``|``-joined
+            (``CHEMBL25``, ``ATC:N02A``). Each item's ``drug_data`` is a list
+            of ``(kind, molecules)`` per readable entity (see
+            :meth:`GraphCache.get_entity`); a row with none gets one dummy
+            drug, counted in :attr:`rows_without_drug`.
         geno_col: Column with the genotype tokens (HGVS, rsIDs, star alleles).
         target_cols: Target column names.
         multilabel_cols: Subset of ``target_cols`` that are multi-label.
@@ -62,6 +71,9 @@ class DoubleTowerDataset(Dataset):
         preload_ram: If True, eagerly loads all unique drug graphs into RAM.
         dims: Graph feature widths (sizes the placeholder graphs).
         inference_mode: If True, preserves identifying metadata on returned graphs.
+        max_class_members: Class members per item in training; a bigger class
+            is randomly sampled to this many (all members at inference).
+        seed: Seed of the member sampling.
         pseudo_patient_builder: Optional ``PseudoPatientBuilder``. When given,
             ``__getitem__`` returns a molecule-level polypharmacy drug graph
             (focal drug + kept DDI neighbours as a :class:`~src.data.collator.PolyData`)
@@ -90,6 +102,8 @@ class DoubleTowerDataset(Dataset):
         dims: GraphDims | None = None,
         inference_mode: bool = False,
         pseudo_patient_builder: PseudoPatientBuilder | None = None,
+        max_class_members: int = MAX_CLASS_MEMBERS,
+        seed: int | None = None,
     ) -> None:
         # 1. Frame
         if isinstance(df, pl.LazyFrame):
@@ -117,6 +131,8 @@ class DoubleTowerDataset(Dataset):
         self.multilabel_cols = set(multilabel_cols) if multilabel_cols else set()
         self.inference_mode = inference_mode
         self.pseudo_patient_builder = pseudo_patient_builder
+        self.max_class_members = max_class_members
+        self._rng = random.Random(seed)
 
         # 2. Drug cache (Modephere library + ADMET profiles)
         self.cache = drug_cache or GraphCache.from_settings(
@@ -147,13 +163,27 @@ class DoubleTowerDataset(Dataset):
 
         # 4. Random-access lookups (avoid Polars indexing per __getitem__)
         self.lookup_drugs = self.df[self.drug_col].to_list()
+        self.lookup_entities = [
+            [k for k in str(v or "").split(ENTITY_SEP) if k] for v in self.lookup_drugs
+        ]
+        self.rows_without_drug = sum(
+            not any(self.cache.entity_members(k) for k in keys)
+            for keys in self.lookup_entities
+        )
+        if self.rows_without_drug:
+            logger.info(
+                "%d rows have no readable drug (dummy graph)", self.rows_without_drug
+            )
 
         # 5. Optional drug preload
         if preload_ram:
-            unique_drugs = (
-                self.df.select(pl.col(self.drug_col).unique().cast(pl.String))
-                .to_series()
-                .to_list()
+            unique_drugs = sorted(
+                {
+                    m
+                    for keys in self.lookup_entities
+                    for k in keys
+                    for m in self.cache.entity_members(k)
+                }
             )
             logger.info("Preloading %d drugs into RAM ...", len(unique_drugs))
             self.cache.preload_drugs(unique_drugs)
@@ -179,14 +209,28 @@ class DoubleTowerDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        drug_id = str(self.lookup_drugs[idx])
         if self.pseudo_patient_builder is not None:
-            drug = self._build_poly_drug_data(drug_id)
+            drug: Any = self._build_poly_drug_data(str(self.lookup_drugs[idx]))
         else:
-            drug = self.cache.get_drug(drug_id)
+            drug = self._entities(idx)
         geno = self.geno_graphs[idx]
         targets = {col: self.targets[col][idx] for col in self.target_cols}
         return {"drug_data": drug, "geno_data": geno, "targets": targets}
+
+    def _entities(self, idx: int) -> list[tuple[int, list[Any]]]:
+        """``(kind, molecules)`` per readable entity of row ``idx``."""
+        entities = []
+        for key in self.lookup_entities[idx]:
+            kind, molecules = self.cache.get_entity(key)
+            if not molecules:
+                continue
+            if not self.inference_mode and len(molecules) > self.max_class_members:
+                molecules = self._rng.sample(molecules, self.max_class_members)
+            entities.append((kind, molecules))
+        if not entities:
+            dummy_id = self.lookup_entities[idx][0] if self.lookup_entities[idx] else ""
+            entities = [(ENTITY_DRUG, [self.cache.get_drug(dummy_id)])]
+        return entities
 
     def _build_poly_drug_data(self, focal_id: str) -> PolyData:
         """Build a molecule-level polypharmacy drug graph for one patient.
@@ -239,6 +283,8 @@ class DoubleTowerDataset(Dataset):
 __all__ = [
     "ALLELES_COLUMN",
     "ANNOTATION_ID_COLUMN",
+    "ENTITY_SEP",
+    "MAX_CLASS_MEMBERS",
     "PRELOAD_THRESHOLD",
     "DoubleTowerDataset",
 ]

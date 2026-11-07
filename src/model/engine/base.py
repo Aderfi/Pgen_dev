@@ -199,7 +199,10 @@ def infer_dimensions(train_dataset: DoubleTowerDataset) -> tuple[int, int]:
     """Probe one sample for the (drug, genotype) node feature widths."""
     try:
         sample = train_dataset[0]
-        drug_dim = sample["drug_data"].x.shape[1]
+        drug = sample["drug_data"]
+        if isinstance(drug, list):  # a row's entities: (kind, molecules)
+            drug = drug[0][1][0]
+        drug_dim = drug.x.shape[1]
         geno_dim = sample["geno_data"].x.shape[1]
     except Exception as e:
         raise DataError(f"Failed to infer dimensions from dataset: {e}") from e

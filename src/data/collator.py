@@ -67,6 +67,33 @@ def _as_poly_data(data: Data) -> None:
         object.__setattr__(data, "__class__", PolyData)
 
 
+def _flatten_entities(
+    rows: list[list[tuple[int, list[Data]]]],
+) -> tuple[list[Data], tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Molecules of every row's entities, and their index tensors.
+
+    Returns the molecules in order and ``(mol_to_entity [M], entity_to_row
+    [N_ent], entity_kind [N_ent])``.
+    """
+    molecules: list[Data] = []
+    mol_to_entity: list[int] = []
+    entity_to_row: list[int] = []
+    entity_kind: list[int] = []
+    for row, entities in enumerate(rows):
+        for kind, mols in entities:
+            entity = len(entity_to_row)
+            entity_to_row.append(row)
+            entity_kind.append(kind)
+            molecules.extend(mols)
+            mol_to_entity.extend([entity] * len(mols))
+    as_long = lambda v: torch.tensor(v, dtype=torch.long)  # noqa: E731
+    return molecules, (
+        as_long(mol_to_entity),
+        as_long(entity_to_row),
+        as_long(entity_kind),
+    )
+
+
 class DoubleTowerCollater:
     """Collator for two-tower graph datasets.
 
@@ -157,8 +184,14 @@ class DoubleTowerCollater:
         if not batch_list:
             raise ValueError("Empty batch_list provided to collator")
 
-        # 1. Separate components
-        drug_graphs = [sample["drug_data"] for sample in batch_list]
+        # 1. Separate components; a row's drug set is flattened into molecules
+        entity_rows = isinstance(batch_list[0]["drug_data"], list)
+        if entity_rows:
+            drug_graphs, index = _flatten_entities(
+                [sample["drug_data"] for sample in batch_list]
+            )
+        else:
+            drug_graphs = [sample["drug_data"] for sample in batch_list]
         geno_graphs = [sample["geno_data"] for sample in batch_list]
 
         # 2. Extract IDs if needed
@@ -182,11 +215,26 @@ class DoubleTowerCollater:
 
         # 4. Batch graphs
         try:
-            batch_drug = Batch.from_data_list(drug_graphs)
+            batch_drug = Batch.from_data_list(
+                drug_graphs,
+                follow_batch=["pharm_x"] if "pharm_x" in drug_graphs[0] else None,
+            )
             batch_geno = Batch.from_data_list(geno_graphs)
         except Exception as e:
             logger.error(f"Failed to batch graphs: {e}")
             raise ValueError(f"Graph batching failed: {e}") from e
+
+        if entity_rows:
+            mol_to_entity, entity_to_row, entity_kind = index
+            batch_drug.mol_to_entity = mol_to_entity  # type: ignore[attr-defined]
+            batch_drug.entity_to_row = entity_to_row  # type: ignore[attr-defined]
+            batch_drug.entity_kind = entity_kind  # type: ignore[attr-defined]
+            if drug_ids is not None:  # one id per row: its molecules, |-joined
+                rows = entity_to_row[mol_to_entity].tolist()
+                per_row: list[list[str]] = [[] for _ in batch_list]
+                for row, drug_id in zip(rows, drug_ids, strict=True):
+                    per_row[row].append(drug_id)
+                drug_ids = ["|".join(ids) for ids in per_row]
 
         # 5. Re-attach metadata if in inference mode
         if self.inference_mode:

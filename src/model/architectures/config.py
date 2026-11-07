@@ -100,12 +100,18 @@ class PharmagenConfig(BaseModel):
     # --- Auxiliary per-molecule / per-genotype descriptor blocks (0 disables) ---
     drug_global_dim: int = 0  # QSAR physchem + ECFP + Murcko scaffold hash
     drug_admet_dim: int = 0  # predicted ADMET / CYP interaction profile
+    # --- Pharmacophore branch (Modephere pharmacophore graph + 3D points) ---
+    pharm_node_dim: int = 0
+    pharm_edge_dim: int = 0
+    pharm_global_dim: int = 0
     geno_global_dim: int = 0  # graph-level PGx function vector (activity scores)
 
     # --- Ablation / structural switches ---
     use_mol_gnn: bool = True
     use_polypharmacy: bool = False
     use_cross_attention: bool = False
+    #: Add the pharmacophore branch to each drug (off: the 2D-only tower).
+    use_pharmacophore: bool = False
 
     # --- Axes (prediction heads) ---
     axes: dict[str, AxisSpec] = Field(default_factory=dict)
@@ -153,7 +159,8 @@ class PharmagenConfig(BaseModel):
             params: Architecture hyperparameters (embedding_dim, hidden_dim,
                 n_layers, heads, dropout_rate).
             switches: Structural ablation flags (``use_polypharmacy``,
-                ``use_cross_attention``). Absent keys default to ``False``.
+                ``use_cross_attention``, ``use_pharmacophore``). Absent keys
+                default to ``False``.
             gene_vocab_size: Gene-embedding rows (see
                 ``src.data.genotype.gene_vocab_size``); 0 disables it.
         """
@@ -164,6 +171,9 @@ class PharmagenConfig(BaseModel):
             drug_hidden_dim=params.hidden_dim,
             drug_global_dim=dims.drug_global,
             drug_admet_dim=dims.drug_admet,
+            pharm_node_dim=dims.pharm_features,
+            pharm_edge_dim=dims.pharm_edges,
+            pharm_global_dim=dims.pharm_global,
             geno_in_features=geno_dim,
             geno_edge_dim=dims.geno_edges or None,
             geno_hidden_dim=params.hidden_dim,
@@ -177,6 +187,7 @@ class PharmagenConfig(BaseModel):
             dropout=params.dropout_rate,
             use_polypharmacy=switches.get("use_polypharmacy", False),
             use_cross_attention=switches.get("use_cross_attention", False),
+            use_pharmacophore=switches.get("use_pharmacophore", False),
             axes=axes,
         )
 

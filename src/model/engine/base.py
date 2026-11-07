@@ -82,7 +82,7 @@ def model_switches(cfg: ModelConfig) -> dict[str, bool]:
     """Structural ablation switches declared in ``models.toml``."""
     return {
         key: bool(cfg.extras.get(key, False))
-        for key in ("use_polypharmacy", "use_cross_attention")
+        for key in ("use_polypharmacy", "use_cross_attention", "use_pharmacophore")
     }
 
 

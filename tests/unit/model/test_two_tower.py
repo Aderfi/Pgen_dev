@@ -270,3 +270,95 @@ class TestHgvsGenotypeTower:
         a = model(drug, lone(2))["phenotype_category"]
         b = model(drug, lone(3))["phenotype_category"]
         assert not torch.allclose(a, b)
+
+
+# --------------------------------------------------------------------------- #
+# Drug entities + pharmacophore branch (real Modephere graphs)
+# --------------------------------------------------------------------------- #
+
+
+def _entity_batch(pharm_library):
+    import random
+
+    from src.data.cache import GraphCache
+    from src.data.collator import DoubleTowerCollater
+    from src.data.genotype import GenotypeGraphBuilder, HgvsCatalog
+
+    store, keys = pharm_library
+    cache = GraphCache(
+        keys,
+        store=store,
+        class_members={"X": frozenset({"CHEMBL25", "CHEMBL545"})},
+        rng=random.Random(0),
+    )
+    builder = GenotypeGraphBuilder(HgvsCatalog(), {})
+    rows = [["CHEMBL25"], ["CHEMBL545", "ATC:X"], ["CHEMBL671"]]
+    samples = [
+        {
+            "drug_data": [cache.get_entity(k) for k in row],
+            "geno_data": builder.build("CYP2D6", "rs1", None, None),
+            "targets": {},
+        }
+        for row in rows
+    ]
+    return DoubleTowerCollater()(samples), len(rows)
+
+
+def _entity_model(*, use_pharmacophore: bool, cross_attention: bool = False):
+    cfg = PharmagenConfig.from_dims(
+        dims=GraphDims(),
+        drug_dim=61,
+        geno_dim=45,
+        axes=AXES,
+        params=PARAMS,
+        switches={
+            "use_polypharmacy": False,
+            "use_cross_attention": cross_attention,
+            "use_pharmacophore": use_pharmacophore,
+        },
+    )
+    return PharmagenTwoTower(cfg)
+
+
+class TestDrugEntities:
+    @pytest.mark.parametrize("cross_attention", [False, True])
+    def test_two_tower_forward_with_entities_and_pharmacophore(
+        self, pharm_library, cross_attention
+    ):
+        batch, n_rows = _entity_batch(pharm_library)
+        model = _entity_model(use_pharmacophore=True, cross_attention=cross_attention)
+        out = model(batch["drug_batch"], batch["geno_batch"])
+        logits = out["phenotype_category"]
+        assert logits.shape == (n_rows, 5)
+        logits.sum().backward()
+        grads = [p.grad for p in model.pharm_encoder.parameters()]
+        assert any(g is not None and g.abs().sum() > 0 for g in grads)
+        assert any(
+            p.grad is not None and p.grad.abs().sum() > 0
+            for p in model.drug_set.parameters()
+        )
+
+    def test_two_tower_without_pharmacophore_matches_2d_only_param_count(
+        self, pharm_library
+    ):
+        flat = _entity_model(use_pharmacophore=False)
+        pharm = _entity_model(use_pharmacophore=True)
+        assert not hasattr(flat, "pharm_encoder")
+        dim = PARAMS.embedding_dim
+        extra = sum(p.numel() for p in pharm.pharm_encoder.parameters()) + dim * dim
+        assert (
+            pharm.count_parameters()["total"]
+            == flat.count_parameters()["total"] + extra
+        )
+        batch, n_rows = _entity_batch(pharm_library)
+        out = flat(batch["drug_batch"], batch["geno_batch"])
+        assert out["phenotype_category"].shape == (n_rows, 5)
+
+    def test_from_dims_maps_the_pharmacophore_widths(self):
+        cfg = _entity_model(use_pharmacophore=True).config
+        assert (cfg.pharm_node_dim, cfg.pharm_edge_dim, cfg.pharm_global_dim) == (
+            11,
+            13,
+            258,
+        )
+        assert cfg.use_pharmacophore is True

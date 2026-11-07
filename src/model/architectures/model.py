@@ -49,7 +49,9 @@ from .axis_heads import AxisHeads
 from .blocks import branch_mlp
 from .compose import ComposeHead
 from .cross_attention import CrossAttentionFusion
+from .drug_set import DrugSetPooling
 from .graph_tower import GraphTower
+from .pharmacophore import PharmacophoreEncoder
 
 if TYPE_CHECKING:
     from torch_geometric.data import Data
@@ -79,6 +81,13 @@ class PharmagenTwoTower(nn.Module):
         is_focal       : [num_molecules]  1 for each patient's focal drug, 0
             for co-medication context. When present (polypharmacy), it marks
             the focal node for the DDI tower and anchors the drug-side readout.
+        mol_to_entity, entity_to_row, entity_kind : drug sets
+            (``DoubleTowerCollater``): molecule -> entity (a drug, or an ATC
+            class pooling its members) -> row; the row's drug vector is
+            :class:`DrugSetPooling` over its entities.
+        pharm_x, pharm_edge_index, pharm_edge_attr, pharm_global, pharm_pos,
+        has_3d, pharm_x_batch : the pharmacophore graph of every molecule
+            (``use_pharmacophore``), see :class:`~src.data.cache.DrugData`.
 
     ``geno_data`` (PyG ``Batch`` of HGVS genotype graphs, one per patient):
         x, edge_index, edge_attr, batch  -- gene hubs + HGVS variants -> patients
@@ -120,10 +129,22 @@ class PharmagenTwoTower(nn.Module):
         if cfg.drug_admet_dim > 0:
             self.drug_admet_mlp = branch_mlp(cfg.drug_admet_dim, dim, cfg.dropout)
 
+        # Pharmacophore points with their conformer geometry, one more
+        # per-molecule branch fused with the 2D atom graph.
+        if cfg.use_pharmacophore:
+            if cfg.pharm_node_dim <= 0:
+                raise ValueError(
+                    "use_pharmacophore needs pharm_node_dim > 0 (GraphDims.pharm_*)."
+                )
+            self.pharm_encoder = PharmacophoreEncoder(
+                cfg.pharm_node_dim, cfg.pharm_edge_dim, cfg.pharm_global_dim, dim
+            )
+
         n_drug_branches = (
             int(cfg.use_mol_gnn)
             + int(cfg.drug_global_dim > 0)
             + int(cfg.drug_admet_dim > 0)
+            + int(cfg.use_pharmacophore)
         )
         if n_drug_branches == 0:
             raise ValueError(
@@ -135,6 +156,9 @@ class PharmagenTwoTower(nn.Module):
             if n_drug_branches > 1
             else nn.Identity()
         )
+
+        # --- Drug sets: molecules -> entities (drug / class) -> rows ----------
+        self.drug_set = DrugSetPooling(dim)
 
         # --- Polypharmacy tower: GATv2 -------------------------------------
         # Nodes are the patient's drugs; edges are known DDIs. This is where
@@ -509,8 +533,42 @@ class PharmagenTwoTower(nn.Module):
                 )
             )
 
+        if cfg.use_pharmacophore:
+            branches.append(self._pharmacophore_forward(drug_data, num_molecules))
+
         fused = cat(branches, dim=1) if len(branches) > 1 else branches[0]
         return self.drug_fuse(fused)
+
+    def _pharmacophore_forward(self, drug_data: Data, num_molecules: int) -> Tensor:
+        cfg = self.config
+        missing = [
+            a
+            for a in ("pharm_x", "pharm_edge_index", "pharm_pos", "has_3d")
+            if getattr(drug_data, a, None) is None
+        ]
+        pharm_batch = getattr(drug_data, "pharm_x_batch", None)
+        if missing or pharm_batch is None:
+            raise ValueError(
+                f"use_pharmacophore is set but drug_data lacks {missing or []} "
+                "(and/or pharm_x_batch: collate with follow_batch=['pharm_x'])."
+            )
+        return self.pharm_encoder(
+            pharm_x=drug_data.pharm_x,
+            pharm_edge_index=drug_data.pharm_edge_index,
+            pharm_edge_attr=drug_data.pharm_edge_attr,
+            pharm_pos=drug_data.pharm_pos,
+            pharm_global=self._require_attr(
+                drug_data,
+                "pharm_global",
+                num_molecules,
+                cfg.pharm_global_dim,
+                "pharm_global_dim",
+                "drug_data",
+            ),
+            has_3d=drug_data.has_3d,
+            pharm_batch=pharm_batch,
+            num_molecules=num_molecules,
+        )
 
     # -- forward -----------------------------------------------------------
 
@@ -536,13 +594,25 @@ class PharmagenTwoTower(nn.Module):
 
         # ---------------- Drug side: molecule level ----------------
         num_molecules = drug_data.num_graphs
-        mol_to_patient = self._resolve_mol_to_patient(
-            drug_data, num_molecules, num_patients
-        )
+        mol_to_entity: Tensor | None = getattr(drug_data, "mol_to_entity", None)
+        if mol_to_entity is None:
+            mol_to_patient = self._resolve_mol_to_patient(
+                drug_data, num_molecules, num_patients
+            )
         drug_nodes = self._molecule_forward(drug_data, num_molecules)
 
-        # ---------------- Drug side: polypharmacy level ----------------
-        if cfg.use_polypharmacy:
+        # ---------------- Drug side: drug sets / polypharmacy ----------------
+        if mol_to_entity is not None:
+            # entities (drugs, pooled classes) are the drug-side nodes
+            mol_to_patient = drug_data.entity_to_row.long()
+            drug_nodes, drug_graph_emb = self.drug_set(
+                drug_nodes,
+                mol_to_entity.long(),
+                drug_data.entity_kind.long(),
+                mol_to_patient,
+                num_patients,
+            )
+        elif cfg.use_polypharmacy:
             drug_nodes, drug_graph_emb = self._polypharmacy_forward(
                 drug_data=drug_data,
                 drug_nodes=drug_nodes,

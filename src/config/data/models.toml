@@ -34,6 +34,13 @@ targets = ["phenotype_category"]
     # GLOBAL --> 14 QSAR physchem descriptors + Morgan/ECFP4 fingerprint (1024)
     # ADMET  --> absorption[8], distribution[3], metabolism/CYP[8], excretion[3],
     #            toxicity[19] = 41 predicted endpoints (decoupled from GLOBAL)
+# Pharmacophore branch — Modephere's pharmacophore graph
+# (modephere.featurize.pharmacophore_data; PHARMACOPHORE_GRAPH_V1: 11 node /
+# 13 edge / 258 global) plus the feature points' 3D positions in one conformer
+# (sampled per item in training, averaged over the lowest-energy ones at
+# inference). pharm_node_features / pharm_attrs_features /
+# pharm_global_features override the widths. false: the 2D-only drug tower.
+use_pharmacophore = true
 
 
 # Genotype Tower — HGVS variant graph (src/data/genotype): gene hub node(s) +

@@ -34,6 +34,10 @@ class SplitManifest(BaseModel):
     rows_without_drug_id: int
     created_at: datetime
     split_sha256: str = ""
+    #: Class rows (``is_class_row``): train-only in every fold.
+    class_rows: int = 0
+    #: Class rows dropped per fold because they would leak (src.evaluation.class_rows).
+    class_rows_dropped_per_fold: list[int] = Field(default_factory=list)
 
 
 class MetricCI(BaseModel):

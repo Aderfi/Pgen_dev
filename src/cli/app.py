@@ -82,7 +82,9 @@ def run_split(args: argparse.Namespace) -> None:
         tests = [f["test"] for f in manifest.rows_per_fold]
         console.success(
             f"{manifest.scenario}: test rows per fold {tests}, "
-            f"never tested {manifest.rows_never_tested} -> {directory}"
+            f"never tested {manifest.rows_never_tested}, class rows "
+            f"{manifest.class_rows} (train-only; dropped per fold "
+            f"{manifest.class_rows_dropped_per_fold}) -> {directory}"
         )
 
 

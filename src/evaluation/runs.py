@@ -76,6 +76,20 @@ def load_clean_frame(source: Path, cfg: ModelConfig, **kwargs: int) -> pl.DataFr
     return add_row_id(load_and_clean_data(source, cfg, **kwargs))
 
 
+def _class_members() -> dict[str, frozenset[str]]:
+    """ATC members for the class-row leakage rule (empty, with a warning, if absent)."""
+    from src.core import ConfigurationError
+    from src.data.library.bridge import atc_members
+
+    try:
+        return atc_members()
+    except ConfigurationError as e:
+        logger.warning(
+            "No ATC members: class rows skip the member-variant rule (%s)", e
+        )
+        return {}
+
+
 def create_splits(
     source: Path, cfg: ModelConfig, scenarios: list[Scenario], k: int = DEFAULT_FOLDS
 ) -> list[Path]:
@@ -95,10 +109,17 @@ def create_splits(
     df = load_clean_frame(source, cfg)
     resolver = EntityResolver(load_hgvs_catalog(), drug_col=cfg.features[0])
     data_sha, cat_sha = file_sha256(source), catalog_sha256()
+    members = _class_members()
     out = []
     for scenario in scenarios:
         assignment, manifest = make_split(
-            df, scenario, resolver, k=k, data_sha256=data_sha, catalog_sha256=cat_sha
+            df,
+            scenario,
+            resolver,
+            k=k,
+            data_sha256=data_sha,
+            catalog_sha256=cat_sha,
+            members=members,
         )
         out.append(save_split(assignment, manifest))
     return out

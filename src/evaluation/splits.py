@@ -9,8 +9,10 @@ is in test exactly once. In fold ``f`` a row is
 * otherwise ``val`` / ``train`` by the same rule against the fold's val
   entities (≈ ``val_fraction`` of the non-test rows), or ``drop`` if mixed.
 
-``random`` is row-level stratified k-fold over the label powerset. A split
-is persisted under ``data/splits/<scenario>/`` (``assignment.parquet`` +
+``random`` is row-level stratified k-fold over the label powerset. Class rows
+(``is_class_row``, drug classes) are never dealt: they are ``train`` in every
+fold, or ``drop`` where they would leak (:mod:`src.evaluation.class_rows`).
+A split is persisted under ``data/splits/<scenario>/`` (``assignment.parquet`` +
 ``manifest.json``) and bound to the sha256 of the data file and of the HGVS
 catalog: using it with different inputs is an error.
 """
@@ -29,11 +31,12 @@ from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 from src.config import get_settings
 from src.core import EvaluationError
 from src.evaluation import DEFAULT_FOLDS, SPLITS_DIRNAME, VAL_FRACTION
+from src.evaluation.class_rows import class_row_mask, leaking_rows, row_facts
 from src.evaluation.entities import ROW_ID, Scenario, file_sha256
 from src.evaluation.schemas import SplitManifest
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     from src.evaluation.entities import EntityResolver
@@ -185,14 +188,27 @@ def make_split(
     catalog_sha256: str,
     stratify_col: str | None = DEFAULT_STRATIFY_COL,
     val_fraction: float = VAL_FRACTION,
+    members: Mapping[str, frozenset[str]] | None = None,
 ) -> tuple[pl.DataFrame, SplitManifest]:
-    """Assign every row of ``df`` (with ``row_id``) to a partition in each fold."""
+    """Assign every row of ``df`` (with ``row_id``) to a partition in each fold.
+
+    Class rows are left out of the deal and are ``train`` in every fold, or
+    ``drop`` where they leak; ``members`` (ATC code -> ChEMBL IDs) gives the
+    classes' member drugs for the leakage rule.
+    """
     seed = get_settings().seed if seed is None else seed
-    keys = resolver.keys(df, scenario)
+    is_class = class_row_mask(df).to_numpy()
+    dealt = np.flatnonzero(~is_class)
+    sub = df[dealt.tolist()] if is_class.any() else df
+    keys = resolver.keys(sub, scenario)
     stratify = None
     if scenario is Scenario.RANDOM and stratify_col and stratify_col in df.columns:
-        stratify = [str(v) if v is not None else "" for v in df[stratify_col].to_list()]
-    parts = assign_folds(keys, k, seed, val_fraction, stratify=stratify)
+        stratify = [
+            str(v) if v is not None else "" for v in sub[stratify_col].to_list()
+        ]
+    parts = np.full((len(df), k), "train", dtype="<U5")
+    parts[dealt] = assign_folds(keys, k, seed, val_fraction, stratify=stratify)
+    dropped = _drop_leaking_class_rows(df, parts, resolver, members or {}, scenario)
 
     assignment = pl.DataFrame(
         {ROW_ID: df[ROW_ID], **{fold_column(f): parts[:, f].tolist() for f in range(k)}}
@@ -227,16 +243,46 @@ def make_split(
         rows_never_tested=never_tested,
         rows_without_drug_id=no_drug,
         created_at=datetime.now(UTC),
+        class_rows=int(is_class.sum()),
+        class_rows_dropped_per_fold=dropped,
     )
     logger.info(
-        "Split %s: k=%d, %d rows, %d never tested, %d without drug id",
+        "Split %s: k=%d, %d rows, %d never tested, %d without drug id; %d class "
+        "rows (train-only), dropped per fold for leakage: %s",
         scenario,
         k,
         len(df),
         never_tested,
         no_drug,
+        int(is_class.sum()),
+        dropped,
     )
     return assignment, manifest
+
+
+def _drop_leaking_class_rows(
+    df: pl.DataFrame,
+    parts: np.ndarray,
+    resolver: EntityResolver,
+    members: Mapping[str, frozenset[str]],
+    scenario: Scenario,
+) -> list[int]:
+    """Mark leaking class rows ``drop`` in each fold (in place); counts per fold."""
+    k = parts.shape[1]
+    class_idx = np.flatnonzero(class_row_mask(df).to_numpy())
+    if class_idx.size == 0:
+        return [0] * k
+    facts = row_facts(
+        df, resolver, members, None if scenario is Scenario.RANDOM else scenario
+    )
+    train = [facts[i] for i in class_idx]
+    dropped = []
+    for f in range(k):
+        held = np.flatnonzero(np.isin(parts[:, f], ["val", "test"]))
+        leaks = np.asarray(leaking_rows(train, (facts[i] for i in held)), dtype=bool)
+        parts[class_idx[leaks], f] = "drop"
+        dropped.append(int(leaks.sum()))
+    return dropped
 
 
 def split_dir(scenario: Scenario) -> Path:

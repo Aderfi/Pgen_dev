@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import polars as pl
 import torch
 from sklearn.model_selection import train_test_split
 from torch import nn
@@ -24,7 +25,7 @@ from torch.utils.data import DataLoader
 
 from src.config import get_axes_config, get_settings
 from src.core import ConfigValidator, DataError, DataValidator, ModelError
-from src.data.cache import GraphDims
+from src.data.cache import GraphCache, GraphDims
 from src.data.cleaning import PharmacogenomicCleaner
 from src.data.collator import DoubleTowerCollater
 from src.data.datasets import PRELOAD_THRESHOLD, DoubleTowerDataset
@@ -44,9 +45,10 @@ from src.model.losses import CompositionalLabelLoss, MultiTaskLoss
 from src.model.training import Trainer
 
 if TYPE_CHECKING:
-    import polars as pl
+    from collections.abc import Iterable, Mapping
 
     from src.config.models import ModelConfig, TrainingParams
+    from src.evaluation.entities import EntityResolver, Scenario
     from src.evaluation.runs import FoldRef
     from src.model.architectures.config import AxisSpec
 
@@ -147,14 +149,65 @@ def stratified_split(
     validation_split: float,
     *,
     seed: int | None = None,
+    members: Mapping[str, frozenset[str]] | None = None,
+    resolver: EntityResolver | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Split ``df`` into (train, val), stratifying on ``_stratify`` if present."""
+    """Split ``df`` into (train, val), stratifying on ``_stratify`` if present.
+
+    Class rows (``is_class_row``) go to train only, minus those that would
+    leak against val (:func:`src.evaluation.class_rows.leaking_class_rows`;
+    ``members`` are the classes' ATC members, ``resolver`` resolves variants).
+    """
+    from src.evaluation.class_rows import class_row_mask, leaking_class_rows
+
     seed = seed if seed is not None else get_settings().seed
-    stratify = df["_stratify"] if "_stratify" in df.columns else None
+    is_class = class_row_mask(df)
+    rest = df.filter(~is_class) if is_class.any() else df
+    stratify = rest["_stratify"] if "_stratify" in rest.columns else None
     train_df, val_df = train_test_split(
-        df, test_size=validation_split, stratify=stratify, random_state=seed
+        rest, test_size=validation_split, stratify=stratify, random_state=seed
     )
+    if is_class.any():
+        if resolver is None:
+            from src.evaluation.entities import EntityResolver
+
+            resolver = EntityResolver(load_hgvs_catalog(), drug_col="drugs_chembl")
+        classes = df.filter(is_class)
+        leaks = leaking_class_rows(classes, val_df, resolver, members or {})
+        train_df = pl.concat([train_df, classes.filter(~leaks)], how="vertical")
+        logger.info(
+            "Class rows: %d in train, %d dropped (leak against val)",
+            classes.height - int(leaks.sum()),
+            int(leaks.sum()),
+        )
     return train_df, val_df
+
+
+def fold_drug_caches(
+    cache: GraphCache,
+    scenario: Scenario | None,
+    holdout: Iterable[pl.DataFrame],
+    *,
+    drug_col: str,
+) -> tuple[GraphCache, GraphCache]:
+    """``(train_cache, val_cache)``: in ``drug_cold`` the training view's class
+    pools leave out every drug of the held-out rows; otherwise both are ``cache``.
+    """
+    from src.data.datasets import ENTITY_SEP
+    from src.data.library.bridge import is_class_key
+    from src.evaluation.entities import Scenario as _Scenario
+
+    if scenario is not _Scenario.DRUG_COLD:
+        return cache, cache
+    held = {
+        key
+        for frame in holdout
+        for value in frame[drug_col].drop_nulls().to_list()
+        for key in str(value).split(ENTITY_SEP)
+        if key and not is_class_key(key)
+    }
+    logger.info("drug_cold: %d held-out drugs removed from class pools", len(held))
+    return cache.without_members(held), cache
 
 
 # --------------------------------------------------------------------------- #
@@ -170,12 +223,18 @@ def build_two_tower_datasets(
     *,
     genotype_builder: GenotypeGraphBuilder,
     preload_ram: bool | None = None,
+    drug_cache: GraphCache | None = None,
+    val_drug_cache: GraphCache | None = None,
 ) -> tuple[DoubleTowerDataset, DoubleTowerDataset]:
     """Paired train/val datasets; val reuses train's fitted target encoders.
 
     Both splits share ``genotype_builder`` (one HGVS catalog, one gene
-    vocabulary fitted on the training split).
+    vocabulary fitted on the training split) and, by default, one drug cache
+    (``drug_cache``; ``val_drug_cache`` defaults to it).
     """
+    if drug_cache is None:
+        drug_cache = GraphCache.from_settings(dims=dims)
+    val_drug_cache = val_drug_cache or drug_cache
     if preload_ram is None:
         preload_ram = len(train_df) < PRELOAD_THRESHOLD
     common = {
@@ -188,9 +247,12 @@ def build_two_tower_datasets(
         "preload_ram": preload_ram,
         "dims": dims,
     }
-    train_dataset = DoubleTowerDataset(df=train_df, **common)
+    train_dataset = DoubleTowerDataset(df=train_df, drug_cache=drug_cache, **common)
     val_dataset = DoubleTowerDataset(
-        df=val_df, encoders=train_dataset.target_encoder.encoders, **common
+        df=val_df,
+        encoders=train_dataset.target_encoder.encoders,
+        drug_cache=val_drug_cache,
+        **common,
     )
     return train_dataset, val_dataset
 
@@ -242,17 +304,31 @@ def prepare_training_data(
     With ``split`` the train/val rows come from that persisted scenario fold
     (``src.evaluation``); its test rows are never loaded into a dataset.
     """
+    from src.evaluation.entities import EntityResolver
+
+    dims = tower_dims(cfg)
+    cache = GraphCache.from_settings(dims=dims)
     split_sha: str | None = None
     if split is not None:
         from src.evaluation.runs import load_fold_frames
 
-        train_df, val_df, _test, manifest = load_fold_frames(
+        train_df, val_df, test_df, manifest = load_fold_frames(
             source, cfg, split, min_size=min_size
         )
         split_sha = manifest.split_sha256
+        train_cache, val_cache = fold_drug_caches(
+            cache, split.scenario, [val_df, test_df], drug_col=cfg.features[0]
+        )
     else:
         df = load_and_clean_data(source, cfg, min_size=min_size)
-        train_df, val_df = stratified_split(df, validation_split, seed=seed)
+        train_df, val_df = stratified_split(
+            df,
+            validation_split,
+            seed=seed,
+            members=cache.class_members,
+            resolver=EntityResolver(load_hgvs_catalog(), drug_col=cfg.features[0]),
+        )
+        train_cache = val_cache = cache
     logger.info(
         "Loaded samples from %s (train=%d, val=%d, split=%s)",
         source,
@@ -261,12 +337,18 @@ def prepare_training_data(
         split,
     )
 
-    dims = tower_dims(cfg)
     gene_vocab = build_gene_vocab(train_df[GENE_COLUMN].to_list())
     logger.info("Gene vocabulary: %d genes (+UNK)", len(gene_vocab))
     builder = GenotypeGraphBuilder(load_hgvs_catalog(), gene_vocab)
     train, val = build_two_tower_datasets(
-        train_df, val_df, cfg, dims, genotype_builder=builder, preload_ram=preload_ram
+        train_df,
+        val_df,
+        cfg,
+        dims,
+        genotype_builder=builder,
+        preload_ram=preload_ram,
+        drug_cache=train_cache,
+        val_drug_cache=val_cache,
     )
     drug_dim, geno_dim = infer_dimensions(train)
     axes = infer_axis_specs(
@@ -407,6 +489,7 @@ __all__ = [
     "model_switches",
     "prepare_training_data",
     "resolve_device",
+    "fold_drug_caches",
     "stratified_split",
     "tower_dims",
 ]

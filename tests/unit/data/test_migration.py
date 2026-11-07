@@ -27,7 +27,7 @@ def sample_df():
     """Crea un DataFrame de Polars representativo."""
     return pl.DataFrame(
         {
-            "drug_id": ["1001", "1002", "1003", "1001"],
+            "drug_id": ["CHEMBL25", "CHEMBL545", "CHEMBL999", "CHEMBL25"],
             "gene": ["CYP2D6", "CYP2C19", "DPYD", "CYP2D6"],
             "genotype": ["rs3892097", "*17", "*2A", "*1"],
             "outcome": [
@@ -148,72 +148,66 @@ class TestEncoders:
 class TestDoubleTowerDataset:
     """Valida la carga de datos, cache y __getitem__."""
 
-    @patch("torch.load")  # Mock disk load for the drug graph
-    @patch("pathlib.Path.exists", return_value=True)
-    def test_initialization_and_getitem(
-        self, mock_exists, mock_torch_load, sample_df, mock_graph_data
-    ):
+    def test_initialization_and_getitem(self, sample_df, modephere_library):
+        from src.data.cache import GraphCache
         from src.data.datasets import DoubleTowerDataset
 
-        mock_torch_load.return_value = mock_graph_data
+        store, keys = modephere_library
+        # The genotype side is served by an injected builder, so no catalog is
+        # needed; drugs come from a real (tiny) Modephere library.
+        dataset = DoubleTowerDataset(
+            df=sample_df,
+            drug_col="drug_id",
+            geno_col="genotype",
+            gene_col="gene",
+            genotype_builder=_FakeBuilder(),
+            target_cols=["outcome", "side_effects"],
+            multilabel_cols=["side_effects"],
+            drug_cache=GraphCache(keys, store=store),
+            preload_ram=True,
+        )
 
-        # Mock only the drug index; the genotype side is served by an injected
-        # resolver, so no on-disk gene library is needed.
-        with patch(
-            "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
-            return_value={"1001": Path("d1.pt")},
-        ):
-            dataset = DoubleTowerDataset(
-                df=sample_df,
-                drug_col="drug_id",
-                geno_col="genotype",
-                gene_col="gene",
-                genotype_builder=_FakeBuilder(),
-                target_cols=["outcome", "side_effects"],
-                multilabel_cols=["side_effects"],
-                preload_ram=True,
-            )
+        assert len(dataset) == 4  # noqa
+        assert dataset.cache.cached_drug_count == 2  # CHEMBL999 is not stored
 
-            assert len(dataset) == 4  # noqa
+        sample = dataset[0]
 
-            sample = dataset[0]
+        assert "drug_data" in sample
+        assert "geno_data" in sample
+        assert "targets" in sample
 
-            assert "drug_data" in sample
-            assert "geno_data" in sample
-            assert "targets" in sample
+        assert sample["drug_data"].x.shape == (13, 61)  # aspirin, Modephere layout
+        assert sample["drug_data"].admet_feats.shape == (1, 41)
+        assert dataset[2]["drug_data"].name == "dummy_drug"  # not in the library
+        # Genotype graph comes from the builder (45-dim HGVS nodes).
+        assert sample["geno_data"].x.shape[1] == 45
+        assert isinstance(sample["targets"]["outcome"], torch.Tensor)
+        assert isinstance(sample["targets"]["side_effects"], torch.Tensor)
 
-            # Genotype graph comes from the builder (45-dim HGVS nodes).
-            assert sample["geno_data"].x.shape[1] == 45
-            assert isinstance(sample["targets"]["outcome"], torch.Tensor)
-            assert isinstance(sample["targets"]["side_effects"], torch.Tensor)
+        assert sample["targets"]["outcome"].dtype == torch.long
+        assert sample["targets"]["side_effects"].dtype == torch.float32
 
-            assert sample["targets"]["outcome"].dtype == torch.long
-            assert sample["targets"]["side_effects"].dtype == torch.float32
-
-    @patch("pathlib.Path.exists", return_value=True)
-    def test_unlinked_genotype_is_the_gene_hub_alone(self, mock_exists, sample_df):
+    def test_unlinked_genotype_is_the_gene_hub_alone(self, sample_df):
         """A genotype the catalog cannot link to HGVS is the reference: gene node only."""
+        from src.data.cache import GraphCache
         from src.data.datasets import DoubleTowerDataset
         from src.data.genotype import GenotypeGraphBuilder, HgvsCatalog
 
-        with patch(
-            "src.data.graph_indexing.GraphIndexBuilder.build_drug_index",
-            return_value={},
-        ):
-            dataset = DoubleTowerDataset(
-                df=sample_df,
-                drug_col="drug_id",
-                geno_col="genotype",
-                gene_col="gene",
-                genotype_builder=GenotypeGraphBuilder(HgvsCatalog(), {}),
-                target_cols=["outcome"],
-                multilabel_cols=[],
-            )
-            geno = dataset[0]["geno_data"]
-            assert geno.x.shape == (1, 45)
-            assert geno.x[0, 0] == 1.0  # gene hub
-            assert geno.gene_token.tolist() == [1]  # UNK gene
-            assert geno.geno_function.shape == (1, 6)
+        dataset = DoubleTowerDataset(
+            df=sample_df,
+            drug_col="drug_id",
+            geno_col="genotype",
+            gene_col="gene",
+            genotype_builder=GenotypeGraphBuilder(HgvsCatalog(), {}),
+            target_cols=["outcome"],
+            multilabel_cols=[],
+            drug_cache=GraphCache({}),
+        )
+        geno = dataset[0]["geno_data"]
+        assert geno.x.shape == (1, 45)
+        assert geno.x[0, 0] == 1.0  # gene hub
+        assert geno.gene_token.tolist() == [1]  # UNK gene
+        assert geno.geno_function.shape == (1, 6)
 
     def test_polars_row_access_optimization(self, sample_df):
         """Verifica el acceso O(1) por listas de lookup (no .iloc)."""
@@ -221,5 +215,5 @@ class TestDoubleTowerDataset:
         lookup_genos = sample_df["genotype"].to_list()
 
         idx = 1
-        assert lookup_drugs[idx] == "1002"
+        assert lookup_drugs[idx] == "CHEMBL545"
         assert lookup_genos[idx] == "*17"

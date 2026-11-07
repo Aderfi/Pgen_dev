@@ -4,16 +4,22 @@ HGVS is the key of the genotype tower. Everything a training row or an
 inference request can name is translated to genomic HGVS (``NC_*:g.``) here:
 
 * ``annotations`` — PharmGKB annotation id → the variants it actually studied
-  (KG ``IMPLICATES`` edges: allele-specific, the most precise link);
+  (``IMPLICATES`` links: allele-specific, the most precise link);
 * ``labels`` — allele label → its variants: rsIDs (every alternative at the
   site) and star alleles ``GENE*N`` (their *cis* variant set);
 * ``variants`` — HGVS → annotation (gene, SO consequence terms, protein HGVS);
 * ``functions`` — star-allele PGx function (no/decreased/normal/increased).
 
-Sources, later ones winning on conflict: the pan-gene SNP table, PharmVar
-haplotype definitions, and the knowledge-graph exports
-(``python -m src.kg export`` — canonical NCBI SPDI/HGVS on GRCh38).
-Built by ``python -m src.data.library``; saved as ``hgvs_catalog.pt``.
+Everything but ``functions`` comes from Modephere's pgx export
+(``Settings.modephere.pgx_export``: ``variants``, ``haplotypes``,
+``allele_variants`` and ``annotation_variants`` parquet; GRCh38 HGVS keyed
+``hgvs_g38``). Later sources win: a PharmGKB label's own resolution
+(``allele_variants``) over the PharmVar definition of the same name, over an
+rsID's site alternatives. PharmVar haplotypes named by an rsID (DPYD's
+``rs111858276``) are labelled ``<gene><name>`` (``DPYDrs111858276``), so they
+never shadow the rsID of the site. ``functions`` is
+dev_Pgen's ``data/dicts/star_alleles.tsv``. Built by ``python -m
+src.data.library``; saved as ``hgvs_catalog.pt``.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ import polars as pl
 import torch
 
 from src.config import get_settings
-from src.data.library.haplotype_function import HaplotypeFunctionProvider
+from src.data.genotype.haplotype_function import HaplotypeFunctionProvider
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -119,75 +125,93 @@ def load_hgvs_catalog(path: Path | None = None) -> HgvsCatalog:
 # Building
 # --------------------------------------------------------------------------- #
 
-
-def _add_snp_table(catalog: HgvsCatalog, snp_table: Path) -> None:
-    from src.data.library.ingest import snp_table as snp
-
-    if not snp_table.exists():
-        logger.warning("SNP table %s not found; skipped", snp_table)
-        return
-    for v in snp.iter_variants_from_snp_table(snp_table):
-        catalog.variants[v.g_hgvs] = VariantInfo(v.gene, v.so_terms, v.p_hgvs)
-    for rsid, hgvs in snp.rsid_hgvs_index(snp_table).items():
-        catalog.labels[rsid] = (hgvs,)
+ALLELE_VARIANTS_FILE = "allele_variants.parquet"
+ANNOTATION_VARIANTS_FILE = "annotation_variants.parquet"
+VARIANTS_FILE = "variants.parquet"
+HAPLOTYPES_FILE = "haplotypes.parquet"
 
 
-def _add_pharmvar(catalog: HgvsCatalog, pharmvar_dir: Path) -> None:
-    from src.data.library.ingest import pharmvar
-
-    for h in pharmvar.iter_haplotypes(pharmvar_dir):
-        catalog.labels[f"{h.gene}{h.label}"] = tuple(v.g_hgvs for v in h.variants)
-        for v in h.variants:
-            known = catalog.variants.get(v.g_hgvs, VariantInfo())
-            catalog.variants[v.g_hgvs] = VariantInfo(
-                gene=known.gene or v.gene,
-                so_terms=known.so_terms or v.so_terms,
-                p_hgvs=known.p_hgvs or v.p_hgvs,
-            )
-    for rsid, hgvs in pharmvar.rsid_hgvs_index(pharmvar_dir).items():
-        catalog.labels.setdefault(rsid, (hgvs,))
+def _read(pgx_export: Path, name: str) -> pl.DataFrame | None:
+    path = pgx_export / name
+    if not path.exists():
+        logger.warning(
+            "Modephere export %s not found; its links are missing from the catalog "
+            "(run 'python -m src.data.library --refresh-pgx')",
+            path,
+        )
+        return None
+    return pl.read_parquet(path)
 
 
-def _add_kg(catalog: HgvsCatalog, kg_dir: Path) -> None:
-    """KG exports: canonical HGVS per allele label and per annotation."""
-    alleles = kg_dir / "allele_variants.parquet"
-    if alleles.exists():
-        links: dict[str, list[str]] = defaultdict(list)
-        rows = pl.read_parquet(alleles).filter(pl.col("hgvs_g").is_not_null())
-        for label, hgvs, kind in rows.select("label", "hgvs_g", "kind").iter_rows():
-            if hgvs not in links[label]:
-                links[label].append(hgvs)
-            if kind == "star":
-                gene = label.split("*", 1)[0]
-                known = catalog.variants.get(hgvs, VariantInfo())
-                catalog.variants[hgvs] = VariantInfo(
-                    known.gene or gene, known.so_terms, known.p_hgvs
-                )
-        catalog.labels.update({k: tuple(v) for k, v in links.items()})
-    else:
-        logger.warning("KG export %s not found; run 'python -m src.kg export'", alleles)
-
-    implicated = kg_dir / "annotation_variants.parquet"
-    if implicated.exists():
-        by_annotation: dict[str, list[str]] = defaultdict(list)
-        rows = pl.read_parquet(implicated).filter(pl.col("hgvs_g").is_not_null())
-        for annotation_id, hgvs in rows.select("annotation_id", "hgvs_g").iter_rows():
-            by_annotation[str(annotation_id)].append(hgvs)
-        catalog.annotations = {k: tuple(v) for k, v in by_annotation.items()}
+def _main_gene(genes: list[str], star_alleles: list[str]) -> str | None:
+    """The gene a variant belongs to: its star allele's, else a named gene."""
+    if star_alleles:
+        return star_alleles[0].split("*", 1)[0]
+    named = [g for g in genes if not g.startswith("LOC")]
+    candidates = named or genes
+    return candidates[0] if candidates else None
 
 
-def build_hgvs_catalog(
-    *,
-    snp_table: Path,
-    pharmvar_dir: Path,
-    kg_dir: Path,
-    star_alleles_tsv: Path,
-) -> HgvsCatalog:
-    """Assemble the catalog from every available source (missing ones are skipped)."""
+def _add_variants(catalog: HgvsCatalog, frame: pl.DataFrame) -> None:
+    """``variants`` from the export, and every rsID as a label of its alleles."""
+    by_rsid: dict[str, list[str]] = defaultdict(list)
+    columns = ("hgvs_g38", "genes", "star_alleles", "so_terms", "p_hgvs", "rsids")
+    for hgvs, genes, stars, so_terms, p_hgvs, rsids in frame.select(
+        columns
+    ).iter_rows():
+        catalog.variants[hgvs] = VariantInfo(
+            gene=_main_gene(genes, stars), so_terms=tuple(so_terms), p_hgvs=p_hgvs
+        )
+        for rsid in rsids:
+            by_rsid[rsid].append(hgvs)
+    for rsid, hgvs in by_rsid.items():
+        catalog.labels[rsid] = tuple(sorted(hgvs))
+
+
+def haplotype_label(name: str, gene: str | None) -> str:
+    """``CYP2C19*2`` as is; an rsID-named haplotype gets its gene in front."""
+    return name if "*" in name or not gene else f"{gene}{name}"
+
+
+def _add_haplotypes(catalog: HgvsCatalog, frame: pl.DataFrame) -> None:
+    """Every PharmVar / ClinPGx haplotype → its cis variants (structural: none)."""
+    for name, gene, members in frame.select("name", "gene", "variants").iter_rows():
+        catalog.labels[haplotype_label(name, gene)] = tuple(members)
+        for hgvs in members:
+            known = catalog.variants.get(hgvs, VariantInfo())
+            if known.gene is None and gene:
+                catalog.variants[hgvs] = VariantInfo(gene, known.so_terms, known.p_hgvs)
+
+
+def _add_labels(catalog: HgvsCatalog, frame: pl.DataFrame) -> None:
+    """Allele label → canonical variants (overrides an rsID's own entry)."""
+    links: dict[str, list[str]] = defaultdict(list)
+    rows = frame.filter(pl.col("hgvs_g38").is_not_null())
+    for label, hgvs in rows.select("label", "hgvs_g38").iter_rows():
+        if hgvs not in links[label]:
+            links[label].append(hgvs)
+    catalog.labels.update({k: tuple(v) for k, v in links.items()})
+
+
+def _add_annotations(catalog: HgvsCatalog, frame: pl.DataFrame) -> None:
+    by_annotation: dict[str, list[str]] = defaultdict(list)
+    rows = frame.filter(pl.col("hgvs_g38").is_not_null())
+    for annotation_id, hgvs in rows.select("annotation_id", "hgvs_g38").iter_rows():
+        by_annotation[str(annotation_id)].append(hgvs)
+    catalog.annotations = {k: tuple(v) for k, v in by_annotation.items()}
+
+
+def build_hgvs_catalog(*, pgx_export: Path, star_alleles_tsv: Path) -> HgvsCatalog:
+    """Assemble the catalog from Modephere's pgx export (missing tables are skipped)."""
     catalog = HgvsCatalog()
-    _add_snp_table(catalog, snp_table)
-    _add_pharmvar(catalog, pharmvar_dir)
-    _add_kg(catalog, kg_dir)
+    if (variants := _read(pgx_export, VARIANTS_FILE)) is not None:
+        _add_variants(catalog, variants)
+    if (haplotypes := _read(pgx_export, HAPLOTYPES_FILE)) is not None:
+        _add_haplotypes(catalog, haplotypes)
+    if (labels := _read(pgx_export, ALLELE_VARIANTS_FILE)) is not None:
+        _add_labels(catalog, labels)
+    if (implicated := _read(pgx_export, ANNOTATION_VARIANTS_FILE)) is not None:
+        _add_annotations(catalog, implicated)
     if star_alleles_tsv.exists():
         catalog.functions = HaplotypeFunctionProvider.from_tsv(star_alleles_tsv)
     logger.info(
@@ -205,5 +229,6 @@ __all__ = [
     "HgvsCatalog",
     "VariantInfo",
     "build_hgvs_catalog",
+    "haplotype_label",
     "load_hgvs_catalog",
 ]

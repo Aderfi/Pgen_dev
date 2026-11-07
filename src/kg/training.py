@@ -1,10 +1,13 @@
 """The knowledge graph as the training dataset.
 
-Each ``:Annotation`` with at least one drug that has a PubChem CID, one gene
-and one allele label becomes one training row, in the same shape as the
-curated ``train_data.tsv`` (multi-value fields ``|``-joined, the same column
-names and value conventions). The rest of the pipeline (cleaner, splitter,
-``DoubleTowerDataset``) therefore cannot tell the two sources apart.
+Each ``:Annotation`` with at least one drug that has a ChEMBL ID, one gene and
+one allele label becomes one training row, in the shape of the training TSV
+(multi-value fields ``|``-joined). Drugs are identified by their **ChEMBL
+parent ID** (``drugs_chembl``), taken — with the drug names, in the same order —
+from Modephere's ``annotation_rows`` export
+(:func:`src.data.library.bridge.annotation_drugs`), the same identity the drug
+library is built and indexed by. A drug without a ChEMBL ID is left out of its
+row; a row left without any drug is dropped (and counted in the log).
 
 The genotype is stated in HGVS whenever the KG knows the exact variant the
 annotation studied (``IMPLICATES``); otherwise the allele labels (rsIDs, star
@@ -52,10 +55,51 @@ def _joined(col: str) -> pl.Expr:
     return pl.col(col).list.join(MULTI_VALUE_SEP)
 
 
-def to_training_frame(rows: pl.DataFrame) -> pl.DataFrame:
-    """Map raw ``KnowledgeGraph.training_rows`` output to the training-TSV schema."""
+def with_drug_identity(rows: pl.DataFrame, drugs: pl.DataFrame) -> pl.DataFrame:
+    """Replace each row's drugs with Modephere's (name + ChEMBL ID, aligned).
+
+    ``drugs`` is :func:`src.data.library.bridge.annotation_drugs` output
+    (``annotation_id, position, name, chembl_id``).
+    """
+    identity = (
+        drugs.drop_nulls("chembl_id")
+        .sort("annotation_id", "position")
+        .group_by("annotation_id", maintain_order=True)
+        .agg(
+            pl.col("name").alias("drug_names"),
+            pl.col("chembl_id").alias("drug_chembl_ids"),
+        )
+    )
+    out = rows.drop("drug_names", strict=False).join(
+        identity,
+        left_on=pl.col("annotation_id").cast(pl.String),
+        right_on="annotation_id",
+        how="inner",
+    )
+    if (dropped := rows.height - out.height) > 0:
+        logger.info(
+            "Training rows: %d of %d dropped, no drug with a ChEMBL ID",
+            dropped,
+            rows.height,
+        )
+    return out
+
+
+def to_training_frame(
+    rows: pl.DataFrame, drugs: pl.DataFrame | None = None
+) -> pl.DataFrame:
+    """Map raw ``KnowledgeGraph.training_rows`` output to the training-TSV schema.
+
+    ``drugs`` (default: Modephere's export, see :func:`with_drug_identity`)
+    gives each row its drugs' names and ChEMBL IDs.
+    """
+    if drugs is None:
+        from src.data.library.bridge import annotation_drugs
+
+        drugs = annotation_drugs()
+    rows = with_drug_identity(rows, drugs)
     return rows.select(
-        _joined("drug_cids").alias("drugs_cid"),
+        _joined("drug_chembl_ids").alias("drugs_chembl"),
         _joined("drug_names").alias("drugs"),
         pl.when(pl.col("implicated_hgvs").list.len() > 0)
         .then(_joined("implicated_hgvs"))
@@ -90,7 +134,8 @@ def load_training_rows(
     """Query Neo4j for the training rows (training-TSV schema)."""
     wanted = [s.value for s in sources] if sources is not None else None
     with KnowledgeGraph.connect(settings) as kg:
-        frame = to_training_frame(kg.training_rows(wanted))
+        raw = kg.training_rows(wanted)
+    frame = to_training_frame(raw)
     logger.info("Loaded %d training rows from Neo4j (sources=%s)", len(frame), wanted)
     return frame
 
@@ -101,4 +146,5 @@ __all__ = [
     "load_training_rows",
     "to_training_frame",
     "training_snapshot_path",
+    "with_drug_identity",
 ]

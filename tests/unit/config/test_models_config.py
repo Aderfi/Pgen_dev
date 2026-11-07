@@ -71,7 +71,7 @@ class TestGetModelConfig:
         cfg = get_model_config("TwoTowerGAT")
         assert isinstance(cfg, ModelConfig)
         assert cfg.name == "TwoTowerGAT"
-        assert "drugs_cid" in cfg.features
+        assert "drugs_chembl" in cfg.features
         assert "phenotype_category" in cfg.targets
 
     def test_unknown_model_raises_with_available_list(self) -> None:
@@ -87,8 +87,9 @@ class TestGetModelConfig:
 
     def test_extras_capture_unstructured_keys(self) -> None:
         cfg = get_model_config("TwoTowerGAT")
-        assert "drug_node_features" in cfg.extras
         assert "geno_node_features" in cfg.extras
+        # drug widths are Modephere's layout (GraphDims), not models.toml keys
+        assert "drug_node_features" not in cfg.extras
 
     def test_get_available_models(self) -> None:
         models = get_available_models()

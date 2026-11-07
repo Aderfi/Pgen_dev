@@ -85,29 +85,29 @@ _UNION_SOURCES = (
     "ELSE {v}.sources + [s IN r.sources WHERE NOT s IN {v}.sources] END"
 )
 
-#: One row per annotation in the shape of the training TSV (multi-value fields
-#: as lists; see ``src.kg.training``). Drug name/CID lists stay aligned because
-#: both are collected from the same ordered drug rows. ``implicated_hgvs`` is the
-#: allele-specific variant(s) the annotation studied (canonical genomic HGVS).
+#: One row per annotation with a drug, a gene and an allele label, in the shape
+#: of the training TSV (multi-value fields as lists; see ``src.kg.training``,
+#: which takes each drug's identity — name and ChEMBL ID — from Modephere).
+#: ``implicated_hgvs`` is the allele-specific variant(s) the annotation studied
+#: (canonical genomic HGVS).
 TRAINING_ROWS = """
 MATCH (a:Annotation)-[:FOR_DRUG]->(d:Drug)
-WHERE d.cid IS NOT NULL AND ($sources IS NULL OR a.source IN $sources)
+WHERE $sources IS NULL OR a.source IN $sources
 WITH a, d ORDER BY d.name
-WITH a, collect(toString(d.cid)) AS drug_cids, collect(d.name) AS drug_names
+WITH a, collect(d.name) AS drug_names
 MATCH (a)-[:CONCERNS_GENE]->(g:Gene)
-WITH a, drug_cids, drug_names, g ORDER BY g.symbol
-WITH a, drug_cids, drug_names, collect(g.symbol) AS genes
+WITH a, drug_names, g ORDER BY g.symbol
+WITH a, drug_names, collect(g.symbol) AS genes
 MATCH (a)-[:CONCERNS_ALLELE]->(al:Allele)
-WITH a, drug_cids, drug_names, genes, al ORDER BY al.label
-WITH a, drug_cids, drug_names, genes, collect(al.label) AS genotypes
+WITH a, drug_names, genes, al ORDER BY al.label
+WITH a, drug_names, genes, collect(al.label) AS genotypes
 OPTIONAL MATCH (a)-[:IMPLICATES]->(v:Variant)
-WITH a, drug_cids, drug_names, genes, genotypes, v ORDER BY v.hgvs_g
-WITH a, drug_cids, drug_names, genes, genotypes,
+WITH a, drug_names, genes, genotypes, v ORDER BY v.hgvs_g
+WITH a, drug_names, genes, genotypes,
      collect(DISTINCT v.hgvs_g) AS implicated_hgvs
 RETURN a.id AS annotation_id,
        a.source AS source,
        a.pmid AS pmid,
-       drug_cids,
        drug_names,
        genes,
        genotypes,
@@ -168,7 +168,6 @@ TRAINING_ROW_SCHEMA = {
     "annotation_id": pl.String,
     "source": pl.String,
     "pmid": pl.String,
-    "drug_cids": pl.List(pl.String),
     "drug_names": pl.List(pl.String),
     "genes": pl.List(pl.String),
     "genotypes": pl.List(pl.String),

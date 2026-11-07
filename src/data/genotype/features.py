@@ -15,8 +15,8 @@ Layout (``HGVS_NODE_DIM`` = 45)::
     molecular level  (3)  genomic (g./m./o.), transcript (c./n./r.), protein (p.)
     coding region    (5)  cds, intron (c.N+k), 5'UTR (c.-N), 3'UTR (c.*N), unknown
     sequence change  (4)  transition, transversion, log length, frameshift-like
-    consequence     (13)  SO consequence (src.data.library.consequence)
-    protein change   (8)  HGVS p. physicochemistry (src.data.library.protein_change)
+    consequence     (13)  SO consequence (src.data.genotype.consequence)
+    protein change   (8)  HGVS p. physicochemistry (src.data.genotype.protein_change)
     dosage           (2)  [alt copies / 2, copies known]
 """
 
@@ -28,8 +28,8 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from src.core import BioinformaticsError
-from src.data.library.consequence import CONSEQUENCE_DIM, consequence_vector
-from src.data.library.protein_change import PROTEIN_CHANGE_DIM, protein_change_vector
+from src.data.genotype.consequence import CONSEQUENCE_DIM, consequence_vector
+from src.data.genotype.protein_change import PROTEIN_CHANGE_DIM, protein_change_vector
 from src.domain.types import MolecularType, VariantKind
 from src.genomics.hgvs_parser import parse
 

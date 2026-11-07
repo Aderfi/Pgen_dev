@@ -17,7 +17,7 @@ carry several terms across transcripts; the multi-hot records every group presen
 and the scalar records the single most severe — the VEP "most severe
 consequence" convention.
 
-The featurizer is pure and local (no I/O); :mod:`src.data.library.geno_func`
+The featurizer is pure and local (no I/O); :mod:`src.data.genotype.features`
 composes its output into the full ``geno_global_feats`` vector.
 """
 

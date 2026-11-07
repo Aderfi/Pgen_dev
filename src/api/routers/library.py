@@ -1,6 +1,8 @@
 """Library catalog — the graph artifacts the model reads.
 
-* ``/drugs`` lists the per-drug ``.pt`` graphs under ``paths.library/drugs``.
+* ``/drugs`` lists the drugs of the Modephere library
+  (``Settings.modephere.library``) by ChEMBL ID, each with the
+  ``compounds/<InChIKey>.safetensors`` file its graph is read from.
 * ``/genes`` lists the genes of the HGVS variant catalog
   (``paths.library/hgvs_catalog.pt``); ``/genes/{symbol}`` lists that gene's
   catalogued variants by genomic HGVS.
@@ -18,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from src.api.deps import SettingsDep
 from src.api.schemas import LibraryEntry, LibraryListResponse
 from src.data.genotype import HGVS_CATALOG_FILE, HgvsCatalog
+from src.data.library.bridge import chembl_index, library_store
 
 router = APIRouter(prefix="/v1/library", tags=["library"])
 
@@ -53,9 +56,12 @@ def _page(
 def list_drugs(
     settings: SettingsDep, offset: int = Offset, limit: int = Limit
 ) -> LibraryListResponse:
-    drugs_dir = settings.paths.library / "drugs"
-    files = sorted(drugs_dir.glob("*.pt")) if drugs_dir.exists() else []
-    entries = [LibraryEntry(kind="drug", identifier=f.stem, path=str(f)) for f in files]
+    store = library_store(settings.modephere)
+    index = chembl_index(store) if store.table_path("compounds").exists() else {}
+    entries = [
+        LibraryEntry(kind="drug", identifier=chembl_id, path=str(store.path_for(key)))
+        for chembl_id, key in sorted(index.items())
+    ]
     return _page("drug", entries, offset, limit)
 
 

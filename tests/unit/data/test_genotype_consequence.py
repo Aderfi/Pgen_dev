@@ -1,8 +1,8 @@
-"""Tests for src.data.library.consequence — the SO molecular-consequence layer."""
+"""Tests for src.data.genotype.consequence — the SO molecular-consequence layer."""
 
 from __future__ import annotations
 
-from src.data.library.consequence import (
+from src.data.genotype.consequence import (
     CONSEQUENCE_DIM,
     consequence_vector,
     split_so_terms,

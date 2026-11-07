@@ -26,7 +26,7 @@ DEFAULT_NULL_VALUES: list[str] = ["", "NA", "NaN", "null", "N/A"]
 # pipeline and the API agree on dtypes; any column not listed here is inferred.
 TRAIN_DATA_SCHEMA: dict[str, Any] = {
     # Identifiers
-    "drugs_cid": pl.String,
+    "drugs_chembl": pl.String,
     "drugs": pl.String,
     "gene": pl.String,
     "genotype": pl.String,

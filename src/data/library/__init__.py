@@ -1,18 +1,17 @@
-"""Pharmagen library builder.
+"""Pharmagen library: Modephere drug graphs, ADMET profiles, the HGVS catalog.
 
-Builds the offline artifacts the training pipeline loads: per-drug graphs and
-the HGVS variant catalog. Use the orchestrator from code:
+Modephere builds and stores the drugs; dev_Pgen adds what is its own — the
+ADMET-AI profile of each compound and the HGVS catalog the genotype tower reads.
+:mod:`src.data.library.bridge` is the only place Modephere is configured, from
+``Settings.modephere``.
 
     >>> from src.data.library import LibraryBuilder, LibraryBuildConfig
-    >>> cfg = LibraryBuildConfig.from_settings()
-    >>> LibraryBuilder(cfg).run()
+    >>> LibraryBuilder(LibraryBuildConfig.from_settings()).run()
 
-Or the CLI:
+Or the CLI: ``python -m src.data.library --help``.
 
-    $ python -m src.data.library --help
-
-The exports are resolved lazily so importing a featurizer submodule (e.g.
-``src.data.library.consequence``) doesn't pull in the whole builder stack.
+Exports resolve lazily, so importing :mod:`src.data.library.admet` does not
+pull in the builder stack.
 """
 
 from __future__ import annotations

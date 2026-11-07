@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
+from modephere.library.descriptors import ECFP_BITS  # tail of global_feats
 from pydantic import BaseModel
 
 from src.evaluation.entities import ROW_ID, Scenario
@@ -30,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 NOVELTY_FLAGS = ("seen_pair", "seen_drug", "seen_variant", "seen_gene", "seen_pmid")
 TANIMOTO_BINS = (0.0, 0.3, 0.5, 0.7, 0.9, 1.0)
-ECFP_BITS = 1024  # src/data/library/drugs.py: _ECFP_BITS (tail of global_feats)
-_RAW_IDENTITY = ("drugs_cid", "gene", "genotype", "alleles")
+_RAW_IDENTITY = ("drugs_chembl", "gene", "genotype", "alleles")
 
 #: Overlap that must be zero for each grouped scenario.
 _SCENARIO_AXIS = {

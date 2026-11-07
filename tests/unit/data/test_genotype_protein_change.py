@@ -1,10 +1,10 @@
-"""Tests for src.data.library.protein_change — the HGVS protein-change layer."""
+"""Tests for src.data.genotype.protein_change — the HGVS protein-change layer."""
 
 from __future__ import annotations
 
 import pytest
 
-from src.data.library.protein_change import (
+from src.data.genotype.protein_change import (
     PROTEIN_CHANGE_DIM,
     grantham_distance,
     protein_change_vector,

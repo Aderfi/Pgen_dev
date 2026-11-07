@@ -1,4 +1,4 @@
-"""Tests for src.data.library.haplotype_function — per-allele PGx function."""
+"""Tests for src.data.genotype.haplotype_function — per-allele PGx function."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 import pytest
 
-from src.data.library.haplotype_function import (
+from src.data.genotype.haplotype_function import (
     FUNC_STATUSES,
     PATH_FUNCTION_DIM,
     HaplotypeFunctionProvider,

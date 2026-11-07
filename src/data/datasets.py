@@ -14,16 +14,13 @@ import polars as pl
 import torch
 from torch.utils.data import Dataset
 
-from src.config import get_settings
 from src.data.cache import GraphCache, GraphDims, PackedGraphs
 from src.data.collator import PolyData
 from src.data.encoders import TargetEncoder
 from src.data.genotype import GenotypeGraphBuilder, load_hgvs_catalog
-from src.data.graph_indexing import GraphIndexBuilder
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Set
-    from pathlib import Path
 
     from src.data.polypharmacy import PseudoPatientBuilder
 
@@ -41,8 +38,8 @@ class DoubleTowerDataset(Dataset):
     """Drug-graph + genotype-graph pair dataset for the Two-Tower GNN.
 
     Composition:
-        - ``GraphIndexBuilder``  — discovers the on-disk drug library.
-        - ``GraphCache``         — owns the in-memory drug cache + dummy fallback.
+        - ``GraphCache``         — drug graphs from the Modephere library (by
+          ChEMBL ID), their ADMET profiles, and the dummy fallback.
         - ``GenotypeGraphBuilder`` — reads each genotype as an HGVS variant graph.
         - ``TargetEncoder``      — fits/applies sklearn encoders to target cols.
 
@@ -50,7 +47,7 @@ class DoubleTowerDataset(Dataset):
 
     Args:
         df: Polars DataFrame with the join columns.
-        drug_col: Column name containing drug IDs.
+        drug_col: Column name containing drug IDs (ChEMBL parent IDs).
         geno_col: Column with the genotype tokens (HGVS, rsIDs, star alleles).
         target_cols: Target column names.
         multilabel_cols: Subset of ``target_cols`` that are multi-label.
@@ -60,7 +57,8 @@ class DoubleTowerDataset(Dataset):
         genotype_builder: HGVS genotype-graph builder (shared across splits so
             they use the same gene vocabulary). Default: the project catalog
             with an empty vocabulary (every gene → UNK).
-        drug_lib: Override drug library path (default: ``paths.library/drugs``).
+        drug_cache: Drug graph cache to read from (share one across splits);
+            default: :meth:`GraphCache.from_settings` (``Settings.modephere``).
         preload_ram: If True, eagerly loads all unique drug graphs into RAM.
         dims: Graph feature widths (sizes the placeholder graphs).
         inference_mode: If True, preserves identifying metadata on returned graphs.
@@ -87,7 +85,7 @@ class DoubleTowerDataset(Dataset):
         encoders: dict[str, Any] | None = None,
         gene_col: str = "gene",
         genotype_builder: GenotypeGraphBuilder | None = None,
-        drug_lib: Path | None = None,
+        drug_cache: GraphCache | None = None,
         preload_ram: bool = False,
         dims: GraphDims | None = None,
         inference_mode: bool = False,
@@ -120,15 +118,9 @@ class DoubleTowerDataset(Dataset):
         self.inference_mode = inference_mode
         self.pseudo_patient_builder = pseudo_patient_builder
 
-        # 2. Drug index + cache
-        drug_index = GraphIndexBuilder.build_drug_index(
-            drug_lib or get_settings().paths.library / "drugs"
-        )
-        logger.info("Indexed %d drugs", len(drug_index))
-        self.cache = GraphCache(
-            drug_index=drug_index,
-            dims=self.dims,
-            inference_mode=inference_mode,
+        # 2. Drug cache (Modephere library + ADMET profiles)
+        self.cache = drug_cache or GraphCache.from_settings(
+            dims=self.dims, inference_mode=inference_mode
         )
 
         # 2b. Genotype graphs: built once per row (small, reused every epoch).
@@ -187,16 +179,16 @@ class DoubleTowerDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        drug_cid = str(self.lookup_drugs[idx])
+        drug_id = str(self.lookup_drugs[idx])
         if self.pseudo_patient_builder is not None:
-            drug = self._build_poly_drug_data(drug_cid)
+            drug = self._build_poly_drug_data(drug_id)
         else:
-            drug = self.cache.get_drug(drug_cid)
+            drug = self.cache.get_drug(drug_id)
         geno = self.geno_graphs[idx]
         targets = {col: self.targets[col][idx] for col in self.target_cols}
         return {"drug_data": drug, "geno_data": geno, "targets": targets}
 
-    def _build_poly_drug_data(self, focal_cid: str) -> PolyData:
+    def _build_poly_drug_data(self, focal_id: str) -> PolyData:
         """Build a molecule-level polypharmacy drug graph for one patient.
 
         Delegates neighbour selection to ``self.pseudo_patient_builder`` and
@@ -220,7 +212,7 @@ class DoubleTowerDataset(Dataset):
         """
         builder = self.pseudo_patient_builder
         assert builder is not None  # narrows for type checkers; guarded by caller
-        sample = builder.build(focal_cid)
+        sample = builder.build(focal_id)
         molecules = sample["molecules"]
         mol_x = torch.stack(
             [
@@ -236,7 +228,7 @@ class DoubleTowerDataset(Dataset):
         drug.ddi_edge_attr = sample["ddi_edge_attr"]
         drug.is_focal = sample["is_focal"]
         if self.inference_mode:
-            drug.cid = focal_cid
+            drug.drug_id = focal_id
         return drug
 
     def get_cache_stats(self) -> dict[str, int | float]:

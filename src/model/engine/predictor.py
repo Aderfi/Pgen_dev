@@ -9,7 +9,7 @@ target-encoder bundle provides the label spaces.
 Public API (relied on by ``src/api/routers/predict.py`` and ``src/cli``):
 
     predictor = PGenPredictor(model_name)
-    predictor.predict_single({"drugs_cid": "12345", "genotype": "CYP2D6*1"})
+    predictor.predict_single({"drugs_chembl": "CHEMBL1771", "genotype": "CYP2C19*2"})
     predictor.predict_file("data/patients.csv")
 """
 
@@ -242,9 +242,9 @@ class PGenPredictor:
         """
         normalized = {str(k).lower().strip(): v for k, v in sample.items()}
 
-        drug = normalized.get("drugs_cid") or normalized.get("drug")
+        drug = normalized.get("drugs_chembl") or normalized.get("drug")
         if drug is None:
-            raise ValueError("missing required field 'drugs_cid' (or 'drug')")
+            raise ValueError("missing required field 'drugs_chembl' (or 'drug')")
 
         gene = normalized.get("gene")
         genotype = normalized.get("genotype", "") or ""
@@ -276,7 +276,7 @@ class PGenPredictor:
 
         return pl.DataFrame(
             {
-                "drugs_cid": [str(drug)],
+                "drugs_chembl": [str(drug).strip().upper()],
                 "gene": [str(gene)],
                 "genotype": [str(genotype)],
                 "alleles": [str(alleles)],

@@ -220,8 +220,7 @@ def _training_record(**overrides):
         "annotation_id": "1449",
         "source": "var_drug_ann",
         "pmid": "123",
-        "drug_cids": ["2907", "5460033"],
-        "drug_names": ["cyclophosphamide", "cisplatin"],
+        "drug_names": ["cisplatin", "cyclophosphamide"],
         "genes": ["XRCC1"],
         "genotypes": ["rs25487"],
         "implicated_hgvs": [],
@@ -245,22 +244,62 @@ def test_training_rows_query_and_schema():
     assert df.row(0, named=True) == _training_record()
 
 
+def _drugs(*rows: tuple[str, int, str, str | None]) -> pl.DataFrame:
+    """``annotation_drugs`` rows: (annotation_id, position, name, chembl_id)."""
+    return pl.DataFrame(
+        rows,
+        schema={
+            "annotation_id": pl.String,
+            "position": pl.Int64,
+            "name": pl.String,
+            "chembl_id": pl.String,
+        },
+        orient="row",
+    )
+
+
+DRUGS = _drugs(
+    ("1449", 0, "cisplatin", "CHEMBL11359"),
+    ("1449", 1, "cyclophosphamide", "CHEMBL88"),
+    ("7", 0, "cisplatin", "CHEMBL11359"),
+)
+
+
 def test_training_frame_matches_tsv_conventions():
     raw = pl.DataFrame(
         [_training_record(), _training_record(annotation_id="7", associated=False)],
         schema=TRAINING_ROW_SCHEMA,
     )
-    row = to_training_frame(raw).row(0, named=True)
-    assert row["drugs_cid"] == "2907|5460033"
-    assert row["drugs"] == "cyclophosphamide|cisplatin"
+    frame = to_training_frame(raw, DRUGS)
+    row = frame.row(0, named=True)
+    assert row["drugs_chembl"] == "CHEMBL11359|CHEMBL88"
+    assert row["drugs"] == "cisplatin|cyclophosphamide"  # aligned with the IDs
     assert row["gene"] == "XRCC1"
     assert row["genotype"] == "rs25487"
     assert row["phenotype_category"] == "Efficacy|Toxicity"
     assert row["direction_of_effect"] == UNDETERMINED_DIRECTION
     assert row["is/is_not_associated"] == "Associated with"
     assert row["variant_annotation_id"] == 1449
-    second = to_training_frame(raw).row(1, named=True)
+    second = frame.row(1, named=True)
     assert second["is/is_not_associated"] == "Not associated with"
+    assert second["drugs_chembl"] == "CHEMBL11359"
+
+
+def test_drugs_without_chembl_id_leave_the_row():
+    raw = pl.DataFrame(
+        [_training_record(), _training_record(annotation_id="8")],
+        schema=TRAINING_ROW_SCHEMA,
+    )
+    drugs = _drugs(
+        ("1449", 0, "cisplatin", None),
+        ("1449", 1, "cyclophosphamide", "CHEMBL88"),
+        ("8", 0, "folfirinox", None),
+    )
+    frame = to_training_frame(raw, drugs)
+    # 1449 keeps only the drug ChEMBL knows; 8 has none left and is dropped
+    assert frame["variant_annotation_id"].to_list() == [1449]
+    assert frame["drugs_chembl"].to_list() == ["CHEMBL88"]
+    assert frame["drugs"].to_list() == ["cyclophosphamide"]
 
 
 def test_training_frame_prefers_implicated_hgvs():
@@ -268,7 +307,7 @@ def test_training_frame_prefers_implicated_hgvs():
     raw = pl.DataFrame(
         [_training_record(implicated_hgvs=[hgvs])], schema=TRAINING_ROW_SCHEMA
     )
-    assert to_training_frame(raw).row(0, named=True)["genotype"] == hgvs
+    assert to_training_frame(raw, DRUGS).row(0, named=True)["genotype"] == hgvs
 
 
 def test_export_allele_variants_schema():

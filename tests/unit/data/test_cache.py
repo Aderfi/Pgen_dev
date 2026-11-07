@@ -1,39 +1,40 @@
-"""Tests for src.data.cache."""
+"""Tests for src.data.cache — drug graphs served from a Modephere library."""
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
+import polars as pl
 import pytest
-import torch
-from torch_geometric.data.data import Data
+from modephere.types.layouts import MOLECULE_GRAPH_V1
 
 from src.data.cache import GraphCache, GraphDims, make_empty_graph
+from src.data.library.admet import ADMET_ENDPOINTS, DRUG_ADMET_DIM, AdmetProvider
+from src.data.library.bridge import chembl_index
 
-if TYPE_CHECKING:
-    from pathlib import Path
 
-
-@pytest.fixture
-def saved_drug(tmp_path: Path) -> Path:
-    """Round-trip a tiny drug-shaped graph to disk."""
-    g = Data(
-        x=torch.randn(3, 25),
-        edge_index=torch.tensor([[0, 1, 2], [1, 2, 0]], dtype=torch.long),
-        edge_attr=torch.zeros(3, 7),
+def _admet(inchikey: str, value: float) -> AdmetProvider:
+    return AdmetProvider(
+        pl.DataFrame({"inchikey": [inchikey]} | {e: [value] for e in ADMET_ENDPOINTS})
     )
-    g.cid = "2244"
-    g.name = "aspirin"
-    g.smiles = "CC(=O)Oc1ccccc1C(=O)O"
-    p = tmp_path / "2244_aspirin.pt"
-    torch.save(g, p)
-    return p
+
+
+class TestGraphDims:
+    def test_drug_widths_are_modephere_layout(self) -> None:
+        dims = GraphDims()
+        assert dims.drug_features == MOLECULE_GRAPH_V1.node_dim
+        assert dims.drug_edges == MOLECULE_GRAPH_V1.edge_dim
+        assert dims.drug_global == MOLECULE_GRAPH_V1.global_dim
+        assert dims.drug_admet == DRUG_ADMET_DIM
 
 
 class TestMakeEmptyGraph:
     def test_drug_dims(self) -> None:
-        g = make_empty_graph("drug")
-        assert g.x.shape == (1, 61)
-        assert g.edge_attr.shape == (0, 18)
+        g = make_empty_graph("drug", graph_id="CHEMBL25")
+        assert g.x.shape == (1, MOLECULE_GRAPH_V1.node_dim)
+        assert g.edge_attr.shape == (0, MOLECULE_GRAPH_V1.edge_dim)
+        assert g.global_feats.shape == (1, MOLECULE_GRAPH_V1.global_dim)
+        assert g.admet_feats.shape == (1, DRUG_ADMET_DIM)
         assert g.name == "dummy_drug"
+        assert g.drug_id == "CHEMBL25"
 
     def test_geno_dims(self) -> None:
         g = make_empty_graph("geno", graph_id="CYP2D6")
@@ -55,47 +56,80 @@ class TestMakeEmptyGraph:
 
 
 class TestGraphCacheLookup:
-    def test_drug_cache_hit(self, saved_drug: Path) -> None:
-        cache = GraphCache(drug_index={"2244": saved_drug})
-        first = cache.get_drug("2244")
-        assert first.x.shape == (3, 25)
-        cache.get_drug("2244")
-        stats = cache.stats()
-        assert stats["drug_misses"] == 2  # never preloaded → both misses
+    def test_drug_is_modephere_molecule_graph_with_admet(
+        self, modephere_library
+    ) -> None:
+        store, keys = modephere_library
+        aspirin = keys["CHEMBL25"]
+        cache = GraphCache(keys, store=store, admet=_admet(aspirin, 0.25))
+        g = cache.get_drug("CHEMBL25")
+        assert g.x.shape == (13, MOLECULE_GRAPH_V1.node_dim)  # aspirin heavy atoms
+        assert g.edge_attr.shape[1] == MOLECULE_GRAPH_V1.edge_dim
+        assert g.global_feats.shape == (1, MOLECULE_GRAPH_V1.global_dim)
+        assert g.z.shape == (13,)
+        assert g.admet_feats[0, 0].item() == pytest.approx(0.25)
+
+    def test_second_lookup_is_a_cache_hit(self, modephere_library) -> None:
+        store, keys = modephere_library
+        cache = GraphCache(keys, store=store)
+        cache.get_drug("CHEMBL25")
+        cache.get_drug("CHEMBL25")
+        assert cache.stats()["drug_misses"] == 1
+        assert cache.stats()["drug_hits"] == 1
+
+    def test_drug_without_admet_profile_gets_zeros(self, modephere_library) -> None:
+        store, keys = modephere_library
+        g = GraphCache(keys, store=store).get_drug("CHEMBL545")
+        assert g.admet_feats.abs().sum().item() == 0.0
 
     def test_unknown_drug_returns_empty(self) -> None:
         cache = GraphCache(drug_index={})
-        g = cache.get_drug("does_not_exist")
-        assert g.x.shape == (1, 61)
+        g = cache.get_drug("CHEMBL0")
+        assert g.x.shape == (1, MOLECULE_GRAPH_V1.node_dim)
         assert cache.stats()["drug_misses"] == 1
 
-    def test_corrupt_file_returns_empty(self, tmp_path: Path) -> None:
-        bad = tmp_path / "bad.pt"
-        bad.write_bytes(b"not a torch file")
-        cache = GraphCache(drug_index={"123": bad})
-        g = cache.get_drug("123")
-        assert g.x.shape == (1, 61)  # placeholder
+    def test_unreadable_compound_returns_empty(self, tmp_path) -> None:
+        from modephere.library import LibraryStore
+
+        store = LibraryStore(tmp_path)
+        store.compounds_dir.mkdir()
+        store.path_for("XXXXXXXXXXXXXX-YYYYYYYYYY-N").write_bytes(b"not safetensors")
+        cache = GraphCache({"CHEMBL1": "XXXXXXXXXXXXXX-YYYYYYYYYY-N"}, store=store)
+        assert cache.get_drug("CHEMBL1").x.shape == (1, MOLECULE_GRAPH_V1.node_dim)
 
 
 class TestPreload:
-    def test_preload_drugs_caches(self, saved_drug: Path) -> None:
-        cache = GraphCache(drug_index={"2244": saved_drug})
-        cache.preload_drugs(["2244"])
+    def test_preload_drugs_caches(self, modephere_library) -> None:
+        store, keys = modephere_library
+        cache = GraphCache(keys, store=store)
+        cache.preload_drugs(["CHEMBL25", "CHEMBL0"])
         assert cache.cached_drug_count == 1
-        cache.get_drug("2244")
+        cache.get_drug("CHEMBL25")
         assert cache.stats()["drug_hits"] == 1
 
 
 class TestInferenceMode:
-    def test_metadata_preserved(self, saved_drug: Path) -> None:
-        cache = GraphCache(drug_index={"2244": saved_drug}, inference_mode=True)
-        g = cache.get_drug("2244")
-        assert hasattr(g, "cid")
-        assert hasattr(g, "name")
-        assert g.cid == "2244"
+    def test_identity_kept_at_inference(self, modephere_library) -> None:
+        store, keys = modephere_library
+        g = GraphCache(keys, store=store, inference_mode=True).get_drug("CHEMBL25")
+        assert g.drug_id == "CHEMBL25"
+        assert g.inchikey == keys["CHEMBL25"]
 
-    def test_metadata_stripped_in_training_mode(self, saved_drug: Path) -> None:
-        cache = GraphCache(drug_index={"2244": saved_drug}, inference_mode=False)
-        g = cache.get_drug("2244")
-        assert not hasattr(g, "cid")
-        assert not hasattr(g, "name")
+    def test_identity_stripped_for_training(self, modephere_library) -> None:
+        store, keys = modephere_library
+        g = GraphCache(keys, store=store).get_drug("CHEMBL25")
+        assert "drug_id" not in g
+        assert "inchikey" not in g
+
+    def test_cached_graph_is_not_mutated_by_inference_copies(
+        self, modephere_library
+    ) -> None:
+        store, keys = modephere_library
+        cache = GraphCache(keys, store=store, inference_mode=True)
+        cache.get_drug("CHEMBL25").x.zero_()
+        assert cache.get_drug("CHEMBL25").x.abs().sum().item() > 0
+
+
+def test_chembl_index_reads_the_store_registry(modephere_library) -> None:
+    store, keys = modephere_library
+    assert chembl_index(store) == keys

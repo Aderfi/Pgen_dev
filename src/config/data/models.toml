@@ -12,27 +12,24 @@
 
 # alleles (zygosity / star diplotype) and variant_annotation_id (allele-specific
 # HGVS link from the KG) feed the HGVS genotype graph.
-cols = ["drugs_cid", "drugs", "genotype", "gene", "alleles", "variant_annotation_id", "pmid", "phenotype_category"]
-features = ["drugs_cid", "genotype"]
+cols = ["drugs_chembl", "drugs", "genotype", "gene", "alleles", "variant_annotation_id", "pmid", "phenotype_category"]
+features = ["drugs_chembl", "genotype"]
 targets = ["phenotype_category"]
 #stratify_col = "phenotype_category"  # Column used for stratified splitting
 
 
 # --- Graph Input Dimensions (HARD REQUIREMENTS) ---
-# Must match DRUG_NODE_DIM / DRUG_EDGE_DIM / DRUG_GLOBAL_DIM in
-# src/data/library/drugs.py.
-drug_node_features = 61
-drug_attrs_features = 18
-drug_global_features = 1038   # per-molecule descriptor vector: 14 QSAR physchem + 1024 ECFP4
-drug_admet_features = 41      # predicted ADMET/CYP profile (ADMET-AI); see src/data/library/admet.py
-
+# Drug Tower — Modephere's molecule graph (modephere.featurize.molecule_data).
+# Its widths come from Modephere's layout (modephere.types.layouts
+# MOLECULE_GRAPH_V1: today 61 node / 18 edge / 1038 global) and the ADMET-AI
+# profile from src/data/library/admet.py (DRUG_ADMET_DIM, 41); see GraphDims in
+# src/data/cache.py. Set drug_node_features / drug_attrs_features /
+# drug_global_features / drug_admet_features here only to override them.
     # NODES --> element[13], degree[7], valence[7], charge scalar+1h[5], hybridization[7],
     #           total_Hs[5], chirality[4], aromatic+in_ring[2], ring_sizes[5],
     #           gasteiger[1], electronegativity[1], H_donor+acceptor[2], mass+radicals[2]
     # EDGES --> bond_type[5], conjugated[1], in_ring[1], ring_sizes[5], stereo[6]
-    # GLOBAL --> MolWt, LogP, TPSA, HBD, HBA, RotBonds, FractionCSP3, RingCount,
-    #            AromaticRings, AliphaticRings, Heteroatoms, SaturatedRings, QED,
-    #            StereoCenters (14) + Morgan/ECFP4 fingerprint (1024)
+    # GLOBAL --> 14 QSAR physchem descriptors + Morgan/ECFP4 fingerprint (1024)
     # ADMET  --> absorption[8], distribution[3], metabolism/CYP[8], excretion[3],
     #            toxicity[19] = 41 predicted endpoints (decoupled from GLOBAL)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from modephere.types import ChemblID
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -63,7 +64,9 @@ class SinglePredictRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    drug_cid: PositiveInt = Field(..., description="PubChem Compound ID.")
+    drug_chembl_id: ChemblID = Field(
+        ..., description="ChEMBL parent ID of the drug, e.g. 'CHEMBL1771'."
+    )
     gene: str | None = Field(
         default=None,
         min_length=1,

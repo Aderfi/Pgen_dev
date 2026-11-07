@@ -15,12 +15,12 @@ HGVS = "NC_000010.11:g.100A>G"
 @pytest.fixture
 def resolver() -> EntityResolver:
     catalog = HgvsCatalog(labels={"rs1": (HGVS,)})
-    return EntityResolver(catalog, drug_col="drugs_cid")
+    return EntityResolver(catalog, drug_col="drugs_chembl")
 
 
 def _row(**kw: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "drugs_cid": "11",
+        "drugs_chembl": "11",
         "drugs": "a",
         "gene": "CYP2C19",
         "genotype": "rs1",
@@ -51,8 +51,8 @@ def test_row_id_duplicate_raises() -> None:
 
 
 def test_drug_keys_split_and_fallback(resolver: EntityResolver) -> None:
-    assert resolver.drugs(_row(drugs_cid="11|22", drugs="a|b")) == {"11", "22"}
-    row = _row(drugs_cid=None, drugs=" Platinum compounds ")
+    assert resolver.drugs(_row(drugs_chembl="11|22", drugs="a|b")) == {"11", "22"}
+    row = _row(drugs_chembl=None, drugs=" Platinum compounds ")
     assert resolver.drugs(row) == {"name:platinum compounds"}
 
 
@@ -76,8 +76,8 @@ def test_reference_only_genotype(resolver: EntityResolver) -> None:
 
 
 def test_pair_key_is_single_and_order_free(resolver: EntityResolver) -> None:
-    a = resolver.pair(_row(drugs_cid="22|11"))
-    b = resolver.pair(_row(drugs_cid="11|22"))
+    a = resolver.pair(_row(drugs_chembl="22|11"))
+    b = resolver.pair(_row(drugs_chembl="11|22"))
     assert a == b
     assert len(a) == 1
 

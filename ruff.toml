@@ -72,6 +72,8 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "src/kg/**/*.py" = ["TC001", "TC002", "TC003"]
 # FastAPI resolves route/dependency annotations at runtime as well.
 "src/api/**/*.py" = ["TC001", "TC002", "TC003"]
+# Pydantic config models of the library build (Path resolved at runtime).
+"src/data/library/config.py" = ["TC003"]
 "tests/**/*.py" = ["PLR2004", "S101"]
 # Standalone utility/visualisation scripts: kept formatted + linted, but not
 # held to the package's function-complexity budget.

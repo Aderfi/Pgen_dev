@@ -64,7 +64,7 @@ _CLASS_GROUPS = (
     ("Correlation", 4),
 )
 _CLASS_KIND = {"brier": "lo", "pearson_p": "p", "spearman_p": "p"}
-_PRED_GROUPS = {"row_id": "ids", "drugs_cid": "ids"}
+_PRED_GROUPS = {"row_id": "ids", "drugs_chembl": "ids"}
 _PRED_BARS = {"confidence", "max_tanimoto"}
 _LABEL_COLS = {
     "true_labels": "",

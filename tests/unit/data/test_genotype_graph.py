@@ -228,30 +228,109 @@ def test_catalog_round_trip(catalog, tmp_path: Path) -> None:
     assert loaded.variants_of("CYP2C19") == [G_A, G_FAR]
 
 
-def test_build_catalog_from_kg_exports(tmp_path: Path) -> None:
-    kg = tmp_path / "kg"
-    kg.mkdir()
-    pl.DataFrame(
-        {
-            "label": ["rs4244285", "rs4244285", "CYP2C19*2", "CYP2C19*1"],
-            "kind": ["rsid", "rsid", "star", "star"],
-            "hgvs_g": [G_A, G_T, G_A, None],
-        }
-    ).write_parquet(kg / "allele_variants.parquet")
-    pl.DataFrame({"annotation_id": ["42"], "hgvs_g": [G_A]}).write_parquet(
-        kg / "annotation_variants.parquet"
+def _export(schema: dict, rows: list[dict]) -> pl.DataFrame:
+    """A table in Modephere's export schema (absent columns null)."""
+    return pl.DataFrame(
+        [{k: r.get(k) for k in schema} for r in rows], schema=schema, orient="row"
     )
-    catalog = build_hgvs_catalog(
-        snp_table=tmp_path / "missing.tsv",
-        pharmvar_dir=tmp_path / "missing",
-        kg_dir=kg,
-        star_alleles_tsv=tmp_path / "missing.tsv",
+
+
+def test_build_catalog_from_modephere_exports(tmp_path: Path) -> None:
+    from modephere.pgx.export import (
+        ALLELE_VARIANT_SCHEMA,
+        ANNOTATION_VARIANT_SCHEMA,
+        HAPLOTYPE_SCHEMA,
+        VARIANT_SCHEMA,
     )
-    assert catalog.labels["rs4244285"] == (G_A, G_T)
+
+    pgx = tmp_path / "pgx"
+    pgx.mkdir()
+    _export(
+        VARIANT_SCHEMA,
+        [
+            {
+                "hgvs_g38": G_A,
+                "genes": ["CYP2C19", "LOC1"],
+                "rsids": ["rs4244285"],
+                "star_alleles": ["CYP2C19*2"],
+                "so_terms": ["splice_donor_variant"],
+                "p_hgvs": None,
+            },
+            {
+                "hgvs_g38": G_T,
+                "genes": ["LOC1", "CYP2C19"],
+                "rsids": ["rs4244285"],
+                "star_alleles": [],
+                "so_terms": [],
+                "p_hgvs": "NP_1.1:p.Pro227Thr",
+            },
+        ],
+    ).write_parquet(pgx / "variants.parquet")
+    _export(
+        HAPLOTYPE_SCHEMA,
+        [
+            {"name": "CYP2C19*2", "gene": "CYP2C19", "variants": [G_A]},
+            {
+                "name": "CYP2C19*1",
+                "gene": "CYP2C19",
+                "variants": [],
+                "is_reference": True,
+            },
+            {"name": "rs111858276", "gene": "DPYD", "variants": [G_T]},
+        ],
+    ).write_parquet(pgx / "haplotypes.parquet")
+    _export(
+        ALLELE_VARIANT_SCHEMA,
+        [
+            {"label": "rs4244285", "kind": "rsid", "hgvs_g38": G_A},
+            {"label": "CYP2C19 null", "kind": "cnv", "hgvs_g38": None},
+        ],
+    ).write_parquet(pgx / "allele_variants.parquet")
+    _export(
+        ANNOTATION_VARIANT_SCHEMA, [{"annotation_id": "42", "hgvs_g38": G_A}]
+    ).write_parquet(pgx / "annotation_variants.parquet")
+
+    catalog = build_hgvs_catalog(pgx_export=pgx, star_alleles_tsv=tmp_path / "x.tsv")
+    # an annotation label's own resolution beats the rsID's site alternatives
+    assert catalog.labels["rs4244285"] == (G_A,)
     assert catalog.labels["CYP2C19*2"] == (G_A,)
-    assert "CYP2C19*1" not in catalog.labels
+    assert catalog.labels["CYP2C19*1"] == ()  # reference: no variants
+    assert catalog.labels["DPYDrs111858276"] == (G_T,)  # never shadows the rsID
+    assert "CYP2C19 null" not in catalog.labels  # unresolved label
     assert catalog.annotations == {"42": (G_A,)}
-    assert catalog.info(G_A).gene == "CYP2C19"  # from the star label
+    assert catalog.info(G_A) == VariantInfo(
+        gene="CYP2C19", so_terms=("splice_donor_variant",), p_hgvs=None
+    )
+    assert catalog.info(G_T).gene == "CYP2C19"  # a named gene beats LOC1
+    assert catalog.info(G_T).p_hgvs == "NP_1.1:p.Pro227Thr"
+
+
+def test_rsid_without_a_label_lists_every_site_alternative(tmp_path: Path) -> None:
+    from modephere.pgx.export import VARIANT_SCHEMA
+
+    pgx = tmp_path / "pgx"
+    pgx.mkdir()
+    _export(
+        VARIANT_SCHEMA,
+        [
+            {
+                "hgvs_g38": G_T,
+                "genes": ["CYP2C19"],
+                "rsids": ["rs4244285"],
+                "star_alleles": [],
+                "so_terms": [],
+            },
+            {
+                "hgvs_g38": G_A,
+                "genes": ["CYP2C19"],
+                "rsids": ["rs4244285"],
+                "star_alleles": [],
+                "so_terms": [],
+            },
+        ],
+    ).write_parquet(pgx / "variants.parquet")
+    catalog = build_hgvs_catalog(pgx_export=pgx, star_alleles_tsv=tmp_path / "x.tsv")
+    assert catalog.labels["rs4244285"] == tuple(sorted((G_A, G_T)))
 
 
 # ------------------------------------------------------------------- packing

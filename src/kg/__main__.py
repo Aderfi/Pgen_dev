@@ -248,11 +248,9 @@ def _export() -> int:
     snapshot = training_snapshot_path()
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     with KnowledgeGraph.connect() as kg:
-        tables = {
-            snapshot.name: to_training_frame(kg.training_rows()),
-            "allele_variants.parquet": kg.export_allele_variants(),
-            "annotation_variants.parquet": kg.export_annotation_variants(),
-        }
+        # Allele / annotation -> HGVS links come from Modephere's pgx export now
+        # (the HGVS catalog); only the training rows are dev_Pgen's own.
+        tables = {snapshot.name: to_training_frame(kg.training_rows())}
     for name, df in tables.items():
         df.write_parquet(snapshot.parent / name)
         logger.info("Exported %d rows to %s", len(df), snapshot.parent / name)

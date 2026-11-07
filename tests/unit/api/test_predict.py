@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class TestSinglePredict:
     def test_503_when_model_artifacts_missing(self, client: TestClient) -> None:
         body = {
-            "drug_cid": 2244,
+            "drug_chembl_id": "CHEMBL25",
             "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
         }
         r = client.post("/v1/predict", json=body)
@@ -28,24 +28,25 @@ class TestSinglePredict:
                 or "failed" in r.json()["detail"].lower()
             )
 
-    def test_rejects_missing_drug_cid(self, client: TestClient) -> None:
+    def test_rejects_missing_drug(self, client: TestClient) -> None:
         body = {"allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}}
         r = client.post("/v1/predict", json=body)
         assert r.status_code == 422
 
     def test_rejects_missing_allele(self, client: TestClient) -> None:
-        body = {"drug_cid": 2244}
+        body = {"drug_chembl_id": "CHEMBL25"}
         r = client.post("/v1/predict", json=body)
         assert r.status_code == 422
 
-    def test_rejects_negative_cid(self, client: TestClient) -> None:
-        body = {"drug_cid": -1, "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"}}
+    def test_rejects_malformed_chembl_id(self, client: TestClient) -> None:
+        allele = {"gene": {"symbol": "CYP2D6"}, "allele": "4"}
+        body = {"drug_chembl_id": "2244", "allele": allele}
         r = client.post("/v1/predict", json=body)
         assert r.status_code == 422
 
     def test_rejects_extra_fields(self, client: TestClient) -> None:
         body = {
-            "drug_cid": 2244,
+            "drug_chembl_id": "CHEMBL25",
             "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
             "rogue": "value",
         }
@@ -56,7 +57,7 @@ class TestSinglePredict:
 class TestHgvsPredict:
     def test_accepts_hgvs_genotype(self, client: TestClient) -> None:
         body = {
-            "drug_cid": 2244,
+            "drug_chembl_id": "CHEMBL25",
             "gene": "CYP2C19",
             "hgvs": ["NC_000010.11:g.94781859G>A"],
             "alleles": "AG",
@@ -64,11 +65,15 @@ class TestHgvsPredict:
         assert client.post("/v1/predict", json=body).status_code in {200, 503}
 
     def test_rejects_invalid_hgvs(self, client: TestClient) -> None:
-        body = {"drug_cid": 2244, "gene": "CYP2C19", "hgvs": ["NC_000010.11:g.?xyz"]}
+        body = {
+            "drug_chembl_id": "CHEMBL25",
+            "gene": "CYP2C19",
+            "hgvs": ["NC_000010.11:g.?xyz"],
+        }
         assert client.post("/v1/predict", json=body).status_code == 422
 
     def test_rejects_hgvs_without_reference(self, client: TestClient) -> None:
-        body = {"drug_cid": 2244, "gene": "CYP2C19", "hgvs": ["c.681G>A"]}
+        body = {"drug_chembl_id": "CHEMBL25", "gene": "CYP2C19", "hgvs": ["c.681G>A"]}
         assert client.post("/v1/predict", json=body).status_code == 422
 
 
@@ -79,13 +84,16 @@ class TestBatchPredict:
 
     def test_rejects_oversized_batch(self, client: TestClient) -> None:
         # Schema caps at 100 — 101 must fail validation.
-        pair = {"drug_cid": 1, "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "1"}}
+        pair = {
+            "drug_chembl_id": "CHEMBL1",
+            "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "1"},
+        }
         r = client.post("/v1/predict/batch", json={"pairs": [pair] * 101})
         assert r.status_code == 422
 
     def test_503_or_200_with_valid_pairs(self, client: TestClient) -> None:
         pair = {
-            "drug_cid": 2244,
+            "drug_chembl_id": "CHEMBL25",
             "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
         }
         r = client.post("/v1/predict/batch", json={"pairs": [pair]})

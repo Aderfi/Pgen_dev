@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
+from modephere.types import ChemblID
+from pydantic import ConfigDict, Field, field_validator
 from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 from torch_geometric.data import Data as PyGData
@@ -30,10 +31,8 @@ class Drug(DrugDomainModel):
     name: str = Field(
         ..., description="Cleaned drug name; used for filenames and display."
     )
-    cid: PositiveInt = Field(..., description="PubChem Compound ID.")
-    sid: PositiveInt | None = Field(
-        default=None,
-        description="PubChem Substance ID, only for substances that are not compounds.",
+    chembl_id: ChemblID = Field(
+        ..., description="ChEMBL parent ID, the drug's key across dev_Pgen."
     )
     smiles: str = Field(..., description="Canonical SMILES string.")
     ph_group: str | None = Field(
@@ -59,7 +58,7 @@ class Drug(DrugDomainModel):
         cls,
         *,
         name: str,
-        cid: int,
+        chembl_id: str,
         smiles: str,
         ph_group: str | None = None,
         graph: PyGData | None = None,
@@ -72,14 +71,14 @@ class Drug(DrugDomainModel):
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             msg = (
-                f"RDKit could not parse SMILES {smiles!r} for drug {name!r} (CID {cid})"
+                f"RDKit could not parse SMILES {smiles!r} for drug {name!r} "
+                f"({chembl_id})"
             )
             raise ValueError(msg)
         canonical = Chem.MolToSmiles(mol)
         return cls(
             name=name,
-            cid=cid,
-            sid=None,
+            chembl_id=chembl_id,
             smiles=canonical,
             ph_group=ph_group,
             molecule=mol,

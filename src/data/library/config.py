@@ -2,172 +2,70 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from src.config import get_settings
+from src.config import ModephereSettings, get_settings
 from src.data.genotype.catalog import HGVS_CATALOG_FILE
+
+ADMET_FILE = "admet_profile.parquet"
 
 
 class LibraryBuildConfig(BaseModel):
-    """All inputs and outputs for a library build, validated up front.
+    """What one ``python -m src.data.library`` run reads, writes and does.
 
-    Defaults are derived from ``Settings`` so callers can usually do
-    ``LibraryBuildConfig.from_settings()`` and be done. Any field can be
-    overridden at construction.
+    Modephere's locations and Neo4j connection travel in ``modephere``
+    (``Settings.modephere``); dev_Pgen's own outputs — the ADMET table and the
+    HGVS catalog — live under ``library_root`` (``Settings.paths.library``).
     """
 
     model_config = ConfigDict(frozen=True)
 
-    # Inputs
-    variants_tsv: Path = Field(
-        ..., description="Pan-gene SNP table (snp_data_output.tsv style)."
-    )
-    drugs_tsv: Path = Field(
-        ...,
-        description="Drug catalog: .tsv/.csv (cid, smiles, cmpd_name_cleaned) "
-        "or .json ({cid: smiles}).",
-    )
-    pgx_dir: Path = Field(
-        ..., description="PharmVar haplotype folder (one subdir per gene)."
-    )
-    kg_dir: Path = Field(
-        ...,
-        description="Knowledge-graph exports (allele_variants / annotation_variants "
-        "parquet from 'python -m src.kg export') — the canonical HGVS links.",
-    )
-
-    # Outputs
+    modephere: ModephereSettings
     library_root: Path = Field(
-        ..., description="Root of the produced library (drugs/ and hgvs_catalog.pt)."
-    )
-
-    # Behaviour
-    force: bool = Field(
-        default=False, description="Overwrite existing .pt files (default: skip)."
-    )
-    skip_drugs: bool = False
-    skip_genes: bool = False
-
-    skip_pharm: bool = Field(
-        default=False, description="Skip the pharmacophore graph pipeline."
-    )
-    skip_admet: bool = Field(
-        default=False,
-        description="Skip ADMET prediction; drug graphs get a zero admet_feats "
-        "vector instead of the predicted profile (no GPU / fast CI builds).",
-    )
-    force_admet: bool = Field(
-        default=False,
-        description="Recompute the ADMET cache even if a valid one exists.",
-    )
-    admet_cache: Path = Field(
-        ..., description="Parquet cache for the predicted ADMET profile table."
+        ..., description="dev_Pgen's library root (hgvs_catalog.pt, ADMET table)."
     )
     star_alleles_tsv: Path = Field(
         ...,
         description="Star-allele function table (gene, allele, function, notes) "
         "— the PGx function of star alleles in the genotype graphs.",
     )
-    strip_salts: bool = Field(
-        default=True,
-        description="Reduce multi-fragment drug SMILES to their largest fragment "
-        "(drop salt counterions) before building the graph.",
-    )
-    log_failures_path: Path | None = Field(
-        default=None,
-        description="Path for the drug-generation failure report; defaults to "
-        "logs/library/drug_build_failures_<date>.log.",
-    )
-    log_saturation_path: Path | None = Field(
-        default=None,
-        description="Path for the one-hot feature-saturation report; defaults to "
-        "logs/library/drug_feature_saturation_<date>.log.",
-    )
 
-    log_pharm_failures_path: Path | None = Field(
-        default=None,
-        description="Path for the pharmacophore failure report; defaults to "
-        "logs/library/pharm_build_failures_<date>.log.",
+    refresh_pgx: bool = Field(
+        default=False,
+        description="Re-export Modephere's pgx tables from its Neo4j first.",
     )
-
-    @field_validator(
-        "variants_tsv",
-        "drugs_tsv",
-        "pgx_dir",
-        "kg_dir",
-        "library_root",
-        "admet_cache",
-        "star_alleles_tsv",
-        mode="before",
+    force: bool = Field(default=False, description="Rebuild drugs already stored.")
+    skip_drugs: bool = False
+    skip_genes: bool = False
+    skip_admet: bool = Field(
+        default=False,
+        description="Leave the ADMET table as it is (drugs without a profile get "
+        "a zero admet_feats; no GPU / fast builds).",
     )
-    @classmethod
-    def _coerce_path(cls, v: object) -> Path:
-        return Path(v) if not isinstance(v, Path) else v
-
-    @property
-    def drugs_out(self) -> Path:
-        return self.library_root / "drugs"
-
-    @property
-    def pharm_out(self) -> Path:
-        return self.library_root / "pharmacophores"
+    force_admet: bool = Field(
+        default=False, description="Recompute every ADMET profile."
+    )
 
     @property
     def hgvs_catalog_path(self) -> Path:
         return self.library_root / HGVS_CATALOG_FILE
 
     @property
-    def manifest_path(self) -> Path:
-        return self.library_root / "build_manifest.json"
-
-    def ensure_outputs(self) -> None:
-        """Create output directories. Inputs are NOT created — they must exist."""
-        self.library_root.mkdir(parents=True, exist_ok=True)
-        self.drugs_out.mkdir(parents=True, exist_ok=True)
-        self.pharm_out.mkdir(parents=True, exist_ok=True)
+    def admet_path(self) -> Path:
+        return self.library_root / ADMET_FILE
 
     @classmethod
-    def from_settings(
-        cls,
-        *,
-        variants_tsv: Path | None = None,
-        drugs_tsv: Path | None = None,
-        force: bool = False,
-        skip_drugs: bool = False,
-        skip_genes: bool = False,
-        skip_admet: bool = False,
-        force_admet: bool = False,
-        strip_salts: bool = True,
-        skip_pharm: bool = False,
-    ) -> LibraryBuildConfig:
-        """Build a config rooted at the project's standard paths."""
+    def from_settings(cls, **flags: bool) -> LibraryBuildConfig:
+        """Config rooted at the project's settings; ``flags`` set the behaviour."""
         settings = get_settings()
-        data_dir = settings.paths.data
-        dicts_dir = data_dir / "dicts"
-        stamp = datetime.now(tz=UTC).strftime("%Y%m%d")
-        library_logs = settings.paths.logs / "library"
-        log_failures_path = library_logs / f"drug_build_failures_{stamp}.log"
-        log_saturation_path = library_logs / f"drug_feature_saturation_{stamp}.log"
-        log_pharm_failures_path = library_logs / f"pharm_build_failures_{stamp}.log"
         return cls(
-            variants_tsv=variants_tsv or data_dir / "snp_data_output.tsv",
-            drugs_tsv=drugs_tsv or data_dir / "drugs_cid.tsv",
-            kg_dir=settings.paths.library / "kg",
-            pgx_dir=data_dir / "haplotype_variants",
+            modephere=settings.modephere,
             library_root=settings.paths.library,
-            admet_cache=settings.paths.library / "admet_profile.parquet",
-            star_alleles_tsv=dicts_dir / "star_alleles.tsv",
-            force=force,
-            skip_drugs=skip_drugs,
-            skip_genes=skip_genes,
-            skip_admet=skip_admet,
-            force_admet=force_admet,
-            strip_salts=strip_salts,
-            log_failures_path=log_failures_path,
-            log_saturation_path=log_saturation_path,
-            skip_pharm=skip_pharm,
-            log_pharm_failures_path=log_pharm_failures_path,
+            star_alleles_tsv=settings.paths.data / "dicts" / "star_alleles.tsv",
+            **flags,
         )
+
+
+__all__ = ["ADMET_FILE", "LibraryBuildConfig"]

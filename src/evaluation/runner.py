@@ -29,7 +29,6 @@ from src.core import EvaluationError
 from src.data.cache import GraphCache
 from src.data.encoders import UNKNOWN_CATEGORY_LABEL
 from src.data.genotype import load_hgvs_catalog
-from src.data.graph_indexing import GraphIndexBuilder
 from src.evaluation import DEFAULT_BOOTSTRAP, EVAL_DIRNAME, MIN_POSITIVES
 from src.evaluation.baselines import (
     BASELINES,
@@ -175,8 +174,7 @@ def _available_folds(model_name: str, scenario: Scenario, k: int) -> list[int]:
 
 
 def _fingerprint_cache() -> GraphCache:
-    index = GraphIndexBuilder.build_drug_index(get_settings().paths.library / "drugs")
-    return GraphCache(index)
+    return GraphCache.from_settings()
 
 
 # --------------------------------------------------------------------------- #
@@ -313,7 +311,7 @@ def _prediction_table(
 
     keep = [
         c
-        for c in ("drugs", "drugs_cid", "gene", "genotype", "alleles")
+        for c in ("drugs", "drugs_chembl", "gene", "genotype", "alleles")
         if c in df.columns
     ]
     table = df.select(ROW_ID, "fold", *keep).with_columns(

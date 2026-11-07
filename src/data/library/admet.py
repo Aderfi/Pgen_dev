@@ -36,9 +36,11 @@ Representation
 
 Reproducibility
 ---------------
-Predictions are computed once over the whole catalog (the D-MPNN ensemble load
-dominates the cost) and persisted to a Parquet cache keyed by ``cid``; a second
-build reuses the cache. See :func:`load_or_build_admet_table`.
+Predictions run on each library compound's ``working_smiles`` — the
+standardized parent Modephere builds the atom graph from, salts already
+removed — and are persisted to a Parquet cache keyed by ``inchikey``. A build
+predicts only the compounds the cache lacks (the D-MPNN ensemble load dominates
+the cost, so they go in one batch). See :func:`update_admet_table`.
 """
 
 from __future__ import annotations
@@ -49,8 +51,6 @@ from typing import TYPE_CHECKING
 import polars as pl
 import torch
 from rdkit import Chem
-
-from src.data.library.drugs import _largest_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -141,43 +141,15 @@ _REGRESSION_ENDPOINTS: frozenset[str] = frozenset(
 DRUG_ADMET_DIM: int = len(ADMET_ENDPOINTS)
 
 _PERCENTILE_SUFFIX = "_drugbank_approved_percentile"
-_CID_COL = "cid"
+_KEY = "inchikey"
+ADMET_COLUMNS: tuple[str, ...] = (_KEY, *ADMET_ENDPOINTS)
 
 
-def records_from_rows(rows: Iterable[dict]) -> list[tuple[int, str]]:
-    """Extract clean ``(cid, smiles)`` pairs from raw drug-catalog rows.
-
-    Mirrors the cid/SMILES validation in ``DrugGraphBuilder._build_one`` (integer
-    CID, non-empty SMILES); rows failing either are skipped here and surface as
-    proper build failures downstream.
-    """
-    records: list[tuple[int, str]] = []
-    for row in rows:
-        cid_raw = row.get("cid")
-        smiles_raw = row.get("smiles")
-        try:
-            cid = int(str(cid_raw).strip())
-        except TypeError, ValueError:
-            continue
-        smiles = str(smiles_raw).strip() if smiles_raw is not None else ""
-        if smiles:
-            records.append((cid, smiles))
-    return records
-
-
-def _canonical_smiles(smiles: str, *, strip_salts: bool) -> str | None:
-    """Parse, optionally strip salts, and canonicalise a SMILES.
-
-    ADMET-AI is run on the same moiety the graph encodes — the largest fragment
-    when ``strip_salts`` is on — so the predicted profile matches the structure.
-    Returns ``None`` if RDKit cannot parse the input.
-    """
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    if strip_salts:
-        mol = _largest_fragment(mol)
-    return Chem.MolToSmiles(mol)
+def _empty_table() -> pl.DataFrame:
+    return pl.DataFrame(
+        {_KEY: pl.Series(_KEY, [], dtype=pl.String)}
+        | {e: pl.Series(e, [], dtype=pl.Float64) for e in ADMET_ENDPOINTS}
+    )
 
 
 def _select_columns(raw: pl.DataFrame) -> pl.DataFrame:
@@ -203,151 +175,144 @@ def _select_columns(raw: pl.DataFrame) -> pl.DataFrame:
     return raw.select(exprs)
 
 
-def compute_admet_table(
-    records: Iterable[tuple[int, str]],
-    *,
-    strip_salts: bool = True,
-) -> pl.DataFrame:
-    """Predict the ADMET profile for ``(cid, smiles)`` records.
+def compute_admet_table(records: Iterable[tuple[str, str]]) -> pl.DataFrame:
+    """Predict the ADMET profile of ``(inchikey, smiles)`` records in one batch.
 
-    Loads the ADMET-AI D-MPNN ensemble once and predicts over every unique,
-    parseable structure in a single batched pass (the model load dominates the
-    cost, so per-molecule prediction would be pathologically slow). Returns a
-    DataFrame with a ``cid`` column plus the :data:`ADMET_ENDPOINTS` columns;
-    unparseable SMILES are dropped (and logged) rather than poisoning the table.
+    Returns ``inchikey`` plus the :data:`ADMET_ENDPOINTS` columns; SMILES RDKit
+    cannot parse are dropped (and logged) rather than poisoning the table.
     """
-    # Imported lazily: heavy (torch/lightning) and only needed at build time.
-    from admet_ai import ADMETModel
-
-    # Tensor-core throughput on the descriptor MLP — opt in to the faster matmul.
-    torch.set_float32_matmul_precision("high")
-
-    cids: list[int] = []
+    keys: list[str] = []
     smiles: list[str] = []
     dropped = 0
-    for cid, raw_smiles in records:
-        canonical = _canonical_smiles(raw_smiles, strip_salts=strip_salts)
-        if canonical is None:
+    for key, raw in dict(records).items():
+        mol = Chem.MolFromSmiles(raw)
+        if mol is None:
             dropped += 1
             continue
-        cids.append(cid)
-        smiles.append(canonical)
-
+        keys.append(key)
+        smiles.append(Chem.MolToSmiles(mol))
     if dropped:
         logger.warning(
             "ADMET: dropped %d unparseable SMILES before prediction", dropped
         )
     if not smiles:
-        logger.warning("ADMET: no parseable SMILES; returning empty table")
-        return pl.DataFrame({_CID_COL: []}).with_columns(
-            [pl.lit(0.0).alias(e) for e in ADMET_ENDPOINTS]
-        )
+        return _empty_table()
 
+    # Imported lazily: heavy (torch/lightning) and only needed at build time.
+    from admet_ai import ADMETModel
+
+    # Tensor-core throughput on the descriptor MLP — opt in to the faster matmul.
+    torch.set_float32_matmul_precision("high")
     logger.info("ADMET: loading ADMET-AI model ensemble...")
     model = ADMETModel(num_workers=0)
     logger.info("ADMET: predicting %d molecules (batched)...", len(smiles))
-    raw = model.predict(smiles=smiles)
-    if not isinstance(raw, pl.DataFrame):
+    raw_out = model.predict(smiles=smiles)
+    if not isinstance(raw_out, pl.DataFrame):
         # ADMET-AI returns a pandas DataFrame (or dict for a single molecule).
         import pandas as pd
 
-        raw = pl.from_pandas(pd.DataFrame([raw]) if isinstance(raw, dict) else raw)
-
-    profile = _select_columns(raw)
-    table = profile.with_columns(pl.Series(_CID_COL, cids)).select(
-        [_CID_COL, *ADMET_ENDPOINTS]
-    )
-    # Collapse duplicate CIDs (same drug listed twice) to a single row.
-    table = table.unique(subset=[_CID_COL], keep="first")
-    logger.info("ADMET: built profile table for %d unique CIDs", table.height)
-    return table
+        frame = pd.DataFrame([raw_out]) if isinstance(raw_out, dict) else raw_out
+        raw_out = pl.from_pandas(frame)
+    profile = _select_columns(raw_out)
+    return profile.with_columns(pl.Series(_KEY, keys)).select(ADMET_COLUMNS)
 
 
-def load_or_build_admet_table(
-    records: Iterable[tuple[int, str]],
-    cache_path: Path,
-    *,
-    strip_salts: bool = True,
-    force: bool = False,
-) -> pl.DataFrame:
-    """Return the ADMET profile table, reusing the Parquet cache when valid.
-
-    The cache at ``cache_path`` is reused unless ``force`` is set or its schema
-    no longer matches the current :data:`ADMET_ENDPOINTS` (e.g. the endpoint set
-    changed) — in which case it is recomputed and rewritten.
-    """
-    expected = {_CID_COL, *ADMET_ENDPOINTS}
-    if cache_path.exists() and not force:
-        cached = pl.read_parquet(cache_path)
-        if set(cached.columns) == expected:
-            logger.info("ADMET: reusing cache %s (%d rows)", cache_path, cached.height)
-            return cached
+def read_admet_table(path: Path) -> pl.DataFrame | None:
+    """The cached table, or None when absent or written with other endpoints."""
+    if not path.exists():
+        return None
+    cached = pl.read_parquet(path)
+    if tuple(cached.columns) != ADMET_COLUMNS:
         logger.warning(
-            "ADMET: cache %s schema mismatch (%d cols) — recomputing",
-            cache_path,
+            "ADMET: cache %s has other columns (%d) than the current endpoint set; "
+            "it is recomputed",
+            path,
             len(cached.columns),
         )
+        return None
+    return cached
 
-    table = compute_admet_table(records, strip_salts=strip_salts)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    table.write_parquet(cache_path)
-    logger.info("ADMET: wrote cache %s (%d rows)", cache_path, table.height)
+
+def update_admet_table(
+    records: Iterable[tuple[str, str]], path: Path, *, force: bool = False
+) -> pl.DataFrame:
+    """Profiles of ``(inchikey, smiles)`` records, predicting only what ``path`` lacks.
+
+    ``force`` recomputes every record. Rows of the cache whose compound is no
+    longer in ``records`` are kept (the cache only grows).
+    """
+    wanted = dict(records)
+    cached = None if force else read_admet_table(path)
+    have = set() if cached is None else set(cached[_KEY].to_list())
+    missing = [(k, smi) for k, smi in wanted.items() if k not in have]
+    if not missing and cached is not None:
+        logger.info("ADMET: cache %s covers all %d compounds", path, len(wanted))
+        return cached
+    logger.info(
+        "ADMET: %d of %d compounds need a profile (cache=%s, force=%s)",
+        len(missing),
+        len(wanted),
+        path,
+        force,
+    )
+    fresh = compute_admet_table(missing)
+    table = fresh if cached is None else pl.concat([cached, fresh])
+    table = table.unique(_KEY, keep="last").sort(_KEY)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".parquet.tmp")
+    table.write_parquet(tmp)
+    tmp.replace(path)
+    logger.info("ADMET: wrote %s (%d compounds)", path, table.height)
     return table
 
 
 class AdmetProvider:
-    """Lookup from ``cid`` to its normalised :data:`DRUG_ADMET_DIM` vector.
+    """Lookup from InChIKey to its normalised :data:`DRUG_ADMET_DIM` vector.
 
-    Missing CIDs (drug absent from the table, e.g. an unparseable SMILES) yield a
-    zero vector — a valid "no predicted profile" input — and are tallied in
-    :attr:`misses` so the gap is observable at build time.
+    Compounds absent from the table (an unparseable SMILES, an ADMET-free build)
+    yield a zero vector — a valid "no predicted profile" input — and are tallied
+    in :attr:`misses` so the gap is observable.
     """
 
     def __init__(self, table: pl.DataFrame) -> None:
-        self._vectors: dict[int, torch.Tensor] = {}
+        self._vectors: dict[str, torch.Tensor] = {}
         feats = torch.from_numpy(table.select(ADMET_ENDPOINTS).to_numpy()).float()
-        for cid, row in zip(table.get_column(_CID_COL).to_list(), feats, strict=True):
-            self._vectors[int(cid)] = row.unsqueeze(0).contiguous()
+        for key, row in zip(table.get_column(_KEY).to_list(), feats, strict=True):
+            self._vectors[str(key)] = row.unsqueeze(0).contiguous()
         self._zero = torch.zeros((1, DRUG_ADMET_DIM), dtype=torch.float)
         self.misses = 0
 
     @classmethod
     def null(cls) -> AdmetProvider:
-        """A provider with no entries — every lookup returns a zero vector.
-
-        Used for ADMET-free builds (``--skip-admet``): the graph schema stays
-        complete (``admet_feats`` present) but carries no predicted signal.
-        """
-        empty = pl.DataFrame(
-            {_CID_COL: pl.Series(_CID_COL, [], dtype=pl.Int64)},
-        ).with_columns([pl.lit(0.0).alias(e) for e in ADMET_ENDPOINTS])
-        return cls(empty)
+        """No entries: every lookup is a zero vector (``--skip-admet`` builds)."""
+        return cls(_empty_table())
 
     @classmethod
-    def from_records(
-        cls,
-        records: Iterable[tuple[int, str]],
-        cache_path: Path,
-        *,
-        strip_salts: bool = True,
-        force: bool = False,
-    ) -> AdmetProvider:
-        """Build a provider, computing/loading the table via the Parquet cache."""
-        table = load_or_build_admet_table(
-            records, cache_path, strip_salts=strip_salts, force=force
-        )
+    def load(cls, path: Path) -> AdmetProvider:
+        """The provider over the cached table at ``path`` (empty, with a warning, if none)."""
+        table = read_admet_table(path)
+        if table is None:
+            logger.warning(
+                "ADMET table %s not found or stale: drugs get a zero admet_feats; "
+                "build it with 'python -m src.data.library'",
+                path,
+            )
+            return cls.null()
         return cls(table)
 
-    def vector_for(self, cid: int) -> torch.Tensor:
-        """Return the ``[1, DRUG_ADMET_DIM]`` ADMET vector for ``cid`` (or zeros)."""
-        vector = self._vectors.get(cid)
+    def vector_for(self, inchikey: str) -> torch.Tensor:
+        """The ``[1, DRUG_ADMET_DIM]`` vector of ``inchikey`` (zeros if unknown)."""
+        vector = self._vectors.get(inchikey)
         if vector is None:
             self.misses += 1
             return self._zero.clone()
         return vector.clone()
 
-    def __contains__(self, cid: int) -> bool:
-        return cid in self._vectors
+    def __contains__(self, inchikey: str) -> bool:
+        return inchikey in self._vectors
+
+    def __len__(self) -> int:
+        return len(self._vectors)
 
 
 def zero_admet_vector() -> torch.Tensor:
@@ -356,11 +321,12 @@ def zero_admet_vector() -> torch.Tensor:
 
 
 __all__ = [
+    "ADMET_COLUMNS",
     "ADMET_ENDPOINTS",
     "DRUG_ADMET_DIM",
     "AdmetProvider",
     "compute_admet_table",
-    "load_or_build_admet_table",
-    "records_from_rows",
+    "read_admet_table",
+    "update_admet_table",
     "zero_admet_vector",
 ]

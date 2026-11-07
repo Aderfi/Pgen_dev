@@ -84,7 +84,7 @@ def frame() -> pl.DataFrame:
         pl.DataFrame(
             {
                 "variant_annotation_id": list(range(n)),
-                "drugs_cid": [str(i % 12) for i in range(n)],
+                "drugs_chembl": [str(i % 12) for i in range(n)],
                 "drugs": [f"d{i % 12}" for i in range(n)],
                 "gene": [f"G{i % 7}" for i in range(n)],
                 "genotype": [f"rs{i % 9}" for i in range(n)],
@@ -100,7 +100,7 @@ def frame() -> pl.DataFrame:
 
 @pytest.fixture
 def resolver() -> EntityResolver:
-    return EntityResolver(HgvsCatalog(), drug_col="drugs_cid")
+    return EntityResolver(HgvsCatalog(), drug_col="drugs_chembl")
 
 
 def test_save_load_roundtrip(tmp_path, monkeypatch, frame, resolver) -> None:
@@ -179,4 +179,4 @@ def test_fold_frames_partition(frame, resolver) -> None:
     assert not ids[1] & ids[2]
     kept = set(assignment.filter(pl.col("fold_0") != "drop")[ROW_ID].to_list())
     assert ids[0] | ids[1] | ids[2] == kept
-    assert not set(train["drugs_cid"]) & set(test["drugs_cid"])
+    assert not set(train["drugs_chembl"]) & set(test["drugs_chembl"])

@@ -15,27 +15,27 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from src.data.library.ingest.graph_artifact import DDI_EDGE_DIM
+from src.data.ddi import DDI_EDGE_DIM
 
 if TYPE_CHECKING:
     from torch_geometric.data.data import Data
 
     from src.data.cache import GraphCache
-    from src.data.library.ingest.graph_artifact import DDIGraph
+    from src.data.ddi import DDIGraph
 
 logger = logging.getLogger(__name__)
 
 
 class PseudoPatientBuilder:
-    """Assemble a focal-anchored pseudo-patient sample from a focal drug cid.
+    """Assemble a focal-anchored pseudo-patient sample from a focal drug ID.
 
     The focal drug is always local node index 0; kept neighbours occupy
     local indices ``1..n`` in the order the DDI graph returns them. A
-    neighbour reported by the DDI graph but lacking an on-disk molecular
-    graph in ``cache`` (``str(cid) not in cache.drug_index``) is dropped —
-    its DDI edge and edge-attr row are dropped together via a single
-    filter pass, so the kept-neighbour cid list and its edge-attr rows
-    never drift out of alignment with each other.
+    neighbour reported by the DDI graph but lacking a molecular graph in
+    ``cache`` (``drug_id not in cache.drug_index``) is dropped — its DDI
+    edge and edge-attr row are dropped together via a single filter pass, so
+    the kept-neighbour list and its edge-attr rows never drift out of
+    alignment with each other.
     """
 
     def __init__(
@@ -45,8 +45,8 @@ class PseudoPatientBuilder:
         self.cache = cache
         self.max_neighbors = max_neighbors
 
-    def build(self, focal_cid: str) -> dict:
-        """Build the pseudo-patient dict for ``focal_cid``.
+    def build(self, focal_id: str) -> dict:
+        """Build the pseudo-patient dict for ``focal_id``.
 
         Returns a dict with:
             - ``molecules``: ``list[Data]``, focal graph at index 0.
@@ -57,42 +57,39 @@ class PseudoPatientBuilder:
               row-for-row with ``ddi_edge_index`` columns.
             - ``is_focal``: ``Tensor[long]``, 1 at index 0, 0 elsewhere.
         """
-        if focal_cid not in self.cache.drug_index:
+        if focal_id not in self.cache.drug_index:
             # A resolvable focal molecule is the whole point of the sample; a
             # placeholder still trains but silently on no chemistry, so warn.
             logger.warning(
                 "Focal drug %s has no molecular graph in cache; using a "
                 "placeholder graph.",
-                focal_cid,
+                focal_id,
             )
-        molecules: list[Data] = [self.cache.get_drug(focal_cid)]
+        molecules: list[Data] = [self.cache.get_drug(focal_id)]
         is_focal: list[int] = [1]
 
-        neigh_cids, neigh_attr = self.ddi.neighbors(
-            int(focal_cid), k=self.max_neighbors
-        )
+        neigh_ids, neigh_attr = self.ddi.neighbors(focal_id, k=self.max_neighbors)
 
-        focal_int = int(focal_cid)
-        kept_cids: list[int] = []
+        kept_ids: list[str] = []
         kept_rows: list[torch.Tensor] = []
-        for cid, row in zip(neigh_cids, neigh_attr, strict=True):
-            if cid == focal_int:
+        for drug_id, row in zip(neigh_ids, neigh_attr, strict=True):
+            if drug_id == focal_id:
                 # A self-interaction row in the DDI export must not duplicate the
                 # focal drug as its own neighbour.
                 continue
-            if str(cid) in self.cache.drug_index:
-                kept_cids.append(cid)
+            if drug_id in self.cache.drug_index:
+                kept_ids.append(drug_id)
                 kept_rows.append(row)
             else:
                 logger.debug(
                     "Dropping DDI neighbour %s of focal %s: no molecular "
                     "graph in cache",
-                    cid,
-                    focal_cid,
+                    drug_id,
+                    focal_id,
                 )
 
-        for cid in kept_cids:
-            molecules.append(self.cache.get_drug(str(cid)))
+        for drug_id in kept_ids:
+            molecules.append(self.cache.get_drug(drug_id))
             is_focal.append(0)
 
         src: list[int] = []

@@ -13,7 +13,7 @@ from src.evaluation.entities import EntityResolver, Scenario, add_row_id
 
 @pytest.fixture
 def resolver() -> EntityResolver:
-    return EntityResolver(HgvsCatalog(), drug_col="drugs_cid")
+    return EntityResolver(HgvsCatalog(), drug_col="drugs_chembl")
 
 
 def _frame(rows: list[tuple[str, str, str, str]], start: int = 0) -> pl.DataFrame:
@@ -21,7 +21,7 @@ def _frame(rows: list[tuple[str, str, str, str]], start: int = 0) -> pl.DataFram
         pl.DataFrame(
             {
                 "variant_annotation_id": list(range(start, start + len(rows))),
-                "drugs_cid": [r[0] for r in rows],
+                "drugs_chembl": [r[0] for r in rows],
                 "drugs": ["x"] * len(rows),
                 "genotype": [r[1] for r in rows],
                 "gene": [r[2] for r in rows],

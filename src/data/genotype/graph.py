@@ -47,7 +47,7 @@ from src.data.genotype.features import (
     start_position,
     variant_node_vector,
 )
-from src.data.library.haplotype_function import PATH_FUNCTION_DIM
+from src.data.genotype.haplotype_function import PATH_FUNCTION_DIM
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

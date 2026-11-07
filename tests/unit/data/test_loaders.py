@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 def tsv_file(tmp_path: Path) -> Path:
     p = tmp_path / "sample.tsv"
     p.write_text(
-        "drugs_cid\tdrugs\tgene\tgenotype\n"
-        "2244\taspirin\tCYP2D6\trs3892097\n"
-        "1234\tcaffeine\tCYP1A2\trs762551\n"
+        "drugs_chembl\tdrugs\tgene\tgenotype\n"
+        "CHEMBL25\taspirin\tCYP2D6\trs3892097\n"
+        "CHEMBL1234\tcaffeine\tCYP1A2\trs762551\n"
     )
     return p
 
@@ -32,8 +32,8 @@ class TestTabularLoader:
     def test_loads_tsv_with_default_separator(self, tsv_file: Path) -> None:
         df = TabularLoader.load(tsv_file)
         assert df.shape == (2, 4)
-        assert set(df.columns) == {"drugs_cid", "drugs", "gene", "genotype"}
-        assert df["drugs_cid"].to_list() == ["2244", "1234"]
+        assert set(df.columns) == {"drugs_chembl", "drugs", "gene", "genotype"}
+        assert df["drugs_chembl"].to_list() == ["CHEMBL25", "CHEMBL1234"]
 
     def test_csv_uses_comma(self, csv_file: Path) -> None:
         df = TabularLoader.load(csv_file, schema=None)
@@ -49,8 +49,8 @@ class TestTabularLoader:
         assert df["b"].to_list() == ["foo", "bar"]
 
     def test_columns_projection(self, tsv_file: Path) -> None:
-        df = TabularLoader.load(tsv_file, columns=["drugs_cid", "gene"])
-        assert df.columns == ["drugs_cid", "gene"]
+        df = TabularLoader.load(tsv_file, columns=["drugs_chembl", "gene"])
+        assert df.columns == ["drugs_chembl", "gene"]
 
     def test_nulls_unified(self, tmp_path: Path) -> None:
         p = tmp_path / "nulls.tsv"
@@ -71,4 +71,4 @@ class TestTabularLoader:
     def test_train_data_schema_is_dict(self) -> None:
         # If someone accidentally turns it into a list, schema= passes will fail.
         assert isinstance(TRAIN_DATA_SCHEMA, dict)
-        assert "drugs_cid" in TRAIN_DATA_SCHEMA
+        assert "drugs_chembl" in TRAIN_DATA_SCHEMA

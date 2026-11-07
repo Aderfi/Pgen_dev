@@ -10,37 +10,33 @@ from __future__ import annotations
 
 import polars as pl
 import pytest
-import torch
-from torch_geometric.data import Data
 
 from src.config import get_settings
 from src.config import settings as settings_module
-from src.data.cache import GraphDims
 from src.data.genotype import HGVS_CATALOG_FILE, HgvsCatalog, VariantInfo
+from tests.conftest import make_modephere_library
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-CIDS = ["101", "202", "303", "404"]
+#: The sandbox drug library (ChEMBL ID -> SMILES), built by Modephere.
+DRUGS = {
+    "CHEMBL25": "CC(=O)Oc1ccccc1C(=O)O",  # aspirin
+    "CHEMBL112": "CC(=O)Nc1ccc(O)cc1",  # paracetamol
+    "CHEMBL113": "Cn1cnc2c1c(=O)n(C)c(=O)n2C",  # caffeine
+    "CHEMBL545": "CCO",  # ethanol
+}
+CHEMBL_IDS = list(DRUGS)
 HGVS = "NC_000022.11:g.42128945C>T"
 N_ROWS = 160
 
 
-def _drug_graph(dims: GraphDims) -> Data:
-    n = 5
-    edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
-    g = Data(
-        x=torch.randn(n, dims.drug_features),
-        edge_index=edge_index,
-        edge_attr=torch.randn(edge_index.size(1), dims.drug_edges),
-    )
-    g.global_feats = torch.randn(1, dims.drug_global)
-    g.admet_feats = torch.randn(1, dims.drug_admet)
-    return g
-
-
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
-    """Point every Settings path at ``tmp_path`` and build a tiny library."""
+    """Point every Settings path at ``tmp_path`` and build a tiny library.
+
+    The Modephere store is placed through ``PHARMAGEN_MODEPHERE__LIBRARY``, the
+    way a user relocates it.
+    """
     real_build_paths = settings_module._build_paths
 
     def build_paths(cfg):
@@ -57,12 +53,11 @@ def sandbox(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(settings_module, "_build_paths", build_paths)
+    monkeypatch.setenv("PHARMAGEN_MODEPHERE__LIBRARY", str(tmp_path / "library"))
     get_settings.cache_clear()
     library = get_settings().paths.library
-    (library / "drugs").mkdir(parents=True)
-    dims = GraphDims()
-    for cid in CIDS:
-        torch.save(_drug_graph(dims), library / "drugs" / f"{cid}_drug.pt")
+    assert get_settings().modephere.library == library
+    make_modephere_library(library, DRUGS)
     HgvsCatalog(
         variants={HGVS: VariantInfo("CYP2D6", ("missense_variant",), None)},
         labels={"rs1": (HGVS,)},
@@ -71,7 +66,7 @@ def sandbox(tmp_path, monkeypatch):
     rows = pl.DataFrame(
         {
             "variant_annotation_id": list(range(N_ROWS)),
-            "drugs_cid": [CIDS[i % len(CIDS)] for i in range(N_ROWS)],
+            "drugs_chembl": [CHEMBL_IDS[i % len(CHEMBL_IDS)] for i in range(N_ROWS)],
             "drugs": ["x"] * N_ROWS,
             "genotype": [["rs1", HGVS, "REF_SEQ"][i % 3] for i in range(N_ROWS)],
             "gene": ["CYP2D6"] * N_ROWS,
@@ -119,12 +114,14 @@ def test_train_then_predict(sandbox, monkeypatch):
 
     predictor = PGenPredictor("TwoTowerGAT", device="cpu")
     queries = tmp_path / "queries.csv"
-    rows.head(7).select("drugs_cid", "gene", "genotype", "alleles").write_csv(queries)
+    rows.head(7).select("drugs_chembl", "gene", "genotype", "alleles").write_csv(
+        queries
+    )
     results = predictor.predict_file(queries)
     assert len(results) == 7
     assert all("phenotype_category" in r for r in results)
     assert predictor.predict_single(
-        {"drugs_cid": CIDS[0], "gene": "CYP2D6", "hgvs": [HGVS], "alleles": "CT"}
+        {"drugs_chembl": "chembl25", "gene": "CYP2D6", "hgvs": [HGVS], "alleles": "CT"}
     )
 
 
@@ -139,7 +136,6 @@ def test_train_from_kg_snapshot(sandbox, monkeypatch):
             "annotation_id": [str(i) for i in range(N_ROWS)],
             "source": ["var_drug_ann"] * N_ROWS,
             "pmid": ["1"] * N_ROWS,
-            "drug_cids": [[c] for c in rows["drugs_cid"]],
             "drug_names": [["x"]] * N_ROWS,
             "genes": [["CYP2D6"]] * N_ROWS,
             "genotypes": [["rs1"]] * N_ROWS,
@@ -153,8 +149,17 @@ def test_train_from_kg_snapshot(sandbox, monkeypatch):
         },
         schema=TRAINING_ROW_SCHEMA,
     )
+    # drug identity as Modephere's annotation_rows export gives it
+    drugs = pl.DataFrame(
+        {
+            "annotation_id": raw["annotation_id"],
+            "position": [0] * N_ROWS,
+            "name": ["x"] * N_ROWS,
+            "chembl_id": rows["drugs_chembl"],
+        }
+    )
     snapshot = tmp_path / "training_rows.parquet"
-    to_training_frame(raw).write_parquet(snapshot)
+    to_training_frame(raw, drugs).write_parquet(snapshot)
 
     assert _train(snapshot, monkeypatch) < float("inf")
 
@@ -187,7 +192,7 @@ def test_split_then_train_a_fold(sandbox, monkeypatch):
     test_ids = set(test[ROW_ID].to_list())
     assert test_ids
     assert not test_ids & (set(train[ROW_ID].to_list()) | set(val[ROW_ID].to_list()))
-    assert not set(train["drugs_cid"].cast(str)) & set(test["drugs_cid"].cast(str))
+    assert not set(train["drugs_chembl"]) & set(test["drugs_chembl"])
 
 
 def test_train_split_rejects_changed_data(sandbox, monkeypatch):

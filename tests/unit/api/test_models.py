@@ -30,7 +30,7 @@ class TestGetModel:
         assert r.status_code == 200
         body = r.json()
         assert body["name"] == "TwoTowerGAT"
-        assert "drugs_cid" in body["features"]
+        assert "drugs_chembl" in body["features"]
         assert "phenotype_category" in body["targets"]
         assert isinstance(body["fixed_params"], dict)
         assert isinstance(body["optuna_keys"], list)

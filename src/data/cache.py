@@ -1,10 +1,13 @@
-"""Graph cache + empty-graph generator extracted from ``DoubleTowerDataset``.
+"""Drug graph cache + empty-graph generator for ``DoubleTowerDataset``.
 
-A ``GraphCache`` owns the in-memory copies of drug ``Data`` objects and the
-on-disk lookup logic. The dataset asks the cache for ``get_drug(id)``. The
-genotype side does not go through this cache — genotypes are built as HGVS
-variant graphs by ``src.data.genotype`` — so the cache is drug-only; the geno
-*placeholder* (``make_empty_graph('geno', …)``) is kept for tests and tools.
+A ``GraphCache`` serves drug ``Data`` objects by drug ID (ChEMBL parent ID).
+Drugs live in the Modephere library (``Settings.modephere.library``), keyed by
+InChIKey: the cache maps the ID to its InChIKey, loads the compound through
+``modephere.featurize.molecule_data`` (2D atom graph: ``x``, ``edge_index``,
+``edge_attr``, ``global_feats``, ``z``) and attaches the ADMET-AI profile as
+``admet_feats``. The genotype side does not go through this cache — genotypes
+are HGVS variant graphs (``src.data.genotype``); the geno *placeholder*
+(``make_empty_graph('geno', …)``) is kept for tests and tools.
 
 Why split:
     - Easier to swap caching strategy (LRU, on-GPU, sharded by worker, …).
@@ -14,23 +17,28 @@ Why split:
 
 from __future__ import annotations
 
-import gc
 import logging
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Literal
 
 import torch
+from modephere.types.layouts import MOLECULE_GRAPH_V1
 from torch_geometric.data.data import Data
+
+from src.data.library.admet import DRUG_ADMET_DIM, AdmetProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
-    from pathlib import Path
+
+    from modephere.library import LibraryStore
+
+    from src.config import Settings
 
 logger = logging.getLogger(__name__)
 
 
-# ``cid`` and ``smiles`` are tag attrs the dataset preserves on dummy graphs
-# so downstream collators don't blow up; ``variant_name`` is the gene-graph
+# ``drug_id`` is the tag attr the dataset preserves on dummy graphs so
+# downstream collators don't blow up; ``variant_name`` is the gene-graph
 # equivalent.
 _DRUG_DUMMY_NAME = "dummy_drug"
 _GENO_DUMMY_NAME = "dummy_variant"
@@ -52,18 +60,19 @@ _EXTRAS_KEYS: dict[str, str] = {
 class GraphDims:
     """Feature widths of the drug + genotype graphs — the single source of truth.
 
-    Defaults match the graph library builders (``DRUG_NODE_DIM`` /
-    ``DRUG_EDGE_DIM`` in ``src/data/library/drugs.py``, ``HGVS_NODE_DIM`` /
-    ``GENO_EDGE_DIM`` in ``src/data/genotype/``). ``models.toml``
-    may override any of them via :meth:`from_extras`. The widths size the
-    dummy-graph filler (so a missing artifact never breaks batching) and the
-    model's input/aux branches.
+    Drug defaults are Modephere's molecule-graph layout
+    (``modephere.types.layouts.MOLECULE_GRAPH_V1``) and the ADMET profile
+    width (``src.data.library.admet.DRUG_ADMET_DIM``); genotype defaults come
+    from ``src/data/genotype/`` (``HGVS_NODE_DIM`` / ``GENO_EDGE_DIM``).
+    ``models.toml`` may override any of them via :meth:`from_extras`. The
+    widths size the dummy-graph filler (so a missing artifact never breaks
+    batching) and the model's input/aux branches.
     """
 
-    drug_features: int = 61
-    drug_edges: int = 18
-    drug_global: int = 1038  # per-molecule descriptor vector (drugs only)
-    drug_admet: int = 41  # predicted ADMET/CYP profile (drugs only)
+    drug_features: int = MOLECULE_GRAPH_V1.node_dim
+    drug_edges: int = MOLECULE_GRAPH_V1.edge_dim
+    drug_global: int = MOLECULE_GRAPH_V1.global_dim  # per-molecule descriptors
+    drug_admet: int = DRUG_ADMET_DIM  # predicted ADMET/CYP profile
     geno_features: int = 45  # HGVS_NODE_DIM (src/data/genotype/features.py)
     geno_edges: int = 3  # GENO_EDGE_DIM: [membership, adjacency, distance]
     geno_function: int = 6  # star-allele PGx function vector (PATH_FUNCTION_DIM)
@@ -114,15 +123,15 @@ def make_empty_graph(
         edge_index=torch.empty((2, 0), dtype=torch.long),
         edge_attr=torch.empty((0, n_edge), dtype=torch.float),
     )
-    data.cid = str(graph_id)
-    data.smiles = ""
     data.name = name
     if kind == "drug":
+        data.drug_id = str(graph_id)
         # Match the graph-level vectors real drug graphs carry, so a missing drug
         # never breaks batching of the ``global_feats`` / ``admet_feats`` attrs.
         data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
         data.admet_feats = torch.zeros((1, d.drug_admet), dtype=torch.float)
     if kind == "geno":
+        data.graph_id = str(graph_id)
         # Match the attrs real genotype graphs carry (one UNK gene node), so a
         # placeholder never breaks batching of ``geno_function`` / ``gene_token``.
         data.geno_function = torch.zeros((1, d.geno_function), dtype=torch.float)
@@ -201,95 +210,114 @@ def _ptr(counts: list[int]) -> torch.Tensor:
     return ptr
 
 
-_GC_INTERVAL = 1000  # how often to gc.collect() during a mass preload
+#: Identity attributes of a drug graph: kept at inference, dropped for training
+#: (strings confuse PyG batching).
+DRUG_IDENTITY_ATTRS = ("drug_id", "inchikey")
 
 
 class GraphCache:
-    """In-RAM cache over the on-disk **drug** graph library.
+    """In-RAM cache over the Modephere drug library.
 
-    Holds the drug index plus a dict of loaded ``Data`` objects.
-    ``inference_mode`` controls whether identifying metadata (cid, name,
-    smiles) is preserved on returned graphs — training drops it (clutters
-    batches), inference keeps it. The genotype tower is served by
-    ``src.data.genotype.GenotypeGraphBuilder``, not by this cache.
+    ``drug_index`` maps a drug ID (ChEMBL parent ID) to its library InChIKey;
+    ``store`` is the Modephere ``LibraryStore`` the graphs load from and
+    ``admet`` the ADMET-AI profiles. A drug outside the index, or one that
+    fails to load, gets an empty placeholder of the right widths.
+    ``inference_mode`` keeps the identity attributes (``drug_id``,
+    ``inchikey``) on returned graphs; training drops them.
     """
 
     def __init__(
         self,
-        drug_index: dict[str, Path],
+        drug_index: Mapping[str, str],
         *,
+        store: LibraryStore | None = None,
+        admet: AdmetProvider | None = None,
         dims: GraphDims | None = None,
         inference_mode: bool = False,
     ) -> None:
-        self.drug_index = drug_index
+        self.drug_index = dict(drug_index)
+        self.store = store
+        self.admet = admet or AdmetProvider.null()
         self.dims = dims or GraphDims()
         self.inference_mode = inference_mode
 
         self._drug_cache: dict[str, Data] = {}
         self._stats = {"drug_hits": 0, "drug_misses": 0}
 
+    @classmethod
+    def from_settings(
+        cls,
+        settings: Settings | None = None,
+        *,
+        dims: GraphDims | None = None,
+        inference_mode: bool = False,
+    ) -> GraphCache:
+        """The cache over ``Settings.modephere.library`` and the library's ADMET table."""
+        from src.config import get_settings
+        from src.data.library.bridge import chembl_index, library_store
+        from src.data.library.config import ADMET_FILE
+
+        s = settings or get_settings()
+        store = library_store(s.modephere)
+        index = chembl_index(store)
+        logger.info("Indexed %d drugs in %s", len(index), store.root)
+        return cls(
+            index,
+            store=store,
+            admet=AdmetProvider.load(s.paths.library / ADMET_FILE),
+            dims=dims,
+            inference_mode=inference_mode,
+        )
+
     # ----- lookup ---------------------------------------------------------- #
 
     def get_drug(self, drug_id: str) -> Data:
-        """Return the drug graph for ``drug_id`` or an empty placeholder."""
-        return self._get(
-            cache=self._drug_cache,
-            key=drug_id,
-            path=self.drug_index.get(drug_id),
-            kind="drug",
-        )
+        """The drug graph of ``drug_id``, or an empty placeholder."""
+        drug_id = str(drug_id)
+        data = self._drug_cache.get(drug_id)
+        if data is None:
+            self._stats["drug_misses"] += 1
+            data = self._load(drug_id)
+            if data is None:
+                return make_empty_graph("drug", graph_id=drug_id, dims=self.dims)
+            self._drug_cache[drug_id] = data
+        else:
+            self._stats["drug_hits"] += 1
+        if not self.inference_mode:
+            return data
+        out = data.clone()
+        out.drug_id = drug_id
+        out.inchikey = self.drug_index[drug_id]
+        return out
 
-    def _get(
-        self,
-        cache: dict[str, Data],
-        key: str,
-        path: Path | None,
-        kind: Literal["drug", "geno"],
-    ) -> Data:
-        # Cache hit
-        if key in cache:
-            self._stats[f"{kind}_hits"] += 1
-            data = cache[key]
-            return data.clone() if self.inference_mode else data
+    def _load(self, drug_id: str) -> Data | None:
+        """Molecule graph + ADMET profile of a stored drug (identity stripped)."""
+        from modephere.featurize import molecule_data
 
-        self._stats[f"{kind}_misses"] += 1
-
-        # Miss → try disk
-        if path is not None and path.exists():
-            try:
-                data = torch.load(path, map_location="cpu", weights_only=False)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Corrupt graph file %s: %s", path, e)
-                return make_empty_graph(kind, graph_id=key, dims=self.dims)
-
-            if self.inference_mode:
-                if not hasattr(data, "cid"):
-                    data.cid = str(key)
-            else:
-                # Strip metadata in training mode — it confuses PyG batching.
-                for attr in ("cid", "name", "smiles"):
-                    if hasattr(data, attr):
-                        delattr(data, attr)
-            return _sanitize(data)
-
-        # Miss + no path → placeholder
-        return make_empty_graph(kind, graph_id=key, dims=self.dims)
+        inchikey = self.drug_index.get(drug_id)
+        if inchikey is None or self.store is None:
+            return None
+        try:
+            data = molecule_data(self.store.load(inchikey))
+        except Exception as e:  # noqa: BLE001 -- a bad file must not stop training
+            logger.warning("Cannot load drug %s (%s): %s", drug_id, inchikey, e)
+            return None
+        data.admet_feats = self.admet.vector_for(inchikey)
+        for attr in DRUG_IDENTITY_ATTRS:
+            if attr in data:
+                del data[attr]
+        return _sanitize(data)
 
     # ----- preload --------------------------------------------------------- #
 
     def preload_drugs(self, drug_ids: Iterable[str]) -> None:
-        for i, drug_id in enumerate(drug_ids):
-            path = self.drug_index.get(str(drug_id))
-            if path is None:
+        for drug_id in drug_ids:
+            drug_id = str(drug_id)
+            if drug_id in self._drug_cache:
                 continue
-            try:
-                self._drug_cache[str(drug_id)] = torch.load(
-                    path, map_location="cpu", weights_only=False
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Failed to preload drug %s: %s", drug_id, e)
-            if i and i % _GC_INTERVAL == 0:
-                gc.collect()
+            data = self._load(drug_id)
+            if data is not None:
+                self._drug_cache[drug_id] = data
 
     # ----- diagnostics ----------------------------------------------------- #
 

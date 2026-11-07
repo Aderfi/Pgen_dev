@@ -33,7 +33,7 @@ def _request_to_features(req: SinglePredictRequest) -> dict[str, Any]:
     """
     tokens = [*req.hgvs, *([req.allele.label] if req.allele else [])]
     return {
-        "drugs_cid": str(req.drug_cid),
+        "drugs_chembl": req.drug_chembl_id,
         "gene": req.gene_symbol,
         "genotype": "|".join(tokens),
         "alleles": req.alleles or "",

@@ -1,26 +1,37 @@
-"""Top-level orchestrator for a library build.
-
-Composes the drug graph builder and the HGVS catalog builder and owns the
-manifest lifecycle. Use as either:
+"""One library build: Modephere drugs, ADMET profiles and the HGVS catalog.
 
     >>> LibraryBuilder(LibraryBuildConfig.from_settings()).run()
 
-or via the CLI in ``src.data.library.__main__``.
+Steps, each skippable:
+
+1. ``refresh_pgx`` — re-export Modephere's pgx tables from its Neo4j;
+2. drugs — the ChEMBL IDs of every annotation drug go through Modephere's
+   ``LibraryBuilder`` (offline, against the staged ChEMBL release); compounds
+   already stored are kept unless ``force``;
+3. ADMET — profiles for every stored compound the ADMET table lacks;
+4. genes — the HGVS catalog from the pgx export + the star-allele table.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from modephere.library import LibraryBuilder as ModephereLibraryBuilder
+
 from src.data.genotype.catalog import build_hgvs_catalog
-from src.data.library.admet import AdmetProvider, records_from_rows
-from src.data.library.drugs import DrugGraphBuilder, load_drug_records
-from src.data.library.manifest import BuildManifest
-from src.data.library.pharmacophore import PharmacophoreGraphBuilder
+from src.data.library.admet import update_admet_table
+from src.data.library.bridge import (
+    annotation_chembl_ids,
+    library_build_config,
+    library_store,
+    refresh_pgx_exports,
+)
 
 if TYPE_CHECKING:
+    from modephere.library import BuildSummary as DrugSummary
+
     from src.data.library.config import LibraryBuildConfig
 
 logger = logging.getLogger(__name__)
@@ -28,139 +39,87 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class BuildSummary:
-    drugs_built: int
-    drugs_skipped: int
-    drugs_failed: int
-    genes_built: int
-    genes_failed: int
-    pharm_built: int = 0
-    pharm_skipped: int = 0
-    pharm_failed: int = 0
+    pgx_tables: dict[str, int] = field(default_factory=dict)
+    drugs: DrugSummary | None = None
+    admet_profiles: int = 0
+    genes: int = 0
+    catalog_failed: bool = False
+
+    @property
+    def ok(self) -> bool:
+        """Every step that ran produced its output (drug failures are expected)."""
+        built_any = self.drugs is None or self.drugs.built + self.drugs.skipped > 0
+        return built_any and not self.catalog_failed
 
 
 class LibraryBuilder:
-    """End-to-end orchestration of a library build.
-
-    Single public method ``run()``; everything else is internal. The class
-    instance is cheap to construct, so callers can build multiple libraries
-    side-by-side (e.g. one per cohort) by reusing ``LibraryBuildConfig``s.
-    """
+    """Runs the steps of :mod:`src.data.library.builder` for one config."""
 
     def __init__(self, config: LibraryBuildConfig) -> None:
         self.config = config
 
-    def _build_admet_provider(self, cfg: LibraryBuildConfig) -> AdmetProvider:
-        """Build (or load-from-cache) the ADMET profile provider for the drugs.
-
-        With ``skip_admet`` the provider is null (every drug gets a zero
-        ``admet_feats``); otherwise the catalog SMILES are run through ADMET-AI
-        once and cached at ``cfg.admet_cache``.
-        """
-        if cfg.skip_admet:
-            logger.info("ADMET prediction skipped (skip_admet=True) — zero profiles.")
-            return AdmetProvider.null()
-
-        records = records_from_rows(load_drug_records(cfg.drugs_tsv))
-        logger.info(
-            "ADMET: preparing profile for %d catalog drugs (cache=%s, force=%s)",
-            len(records),
-            cfg.admet_cache,
-            cfg.force_admet,
+    def _drugs(self) -> DrugSummary:
+        cfg = self.config
+        ids = annotation_chembl_ids(cfg.modephere)
+        logger.info("Drug library: %d annotation ChEMBL IDs", len(ids))
+        build = library_build_config(
+            chembl_ids=ids, settings=cfg.modephere, force=cfg.force
         )
-        return AdmetProvider.from_records(
-            records,
-            cfg.admet_cache,
-            strip_salts=cfg.strip_salts,
-            force=cfg.force_admet,
-        )
+        return ModephereLibraryBuilder(build).run()
+
+    def _admet(self) -> int:
+        cfg = self.config
+        compounds = library_store(cfg.modephere).read_table("compounds")
+        records = compounds.select("inchikey", "working_smiles").iter_rows()
+        return update_admet_table(records, cfg.admet_path, force=cfg.force_admet).height
+
+    def _genes(self) -> tuple[int, bool]:
+        cfg = self.config
+        try:
+            catalog = build_hgvs_catalog(
+                pgx_export=cfg.modephere.pgx_export,
+                star_alleles_tsv=cfg.star_alleles_tsv,
+            )
+            catalog.save(cfg.hgvs_catalog_path)
+        except Exception:
+            logger.exception("HGVS catalog build failed")
+            return 0, True
+        return len(catalog.genes()), False
 
     def run(self) -> BuildSummary:
         cfg = self.config
-        cfg.ensure_outputs()
-
-        manifest = BuildManifest.load_or_empty(cfg.manifest_path)
         logger.info(
-            "Library build starting → %s (force=%s)",
+            "Library build: drugs -> %s, catalog + ADMET -> %s",
+            cfg.modephere.library,
             cfg.library_root,
-            cfg.force,
         )
-
-        drugs_built = drugs_skipped = drugs_failed = 0
-        if not cfg.skip_drugs:
-            admet = self._build_admet_provider(cfg)
-            drug_builder = DrugGraphBuilder(
-                cfg.drugs_out,
-                force=cfg.force,
-                failures_log=cfg.log_failures_path,
-                saturation_log=cfg.log_saturation_path,
-                strip_salts=cfg.strip_salts,
-                admet=admet,
+        pgx = refresh_pgx_exports(cfg.modephere) if cfg.refresh_pgx else {}
+        drugs = None if cfg.skip_drugs else self._drugs()
+        admet = 0 if cfg.skip_admet else self._admet()
+        genes, failed = (0, False) if cfg.skip_genes else self._genes()
+        summary = BuildSummary(
+            pgx_tables=pgx,
+            drugs=drugs,
+            admet_profiles=admet,
+            genes=genes,
+            catalog_failed=failed,
+        )
+        if drugs is not None:
+            logger.info(
+                "Drugs: %d queries, %d built, %d already stored, %d failed (%s)",
+                drugs.queries,
+                drugs.built,
+                drugs.skipped,
+                drugs.failed,
+                ", ".join(f"{k}={v}" for k, v in sorted(drugs.failures.items())) or "-",
             )
-            drugs_built, drugs_skipped, drugs_failed = drug_builder.build(
-                cfg.drugs_tsv, manifest=manifest
-            )
-            if admet.misses:
-                logger.warning(
-                    "ADMET: %d drug graphs got a zero profile (CID absent from the "
-                    "ADMET table).",
-                    admet.misses,
-                )
-            manifest.save(cfg.manifest_path)
-        else:
-            logger.info("Skipping drug pipeline (skip_drugs=True).")
-
-        pharm_built = pharm_skipped = pharm_failed = 0
-        if not cfg.skip_pharm:
-            pharm_builder = PharmacophoreGraphBuilder(
-                cfg.pharm_out,
-                force=cfg.force,
-                failures_log=cfg.log_pharm_failures_path,
-                strip_salts=cfg.strip_salts,
-            )
-            pharm_built, pharm_skipped, pharm_failed = pharm_builder.build(
-                cfg.drugs_tsv, manifest=manifest
-            )
-            manifest.save(cfg.manifest_path)
-        else:
-            logger.info("Skipping pharmacophore pipeline (skip_pharm=True).")
-
-        genes_built = genes_failed = 0
-        if not cfg.skip_genes:
-            try:
-                catalog = build_hgvs_catalog(
-                    snp_table=cfg.variants_tsv,
-                    pharmvar_dir=cfg.pgx_dir,
-                    kg_dir=cfg.kg_dir,
-                    star_alleles_tsv=cfg.star_alleles_tsv,
-                )
-                catalog.save(cfg.hgvs_catalog_path)
-                genes_built = len(catalog.genes())
-            except Exception:
-                logger.exception("HGVS catalog build failed")
-                genes_failed = 1
-            manifest.stats.genes_built = genes_built
-            manifest.stats.genes_failed = genes_failed
-        else:
-            logger.info("Skipping HGVS catalog (skip_genes=True).")
-
-        manifest.save(cfg.manifest_path)
         logger.info(
-            "Library build done → %d drugs (+%d skipped, -%d failed), "
-            "HGVS catalog over %d genes (failed=%d). Manifest at %s",
-            drugs_built,
-            drugs_skipped,
-            drugs_failed,
-            genes_built,
-            genes_failed,
-            cfg.manifest_path,
+            "Library build done: %d ADMET profiles, HGVS catalog over %d genes%s",
+            admet,
+            genes,
+            " (FAILED)" if failed else "",
         )
-        return BuildSummary(
-            drugs_built=drugs_built,
-            drugs_skipped=drugs_skipped,
-            drugs_failed=drugs_failed,
-            genes_built=genes_built,
-            genes_failed=genes_failed,
-            pharm_built=pharm_built,
-            pharm_skipped=pharm_skipped,
-            pharm_failed=pharm_failed,
-        )
+        return summary
+
+
+__all__ = ["BuildSummary", "LibraryBuilder"]

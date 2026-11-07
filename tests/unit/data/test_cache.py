@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 import pytest
+import torch
 from modephere.types.layouts import MOLECULE_GRAPH_V1
 
 from src.data.cache import GraphCache, GraphDims, make_empty_graph
@@ -133,3 +134,84 @@ class TestInferenceMode:
 def test_chembl_index_reads_the_store_registry(modephere_library) -> None:
     store, keys = modephere_library
     assert chembl_index(store) == keys
+
+
+class TestPharmacophores:
+    def test_dims_carry_pharmacophore_layout(self) -> None:
+        from modephere.types.layouts import PHARMACOPHORE_GRAPH_V1
+
+        dims = GraphDims()
+        assert dims.pharm_features == PHARMACOPHORE_GRAPH_V1.node_dim == 11
+        assert dims.pharm_edges == PHARMACOPHORE_GRAPH_V1.edge_dim == 13
+        assert dims.pharm_global == PHARMACOPHORE_GRAPH_V1.global_dim == 258
+        assert GraphDims.from_extras({"pharm_node_features": 7}).pharm_features == 7
+
+    def test_drug_carries_pharmacophore_and_positions(self, pharm_library) -> None:
+        store, keys = pharm_library
+        g = GraphCache(keys, store=store).get_drug("CHEMBL25")
+        k = g.pharm_x.shape[0]
+        assert k > 0 and g.pharm_x.shape[1] == 11
+        assert g.pharm_edge_attr.shape[1] == 13
+        assert g.pharm_global.shape == (1, 258)
+        assert g.pharm_pos.shape == (k, 3)
+        assert g.pharm_pos.abs().sum() > 0
+        assert g.has_3d.item() == 1
+        assert g.x.shape == (13, MOLECULE_GRAPH_V1.node_dim)  # the 2D graph too
+
+    def test_2d_only_compound_has_zero_positions(self, pharm_library) -> None:
+        store, keys = pharm_library
+        cache = GraphCache(keys, store=store)
+        g = cache.get_drug("CHEMBL545")
+        assert g.has_3d.item() == 0
+        assert g.pharm_pos.shape == (g.pharm_x.shape[0], 3)
+        assert g.pharm_pos.abs().sum() == 0
+        assert cache.n_conformers("CHEMBL545") == 0
+
+    def test_k0_compound(self, pharm_library) -> None:
+        store, keys = pharm_library
+        g = GraphCache(keys, store=store).get_drug("CHEMBL671")
+        assert g.pharm_x.shape == (0, 11)
+        assert g.pharm_edge_index.shape == (2, 0)
+        assert g.pharm_pos.shape == (0, 3)
+        assert g.pharm_global.shape == (1, 258)
+
+    def test_fixed_conformer_is_deterministic(self, pharm_library) -> None:
+        store, keys = pharm_library
+        cache = GraphCache(keys, store=store)
+        a = cache.with_conformer(0).get_drug("CHEMBL25").pharm_pos
+        b = cache.with_conformer(0).get_drug("CHEMBL25").pharm_pos
+        assert torch.equal(a, b)
+        n = cache.n_conformers("CHEMBL25")
+        assert n >= 2
+        last = cache.with_conformer(n - 1).get_drug("CHEMBL25").pharm_pos
+        clamped = cache.with_conformer(n + 5).get_drug("CHEMBL25").pharm_pos
+        assert torch.equal(last, clamped)
+
+    def test_sampled_conformers_vary(self, pharm_library) -> None:
+        import random
+
+        store, keys = pharm_library
+        cache = GraphCache(keys, store=store, rng=random.Random(0))
+        seen = {
+            tuple(cache.get_drug("CHEMBL25").pharm_pos.flatten().tolist())
+            for _ in range(20)
+        }
+        assert len(seen) >= 2
+
+    def test_views_share_the_tensor_cache(self, pharm_library) -> None:
+        store, keys = pharm_library
+        cache = GraphCache(keys, store=store)
+        cache.get_drug("CHEMBL25")
+        view = cache.with_conformer(0)
+        view.get_drug("CHEMBL25")
+        assert cache.stats()["drug_misses"] == 1
+        assert view.cached_drug_count == cache.cached_drug_count
+
+    def test_dummy_drug_has_pharm_attrs(self) -> None:
+        g = make_empty_graph("drug", graph_id="CHEMBL1")
+        assert g.pharm_x.shape == (0, 11)
+        assert g.pharm_edge_index.shape == (2, 0)
+        assert g.pharm_edge_attr.shape == (0, 13)
+        assert g.pharm_global.shape == (1, 258)
+        assert g.pharm_pos.shape == (0, 3)
+        assert g.has_3d.tolist() == [0.0]

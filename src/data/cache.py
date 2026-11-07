@@ -1,11 +1,16 @@
 """Drug graph cache + empty-graph generator for ``DoubleTowerDataset``.
 
-A ``GraphCache`` serves drug ``Data`` objects by drug ID (ChEMBL parent ID).
-Drugs live in the Modephere library (``Settings.modephere.library``), keyed by
-InChIKey: the cache maps the ID to its InChIKey, loads the compound through
-``modephere.featurize.molecule_data`` (2D atom graph: ``x``, ``edge_index``,
-``edge_attr``, ``global_feats``, ``z``) and attaches the ADMET-AI profile as
-``admet_feats``. The genotype side does not go through this cache — genotypes
+A ``GraphCache`` serves drug graphs (:class:`DrugData`) by drug ID (ChEMBL
+parent ID). Drugs live in the Modephere library (``Settings.modephere.library``),
+keyed by InChIKey: the cache maps the ID to its InChIKey, loads the compound
+through ``modephere.featurize.molecule_data`` (2D atom graph: ``x``,
+``edge_index``, ``edge_attr``, ``global_feats``, ``z``), attaches the ADMET-AI
+profile as ``admet_feats`` and the pharmacophore graph
+(``modephere.featurize.pharmacophore_data``) as ``pharm_*`` attributes, with
+the feature-point positions of one conformer (``pharm_pos``; zeros and
+``has_3d = 0`` for a 2D-only compound). Training samples a conformer per call;
+:meth:`GraphCache.with_conformer` fixes one (inference averages over the
+lowest-energy ones). The genotype side does not go through this cache — genotypes
 are HGVS variant graphs (``src.data.genotype``); the geno *placeholder*
 (``make_empty_graph('geno', …)``) is kept for tests and tools.
 
@@ -17,12 +22,14 @@ Why split:
 
 from __future__ import annotations
 
+import copy
 import logging
+import random
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
-from modephere.types.layouts import MOLECULE_GRAPH_V1
+from modephere.types.layouts import MOLECULE_GRAPH_V1, PHARMACOPHORE_GRAPH_V1
 from torch_geometric.data.data import Data
 
 from src.data.library.admet import DRUG_ADMET_DIM, AdmetProvider
@@ -50,6 +57,9 @@ _EXTRAS_KEYS: dict[str, str] = {
     "drug_attrs_features": "drug_edges",
     "drug_global_features": "drug_global",
     "drug_admet_features": "drug_admet",
+    "pharm_node_features": "pharm_features",
+    "pharm_attrs_features": "pharm_edges",
+    "pharm_global_features": "pharm_global",
     "geno_node_features": "geno_features",
     "geno_attrs_features": "geno_edges",
     "geno_function_features": "geno_function",
@@ -60,9 +70,10 @@ _EXTRAS_KEYS: dict[str, str] = {
 class GraphDims:
     """Feature widths of the drug + genotype graphs — the single source of truth.
 
-    Drug defaults are Modephere's molecule-graph layout
-    (``modephere.types.layouts.MOLECULE_GRAPH_V1``) and the ADMET profile
-    width (``src.data.library.admet.DRUG_ADMET_DIM``); genotype defaults come
+    Drug defaults are Modephere's molecule-graph and pharmacophore-graph
+    layouts (``modephere.types.layouts.MOLECULE_GRAPH_V1`` /
+    ``PHARMACOPHORE_GRAPH_V1``) and the ADMET profile width
+    (``src.data.library.admet.DRUG_ADMET_DIM``); genotype defaults come
     from ``src/data/genotype/`` (``HGVS_NODE_DIM`` / ``GENO_EDGE_DIM``).
     ``models.toml`` may override any of them via :meth:`from_extras`. The
     widths size the dummy-graph filler (so a missing artifact never breaks
@@ -73,6 +84,9 @@ class GraphDims:
     drug_edges: int = MOLECULE_GRAPH_V1.edge_dim
     drug_global: int = MOLECULE_GRAPH_V1.global_dim  # per-molecule descriptors
     drug_admet: int = DRUG_ADMET_DIM  # predicted ADMET/CYP profile
+    pharm_features: int = PHARMACOPHORE_GRAPH_V1.node_dim  # pharmacophore points
+    pharm_edges: int = PHARMACOPHORE_GRAPH_V1.edge_dim  # topological point pairs
+    pharm_global: int = PHARMACOPHORE_GRAPH_V1.global_dim  # per-molecule pharm vector
     geno_features: int = 45  # HGVS_NODE_DIM (src/data/genotype/features.py)
     geno_edges: int = 3  # GENO_EDGE_DIM: [membership, adjacency, distance]
     geno_function: int = 6  # star-allele PGx function vector (PATH_FUNCTION_DIM)
@@ -93,6 +107,50 @@ class GraphDims:
                 if key in extras
             }
         )
+
+
+#: Pharmacophore attributes of a :class:`DrugData`.
+PHARM_ATTRS = (
+    "pharm_x",
+    "pharm_edge_index",
+    "pharm_edge_attr",
+    "pharm_global",
+    "pharm_pos",
+    "has_3d",
+)
+
+
+class DrugData(Data):
+    """One drug: the 2D atom graph plus its pharmacophore graph.
+
+    Atom graph: ``x [N, 61]``, ``edge_index``, ``edge_attr [E, 18]``,
+    ``global_feats [1, 1038]``, ``admet_feats [1, 41]``. Pharmacophore:
+    ``pharm_x [K, 11]``, ``pharm_edge_index [2, P]`` (point indices),
+    ``pharm_edge_attr [P, 13]``, ``pharm_global [1, 258]``, ``pharm_pos [K, 3]``
+    (one conformer; zeros without 3D) and ``has_3d [1]``. Batching offsets
+    ``pharm_edge_index`` by the point count; collate with
+    ``follow_batch=["pharm_x"]`` for the point -> molecule index.
+    """
+
+    def __inc__(self, key: str, value: Any, *args: Any, **kwargs: Any) -> Any:
+        if key == "pharm_edge_index":
+            return self.pharm_x.size(0)
+        return super().__inc__(key, value, *args, **kwargs)
+
+    def __cat_dim__(self, key: str, value: Any, *args: Any, **kwargs: Any) -> Any:
+        if key == "pharm_edge_index":
+            return 1
+        return super().__cat_dim__(key, value, *args, **kwargs)
+
+
+def _empty_pharmacophore(data: Data, dims: GraphDims) -> None:
+    """Attach a K = 0 pharmacophore without 3D (dummy drugs)."""
+    data.pharm_x = torch.zeros((0, dims.pharm_features), dtype=torch.float)
+    data.pharm_edge_index = torch.empty((2, 0), dtype=torch.long)
+    data.pharm_edge_attr = torch.empty((0, dims.pharm_edges), dtype=torch.float)
+    data.pharm_global = torch.zeros((1, dims.pharm_global), dtype=torch.float)
+    data.pharm_pos = torch.zeros((0, 3), dtype=torch.float)
+    data.has_3d = torch.zeros(1, dtype=torch.float)
 
 
 def make_empty_graph(
@@ -118,7 +176,7 @@ def make_empty_graph(
         msg = f"unknown graph kind {kind!r}; must be 'drug' or 'geno'"
         raise ValueError(msg)
 
-    data = Data(
+    data = (DrugData if kind == "drug" else Data)(
         x=torch.zeros((1, n_feat), dtype=torch.float),
         edge_index=torch.empty((2, 0), dtype=torch.long),
         edge_attr=torch.empty((0, n_edge), dtype=torch.float),
@@ -130,6 +188,7 @@ def make_empty_graph(
         # never breaks batching of the ``global_feats`` / ``admet_feats`` attrs.
         data.global_feats = torch.zeros((1, d.drug_global), dtype=torch.float)
         data.admet_feats = torch.zeros((1, d.drug_admet), dtype=torch.float)
+        _empty_pharmacophore(data, d)
     if kind == "geno":
         data.graph_id = str(graph_id)
         # Match the attrs real genotype graphs carry (one UNK gene node), so a
@@ -215,6 +274,14 @@ def _ptr(counts: list[int]) -> torch.Tensor:
 DRUG_IDENTITY_ATTRS = ("drug_id", "inchikey")
 
 
+@dataclass(frozen=True)
+class _Compound:
+    """Cached tensors of one stored compound (shared by every view)."""
+
+    data: DrugData  # 2D graph + pharmacophore, pharm_pos zeros, has_3d 0
+    positions: torch.Tensor | None  # [C, K, 3] point positions per conformer
+
+
 class GraphCache:
     """In-RAM cache over the Modephere drug library.
 
@@ -224,6 +291,12 @@ class GraphCache:
     fails to load, gets an empty placeholder of the right widths.
     ``inference_mode`` keeps the identity attributes (``drug_id``,
     ``inchikey``) on returned graphs; training drops them.
+
+    ``class_members`` maps ATC codes to ChEMBL parent IDs (class entities,
+    :meth:`get_entity`). ``conformer`` ``None`` samples a conformer per call
+    with ``rng``; an int fixes conformer ``min(conformer, n - 1)`` (``0`` is the
+    lowest-energy one). :meth:`with_conformer` / :meth:`without_members` return
+    views that share the loaded tensors.
     """
 
     def __init__(
@@ -234,14 +307,22 @@ class GraphCache:
         admet: AdmetProvider | None = None,
         dims: GraphDims | None = None,
         inference_mode: bool = False,
+        class_members: Mapping[str, frozenset[str]] | None = None,
+        conformer: int | None = None,
+        rng: random.Random | None = None,
     ) -> None:
         self.drug_index = dict(drug_index)
         self.store = store
         self.admet = admet or AdmetProvider.null()
         self.dims = dims or GraphDims()
         self.inference_mode = inference_mode
+        self.class_members: Mapping[str, frozenset[str]] = dict(class_members or {})
+        self.conformer = conformer
+        self.excluded: frozenset[str] = frozenset()
+        self._rng = rng or random.Random()
 
-        self._drug_cache: dict[str, Data] = {}
+        self._compounds: dict[str, _Compound] = {}
+        self._failed: set[str] = set()
         self._stats = {"drug_hits": 0, "drug_misses": 0}
 
     @classmethod
@@ -252,78 +333,151 @@ class GraphCache:
         dims: GraphDims | None = None,
         inference_mode: bool = False,
     ) -> GraphCache:
-        """The cache over ``Settings.modephere.library`` and the library's ADMET table."""
+        """The cache over ``Settings.modephere.library``, its ADMET table and the
+        ATC members of Modephere's export (classes stay empty without it)."""
         from src.config import get_settings
-        from src.data.library.bridge import chembl_index, library_store
+        from src.core import ConfigurationError
+        from src.data.library.bridge import atc_members, chembl_index, library_store
         from src.data.library.config import ADMET_FILE
 
         s = settings or get_settings()
         store = library_store(s.modephere)
         index = chembl_index(store)
-        logger.info("Indexed %d drugs in %s", len(index), store.root)
+        try:
+            members = atc_members(s.modephere)
+        except ConfigurationError as e:
+            logger.warning("No ATC members, drug classes stay empty: %s", e)
+            members = {}
+        logger.info(
+            "Indexed %d drugs in %s (%d ATC codes)",
+            len(index),
+            store.root,
+            len(members),
+        )
         return cls(
             index,
             store=store,
             admet=AdmetProvider.load(s.paths.library / ADMET_FILE),
             dims=dims,
             inference_mode=inference_mode,
+            class_members=members,
         )
+
+    # ----- views ----------------------------------------------------------- #
+
+    def with_conformer(self, index: int | None) -> GraphCache:
+        """A view serving conformer ``index`` (``None``: sampled per call)."""
+        view = copy.copy(self)
+        view.conformer = index
+        return view
+
+    def without_members(self, chembl_ids: Iterable[str]) -> GraphCache:
+        """A view whose class pools leave out ``chembl_ids`` (drug lookups unchanged)."""
+        view = copy.copy(self)
+        view.excluded = self.excluded | frozenset(chembl_ids)
+        return view
 
     # ----- lookup ---------------------------------------------------------- #
 
-    def get_drug(self, drug_id: str) -> Data:
-        """The drug graph of ``drug_id``, or an empty placeholder."""
+    def n_conformers(self, drug_id: str) -> int:
+        """Conformers stored for ``drug_id`` (0: 2D-only or not in the library)."""
+        compound = self._compound(str(drug_id), count=False)
+        if compound is None or compound.positions is None:
+            return 0
+        return int(compound.positions.size(0))
+
+    def get_drug(self, drug_id: str) -> DrugData:
+        """The drug graph of ``drug_id`` (one conformer), or an empty placeholder."""
         drug_id = str(drug_id)
-        data = self._drug_cache.get(drug_id)
-        if data is None:
-            self._stats["drug_misses"] += 1
-            data = self._load(drug_id)
-            if data is None:
-                return make_empty_graph("drug", graph_id=drug_id, dims=self.dims)
-            self._drug_cache[drug_id] = data
-        else:
-            self._stats["drug_hits"] += 1
-        if not self.inference_mode:
-            return data
-        out = data.clone()
-        out.drug_id = drug_id
-        out.inchikey = self.drug_index[drug_id]
-        return out
+        compound = self._compound(drug_id)
+        if compound is None:
+            return make_empty_graph("drug", graph_id=drug_id, dims=self.dims)  # type: ignore[return-value]
+        # inference callers may modify what they get: a deep copy keeps the
+        # cache intact; training shares the cached tensors
+        data = (
+            compound.data.clone() if self.inference_mode else copy.copy(compound.data)
+        )
+        if compound.positions is not None:
+            n = compound.positions.size(0)
+            i = (
+                self._rng.randrange(n)
+                if self.conformer is None
+                else min(self.conformer, n - 1)
+            )
+            data.pharm_pos = compound.positions[i]
+            data.has_3d = torch.ones(1, dtype=torch.float)
+        if self.inference_mode:
+            data.drug_id = drug_id
+            data.inchikey = self.drug_index[drug_id]
+        return data
 
-    def _load(self, drug_id: str) -> Data | None:
-        """Molecule graph + ADMET profile of a stored drug (identity stripped)."""
-        from modephere.featurize import molecule_data
-
+    def _compound(self, drug_id: str, *, count: bool = True) -> _Compound | None:
         inchikey = self.drug_index.get(drug_id)
-        if inchikey is None or self.store is None:
+        if inchikey is None or inchikey in self._failed:
+            if count:
+                self._stats["drug_misses"] += 1
+            return None
+        compound = self._compounds.get(inchikey)
+        if count:
+            self._stats["drug_hits" if compound is not None else "drug_misses"] += 1
+        if compound is None:
+            compound = self._load(drug_id, inchikey)
+            if compound is None:
+                self._failed.add(inchikey)
+                return None
+            self._compounds[inchikey] = compound
+        return compound
+
+    def _load(self, drug_id: str, inchikey: str) -> _Compound | None:
+        """Molecule + pharmacophore graph, ADMET and conformer positions."""
+        from modephere.featurize import (
+            feature_positions,
+            molecule_data,
+            pharmacophore_data,
+        )
+
+        if self.store is None:
             return None
         try:
-            data = molecule_data(self.store.load(inchikey))
+            art = self.store.load(inchikey)
+            mol = molecule_data(art)
+            pharm = pharmacophore_data(art)
+            n_conf = 0 if art.conformers is None else len(art.pharmacophores_3d)
+            positions = (
+                torch.stack([feature_positions(art, c) for c in range(n_conf)])
+                if n_conf
+                else None
+            )
         except Exception as e:  # noqa: BLE001 -- a bad file must not stop training
             logger.warning("Cannot load drug %s (%s): %s", drug_id, inchikey, e)
             return None
+        data = DrugData(
+            x=mol.x,
+            edge_index=mol.edge_index,
+            edge_attr=mol.edge_attr,
+            global_feats=mol.global_feats,
+            z=mol.z,
+        )
         data.admet_feats = self.admet.vector_for(inchikey)
-        for attr in DRUG_IDENTITY_ATTRS:
-            if attr in data:
-                del data[attr]
-        return _sanitize(data)
+        data.pharm_x = pharm.x.float()
+        data.pharm_edge_index = pharm.edge_index.long()
+        data.pharm_edge_attr = pharm.edge_attr.float()
+        data.pharm_global = pharm.global_feats.float().reshape(1, -1)
+        data.pharm_pos = torch.zeros((pharm.x.size(0), 3), dtype=torch.float)
+        data.has_3d = torch.zeros(1, dtype=torch.float)
+        return _Compound(data=_sanitize(data), positions=positions)
 
     # ----- preload --------------------------------------------------------- #
 
     def preload_drugs(self, drug_ids: Iterable[str]) -> None:
         for drug_id in drug_ids:
-            drug_id = str(drug_id)
-            if drug_id in self._drug_cache:
-                continue
-            data = self._load(drug_id)
-            if data is not None:
-                self._drug_cache[drug_id] = data
+            self._compound(str(drug_id), count=False)
 
     # ----- diagnostics ----------------------------------------------------- #
 
     @property
     def cached_drug_count(self) -> int:
-        return len(self._drug_cache)
+        return len(self._compounds)
 
     def stats(self) -> dict[str, int | float]:
         """Return raw drug counters and hit rate."""

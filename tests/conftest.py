@@ -31,20 +31,25 @@ def mock_encoder():
 LIBRARY_DRUGS = {"CHEMBL25": "CC(=O)Oc1ccccc1C(=O)O", "CHEMBL545": "CCO"}
 
 
-def make_modephere_library(root, drugs):
-    """A real 2D Modephere store at ``root`` with ``drugs`` (ChEMBL ID -> SMILES).
+def make_modephere_library(root, drugs, *, three_d=()):
+    """A real Modephere store at ``root`` with ``drugs`` (ChEMBL ID -> SMILES).
 
+    Compounds are 2D-only except the IDs in ``three_d`` (a few conformers each).
     Returns ``(LibraryStore, {chembl_id: inchikey})``. Each compound is built by
     Modephere and stamped as resolved against ChEMBL, as a staged-release build
     would.
     """
     from modephere.library import LibraryStore, PipelineOptions, build_compound
-    from modephere.types import ChemblMatch
+    from modephere.types import ChemblMatch, ConformerParams
 
+    flat = PipelineOptions(build_3d=False)
+    fast = PipelineOptions(
+        conformers=ConformerParams(num_conformers=4, min_conformers=1, max_conformers=4)
+    )
     store = LibraryStore(root)
     arts = []
     for chembl_id, smiles in drugs.items():
-        art = build_compound(smiles, PipelineOptions(build_3d=False))
+        art = build_compound(smiles, fast if chembl_id in three_d else flat)
         resolved = art.compound.resolved.model_copy(
             update={
                 "chembl_id": chembl_id,
@@ -59,6 +64,22 @@ def make_modephere_library(root, drugs):
         arts.append(art)
     store.upsert(arts)
     return store, {a.compound.resolved.chembl_id: a.inchikey for a in arts}
+
+
+#: 3D aspirin, 2D-only ethanol, thiotepa (no pharmacophore feature: K = 0).
+PHARM_DRUGS = {
+    "CHEMBL25": "CC(=O)Oc1ccccc1C(=O)O",
+    "CHEMBL545": "CCO",
+    "CHEMBL671": "S=P(N1CC1)(N1CC1)N1CC1",
+}
+
+
+@pytest.fixture(scope="session")
+def pharm_library(tmp_path_factory):
+    """``(LibraryStore, {chembl_id: inchikey})``: 3D, 2D-only and K = 0 drugs."""
+    return make_modephere_library(
+        tmp_path_factory.mktemp("pharm_library"), PHARM_DRUGS, three_d={"CHEMBL25"}
+    )
 
 
 @pytest.fixture(scope="session")

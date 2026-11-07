@@ -58,6 +58,11 @@ leakage-aware evaluation planned for v2.
   drugs (keyed by ChEMBL ID) are standardized and stored by Modephere's library
   builder; the HGVS variant catalog is built from Modephere's pharmacogenomic
   exports. Built once, lazy-loaded by training and inference.
+- **Drug sets and 3D pharmacophores** — each row reads a set of drug entities
+  (single drugs, combination components, ATC drug classes pooled over their
+  member drugs); each drug is encoded from its 2D atom graph and its
+  pharmacophore points in a conformer (`use_pharmacophore`), predictions
+  averaged over the lowest-energy conformers at inference.
 - **FastAPI inference service** — Pydantic-typed request / response,
   auto-generated OpenAPI docs, health / readiness probes, lazy model loading.
 - **Optuna integration** — hyperparameter search with per-trial pruning and a

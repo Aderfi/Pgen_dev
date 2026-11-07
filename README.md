@@ -54,9 +54,10 @@ leakage-aware evaluation planned for v2.
 - **Two-Tower GATv2 GNN** — attention-based encoders over drug-molecule and
   variant-topology graphs with multi-task heads for phenotype category,
   direction of effect, and ADR type.
-- **Offline graph library** — drug and variant graphs are built once and
-  cached to disk; training and inference lazy-load. Designed for
-  compute-constrained environments.
+- **Offline graph library on [Modephere](https://github.com/Aderfi/Modephere)** —
+  drugs (keyed by ChEMBL ID) are standardized and stored by Modephere's library
+  builder; the HGVS variant catalog is built from Modephere's pharmacogenomic
+  exports. Built once, lazy-loaded by training and inference.
 - **FastAPI inference service** — Pydantic-typed request / response,
   auto-generated OpenAPI docs, health / readiness probes, lazy model loading.
 - **Optuna integration** — hyperparameter search with per-trial pruning and a
@@ -111,8 +112,11 @@ source .venv/bin/activate
 ## At a glance
 
 ```bash
-# Build the offline graph library (one-time, resumable)
-python -m src.data.library
+# Build the offline library (one-time, resumable): Modephere drug graphs,
+# ADMET profiles, HGVS catalog. --refresh-pgx re-exports Modephere's pgx tables
+# from its Neo4j first. Locations / DB: [modephere] in src/config/data/settings.toml
+# or PHARMAGEN_MODEPHERE__* (e.g. PHARMAGEN_MODEPHERE__KG__DATABASE).
+python -m src.data.library [--refresh-pgx]
 
 # Standard training (TSV/CSV/parquet file, or rows straight from Neo4j)
 python main.py train -M TwoTowerGAT -i train_data/train_data.tsv
@@ -136,7 +140,7 @@ from src.api.main import create_app
 
 client = TestClient(create_app())
 client.post("/v1/predict", json={
-    "drug_cid": 2244,
+    "drug_chembl_id": "CHEMBL1771",
     "allele": {"gene": {"symbol": "CYP2D6"}, "allele": "4"},
 }).json()
 ```
@@ -159,7 +163,9 @@ src/
 └── pipeline.py  Training orchestrator
 
 data/
-├── library/     Graph cache (drugs/*.pt, hgvs_catalog.pt, kg/) — Settings.paths.library
+├── library/     Settings.paths.library: Modephere store (compounds/<InChIKey>.safetensors
+│                + compounds.parquet), admet_profile.parquet, hgvs_catalog.pt, pgx/, kg/
+├── chembl/      staged ChEMBL release(s) Modephere resolves drug ChEMBL IDs against
 ├── dicts/       star_alleles.tsv and other static lookups
 └── …            raw/, processed/, ref_genome/
 

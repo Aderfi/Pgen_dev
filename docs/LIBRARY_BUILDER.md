@@ -1,249 +1,107 @@
 # Library Builder
 
-> **Module:** `src.data.library`
-> **CLI:** `python -m src.data.library`
->
-> The library builder pre-computes the drug and variant graphs that the
-> training pipeline lazy-loads from disk. Building offline is the project's
-> answer to limited training-time compute — the build runs once and the
-> trained model reads from disk thereafter.
+`python -m src.data.library` builds everything the training pipeline loads that
+is not a training row: the drug graphs, their ADMET profiles and the HGVS
+variant catalog. Drugs are built by **Modephere** (`../Modephere`,
+`modephere.library`); the catalog is assembled from **Modephere's
+pharmacogenomic exports**. dev_Pgen adds what is its own: the ADMET-AI profile
+of each compound and the star-allele function table.
 
-This document covers runtime behaviour, input contracts, output schemas, and
-the CLI surface. For internal architecture, see
-[`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
-
----
+Design and decisions: `docs/superpowers/specs/2026-11-07-modephere-library-design.md`.
 
 ## What it produces
 
+Under `Settings.paths.library` (`data/library/`):
+
+| Output | Written by | Content |
+|---|---|---|
+| `compounds/<InChIKey>.safetensors` | Modephere `LibraryBuilder` | every representation of one drug (molecule + pharmacophore graphs, conformers, 3D pharmacophores) |
+| `compounds.parquet` | Modephere | registry: InChIKey, ChEMBL ID, SMILES forms, toolkit version |
+| `conformers.parquet`, `failures.parquet`, `build_manifest.json` | Modephere | conformer rows, latest build's failures, build options + versions |
+| `admet_profile.parquet` | `src/data/library/admet.py` | 41 ADMET-AI endpoints per InChIKey (`admet_feats`) |
+| `hgvs_catalog.pt` | `src/data/genotype/catalog.py` | label / annotation → HGVS links + per-variant gene, SO terms, protein HGVS |
+| `pgx/*.parquet` | Modephere `pgx export` (`--refresh-pgx`) | `annotation_rows`, `allele_variants`, `annotation_variants`, `annotation_genotypes`, `variants`, `haplotypes` |
+
+The drug tower reads a compound through `modephere.featurize.molecule_data`
+(2D atom graph: `x` 61, `edge_attr` 18, `global_feats` 1038, `z`) plus
+`admet_feats` 41 — Modephere's `MOLECULE_GRAPH_V1` layout, see `GraphDims` in
+`src/data/cache.py`.
+
+## Identity
+
+Drugs are keyed by their **ChEMBL parent ID** across dev_Pgen (training rows'
+`drugs_chembl`, the API's `drug_chembl_id`, the DDI artifact). The library keys
+compounds by InChIKey; `src.data.library.bridge.chembl_index` joins the two from
+`compounds.parquet`. Which drugs are built — and which ChEMBL ID each
+annotation's drugs have — comes from Modephere's `annotation_rows` export.
+
+## Steps
+
+1. `--refresh-pgx` (optional): export Modephere's pgx tables from its Neo4j
+   (`Settings.modephere.kg`) into `Settings.modephere.pgx_export`.
+2. Drugs: the distinct ChEMBL IDs of the annotation drugs go through Modephere's
+   `LibraryBuilder`, offline, against the newest staged ChEMBL release under
+   `Settings.modephere.chembl`. Stored compounds are skipped unless `--force`.
+3. ADMET: every stored compound the ADMET table lacks is predicted (one
+   ADMET-AI batch) on its `working_smiles`; `--force-admet` recomputes all.
+4. Genes: `hgvs_catalog.pt` from the pgx export and `data/dicts/star_alleles.tsv`.
+
+## Configuration
+
+All of it is `Settings.modephere` (`[modephere]` in
+`src/config/data/settings.toml`, overridden by `PHARMAGEN_MODEPHERE__*`).
+`src/data/library/bridge.py` hands these to Modephere explicitly; Modephere's
+own settings and `MODEPHERE_*` variables are never read from dev_Pgen.
+
+```toml
+[modephere]
+library = "data/library"           # LibraryStore root
+cache = "data/cache/modephere"     # PubChem raw cache (drugs ChEMBL cannot resolve)
+chembl = "data/chembl"             # staged ChEMBL releases (chembl_<N>/)
+pgx_export = "data/library/pgx"    # Modephere pgx export tables
+logs = "logs/library"              # build failure / saturation reports
+
+[modephere.kg]                     # read by --refresh-pgx
+uri = "bolt://localhost:7688"
+user = "neo4j"
+database = "neo4j"                 # password: PHARMAGEN_MODEPHERE__KG__PASSWORD
 ```
-data/library/                     # exposed programmatically as Settings.paths.library
-├── drugs/
-│   ├── 2244_aspirin.pt           PubChem CID + safe-name → PyG Data
-│   ├── 2519_caffeine.pt
-│   └── …
-├── gene_graphs/
-│   ├── CYP2D6/
-│   │   ├── CYP2D6_star4.pt       gene_<variant>.pt; "star" = "*"
-│   │   ├── CYP2D6_rs1065852.pt
-│   │   └── …
-│   ├── DPYD/
-│   └── …
-├── admet_profile.parquet         Cached ADMET-AI profile table (cid → 41 endpoints)
-└── build_manifest.json           Resume tracking (atomic JSON)
-```
-
-> Until the 2026-05 cleanup, these artefacts lived under `src/library/`.
-> The directory may still exist as an empty folder on workstations that
-> never pulled the relocation commit; it is harmless (no `__init__.py`,
-> ignored by git) and can be removed manually.
-
-**Schema** (frozen — must stay in sync with the trained TwoTowerGAT model):
-
-| Graph kind | Node features | Edge features | Graph-level vectors |
-| ---------- | ------------- | ------------- | ------------------- |
-| Drug       | 61            | 18            | `global_feats` [1,1038] + `admet_feats` [1,41] |
-| Gene       | 9             | 3             | `geno_global_feats` [1,27] |
-
-The Gene node `activity_score` (feature index 4) now carries the **real** per-allele activity from the star-allele table instead of the old `0.5` placeholder; `geno_global_feats` adds the decoupled functional profile (see § Genotype functional profile).
-
-The dimensions live in `src/data/library/{drugs,admet,genes,geno_func,consequence,protein_change}.py` as module-level constants and are pinned by `tests/unit/data/test_library_*.py` so accidental changes fail CI before silently invalidating every trained model.
-
----
-
-## Inputs
-
-### 1. Variants TSV (`data/snp_data_output.tsv`)
-
-| Column | Type | Required | Notes |
-| ------ | ---- | :---: | ----- |
-| `chr` | str | ✓ | `1`, `chr1`, `X`, `NC_000001.11` — all normalized internally. |
-| `start_pos` | int | ✓ | **1-based** genomic position. |
-| `Ref_Allele` | str | ✓ | Reference allele; validated against the FASTA. Mismatch → row skipped + warning. |
-| `Alt_Allele` | str | ✓ | Alternate allele. |
-| `gene` | str |   | Used to group output graphs into per-gene subdirs. Defaults to "Intergenic" if missing. |
-| `snp` | str |   | rsID or variant name; falls back to `var_<chrom>_<pos>` if missing. |
-| `variant_type` | str |   | `snv`, `del`, `ins`, `del`, `mnp`, … inferred from REF/ALT lengths if absent. |
-| `FXN_CLASS` | str |   | Comma-joined functional terms. Used to set the `is_coding`/`is_regulatory`/`is_splicing`/`is_intergenic` node features. |
-
-### 2. Drugs TSV (`data/drugs_cid.tsv`)
-
-| Column | Type | Required | Notes |
-| ------ | ---- | :---: | ----- |
-| `cid` | int / str | ✓ | PubChem Compound ID. Becomes the filename prefix. |
-| `smiles` | str | ✓ | Canonical SMILES; must parse via RDKit. |
-| `cmpd_name_cleaned` | str | ✓ | Display name. Filesystem-unsafe characters get replaced with `_` before being baked into the filename. |
-
-### 3. Reference FASTA (`data/ref_genome/HSapiens_GChr38.fa`)
-
-Indexed (`*.fai`) — needed for the variant validator. If you don't have one yet:
-
-```bash
-python -c "from src.genomics.ref_genome import ReferenceGenomeManager; ReferenceGenomeManager().run()"
-```
-
-…will download GRCh38 from Ensembl, decompress, and run `samtools faidx` + `bwa index`.
-
-### 4. Per-gene VCF folder (`data/haplotype_variants/`)
-
-```
-data/haplotype_variants/
-├── CYP2D6/
-│   ├── CYP2D6_4.vcf       → labelled  *4
-│   ├── CYP2D6_10.vcf      → labelled  *10
-│   └── …
-├── DPYD/
-│   ├── rs3918290.vcf      → resolved via data/dicts/star_alleles.tsv → *2A
-│   └── …
-└── …
-```
-
-Filename → haplotype label rules:
-
-* `GENE_<n>` → `*<n>`        (digits become star alleles)
-* `<n>` → `*<n>`             (bare digits)
-* `rsXXXX` → looked up in `data/dicts/star_alleles.tsv`. Falls back to the rsID itself when not in the catalog.
-* `c.2846A>T` and similar HGVS strings are kept verbatim.
-
----
 
 ## CLI
 
-```bash
-$ python -m src.data.library --help
-
-usage: python -m src.data.library [-h]
-                                  [--variants-tsv VARIANTS_TSV]
-                                  [--drugs-tsv DRUGS_TSV]
-                                  [--force] [--only-gene SYMBOL]
-                                  [--skip-drugs] [--skip-genes]
-                                  [--skip-admet] [--force-admet]
-                                  [--skip-geno-func] [--verbose]
-
-Build the offline drug + variant graph library.
-
-  --variants-tsv PATH   default: data/snp_data_output.tsv
-  --drugs-tsv PATH      default: data/drugs_cid.tsv
-  --force               Overwrite existing .pt files instead of skipping them.
-  --only-gene SYMBOL    Build only this gene's variants (verification mode).
-  --skip-drugs          Skip the drug pipeline.
-  --skip-genes          Skip the gene pipeline.
-  --skip-admet          Skip ADMET prediction; drug graphs get a zero
-                        admet_feats vector (no GPU / fast builds).
-  --force-admet         Recompute the ADMET cache even if a valid one exists.
-  --skip-geno-func      Skip the genotype functional profile; variant graphs
-                        get a zero geno_global_feats vector.
-  --verbose, -v         DEBUG-level logging.
+```text
+python -m src.data.library [--refresh-pgx] [--force] [--skip-drugs]
+                           [--skip-admet] [--force-admet] [--skip-genes] [-v]
 ```
 
-> **ADMET step.** When the drug pipeline runs (no `--skip-drugs`/`--skip-admet`),
-> the catalog SMILES are scored once with **ADMET-AI** (GPU, ~9–10 h for ~109k on
-> first run) and cached to `data/library/admet_profile.parquet`; subsequent
-> builds reuse the cache. Each drug graph carries the predicted 41-endpoint
-> profile as `admet_feats`. Use `--skip-admet` for a fast, GPU-free build (zero
-> profiles). See `docs/ADMET_TOOLS.md`.
-
-> **Genotype functional profile.** When the gene pipeline runs (no
-> `--skip-genes`/`--skip-geno-func`), each variant graph carries a 27-dim
-> `geno_global_feats` built from three layers:
-> - **Layer A — PGx allele function (causal, 6):** function status one-hot
->   (no/decreased/normal/increased) + real activity score, joined by rsID against
->   `data/dicts/star_alleles.tsv`. Always available.
-> - **Layer B — Sequence Ontology consequence (13):** severity-aware multi-hot
->   over consequence groups (missense / stop_gained / frameshift / splice / …)
->   derived locally from the `FXN_CLASS` column of the variants TSV. Always
->   available. See `src/data/library/consequence.py`.
-> - **Layer C — HGVS protein change (8):** amino-acid-substitution
->   physicochemistry (Grantham, charge / hydropathy / volume / polarity deltas,
->   stop-gain, frameshift) parsed via `src.genomics.hgvs_parser`. **Optional** —
->   drop a `data/dicts/dbsnp_hgvs.parquet` (or `.tsv`) with columns `rsid, hgvs_p`
->   and it auto-enables; absent, those eight dims stay zero. See
->   `src/data/library/protein_change.py`.
->
-> See `src/data/library/geno_func.py`.
-
-Defaults are derived from the project `Settings`, so a zero-argument invocation just works.
-
-### Common workflows
-
 ```bash
-# Full build from scratch
-python -m src.data.library
-
-# Resume after an interrupted run — already-built .pt files are skipped.
-python -m src.data.library
-
-# Force-rebuild everything (e.g. after a schema change)
-python -m src.data.library --force
-
-# Verify the genomic pipeline against a single gene before launching the full job.
-python -m src.data.library --only-gene CYP2D6 --skip-drugs
-
-# Iterate on the drug pipeline without touching gene graphs.
-python -m src.data.library --skip-genes
+python -m src.data.library --refresh-pgx               # everything, fresh exports
+python -m src.data.library --skip-drugs --skip-admet   # catalog only
+python -m src.data.library --skip-genes                # drugs + ADMET only
 ```
+
+Exit code 0 when every step that ran produced its output (individual drug
+failures — unsupported chemistry, embedding failures — are expected and listed
+in `logs/library/build_failures_<date>.log`); 2 when no drug could be built or
+the catalog failed.
 
 ### Programmatic API
 
 ```python
 from src.data.library import LibraryBuilder, LibraryBuildConfig
 
-cfg = LibraryBuildConfig.from_settings(force=False, only_gene="CYP2D6")
-summary = LibraryBuilder(cfg).run()
+summary = LibraryBuilder(LibraryBuildConfig.from_settings(refresh_pgx=True)).run()
 
-print(f"drugs:  built={summary.drugs_built} skipped={summary.drugs_skipped}")
-print(f"genes:  built={summary.genes_built} failed={summary.genes_failed}")
+from src.data.cache import GraphCache
+cache = GraphCache.from_settings()           # ChEMBL ID -> molecule graph + admet_feats
+graph = cache.get_drug("CHEMBL1771")
 ```
 
-For per-piece access:
+## What changed (2026-11)
 
-```python
-from src.data.library.drugs import DrugGraphBuilder, smiles_to_graph
-from src.data.library.genes import GenomicGraphBuilder
-from src.data.library.manifest import BuildManifest
-```
-
----
-
-## Resume support
-
-Every successful save updates `data/library/build_manifest.json`. The next run reads it on startup, so:
-
-* An interrupted build (Ctrl-C, kernel OOM, power loss) just resumes — no rebuilding the first 4000 drugs you already had.
-* Failures are recorded too: ``manifest.failed["drug:2244"] = "Invalid SMILES"`` so you can grep the JSON to triage.
-* The manifest is written atomically (write-temp-then-rename) so a crash mid-write leaves the previous version intact.
-
-To start fresh: `--force`, or delete the manifest manually.
-
----
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-| ------- | ----- | --- |
-| `FASTA not found: …/HSapiens_GChr38.fa` | Reference genome not downloaded yet. | Run `ReferenceGenomeManager().run()` (see § Inputs). |
-| `Chromosome 'X' not in FASTA` | TSV chromosome label doesn't appear in FASTA index. Most often happens with mixed `chr1` / `1` / `NC_000001.11` conventions. | The validator already normalizes; if you still see this, check `pyfaidx` indexed the FASTA correctly. |
-| `REF mismatch: TSV=A vs FASTA=G` | Wrong genome build (GRCh37 vs GRCh38) or the TSV's `start_pos` is 0-based instead of 1-based. | Confirm the build; remember `start_pos` is **1-based**. |
-| `Invalid SMILES` for many drugs | TSV contains non-canonical SMILES strings or salts/mixtures. | Pre-canonicalize via RDKit before feeding the builder. Failures land in `<library_root>/build_failures.log`. |
-| Drug graphs have 24 features instead of 25 | Old artifacts produced before the schema was finalized. | `python -m src.data.library --force` (or selectively delete `data/library/drugs/` and rerun). |
-| Gene subdirs are empty after a run | The PGx folder schema didn't match. | `--verbose` to see which VCFs got parsed; check filenames match the rules in § Inputs. |
-| Need only one gene's graphs for testing | | `--only-gene CYP2D6 --skip-drugs` |
-
----
-
-## What changed vs the pre-refactor builder
-
-The previous single-file 883-line script (`library_creator_polars.py`) lives in
-`BACKUPS/dev_Pharmagen_snapshot/` (also reachable via the
-`pre-refactor-2026-05` git tag). The Phase-4.5 rewrite:
-
-- Removed module-level globals (`GLOBAL_GENOME`, `GLOBAL_CHROM_MAPPING`, …).
-- Replaced hardcoded `BASE_DIR = Path("data")` with `Settings.paths`.
-- Replaced bash / PowerShell organize scripts with pure Python
-  (`pathlib.Path.rename`).
-- Centralised rsID → star-allele lookups in `data/dicts/star_alleles.tsv`.
-- Added the `build_manifest.json` resume layer.
-- Translated all Spanish comments and docstrings.
-- Adopted Pydantic-validated build config; CLI built on `argparse`.
-- Added 47 unit tests covering schema dimensions, filename safety, manifest
-  atomicity, UGT1A merging, and rsID resolution.
+dev_Pgen's own drug and pharmacophore graph builders (`drugs/*.pt`,
+`pharmacophores/*.pt`), the SNP-table / PharmVar / VCF ingest and the CID drug
+key were replaced by Modephere. The catalog no longer reads
+`data/snp_data_output.tsv`, `data/haplotype_variants/` or
+`data/library/kg/{allele,annotation}_variants.parquet`; rsIDs known only to the
+SNP table are no longer catalog labels.

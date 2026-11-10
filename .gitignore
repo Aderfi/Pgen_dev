@@ -116,6 +116,9 @@ models/gemma4_e4b_it.gguf
 logs/
 log.txt
 reports/
+
+# Generated Colab data bundle (scripts/pack_colab_bundle.py)
+pharmagen_colab_bundle*.zip
 cache/
 results/
 npm-debug.log*

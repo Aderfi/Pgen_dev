@@ -33,7 +33,7 @@ in a normal kernel. `%pgen_restart` restarts it.
    uv run python scripts/pack_colab_bundle.py
    ```
 
-   This writes `pharmagen_colab_bundle.zip` (~190 MB): the Modephere compound
+   This writes `pharmagen_colab_bundle.zip` (~80 MB zipped, ~190 MB unpacked): the Modephere compound
    store, the ADMET profiles, `hgvs_catalog.pt`, the PGx exports, the knowledge
    graph snapshot, the staged ChEMBL release, the evaluation splits and the
    reports. `data/` and `reports/` are git-ignored, so a fresh clone has none of

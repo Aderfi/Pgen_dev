@@ -41,6 +41,9 @@ for _noisy in ("matplotlib", "PIL", "numba", "fsspec", "urllib3"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
+# ipywidgets cannot work across the relay (widget comms are not forwarded), so
+# tqdm correctly falls back to text bars; silence its advice to install them.
+warnings.filterwarnings("ignore", message="IProgress not found")
 try:
     import plotly.io as _pio
     if {in_colab}:
@@ -70,15 +73,63 @@ def _uv() -> str:
     return exe
 
 
+def _venv_python(repo: Path) -> Path:
+    return repo / ".venv" / "bin" / "python"
+
+
 def install_environment(repo: Path) -> None:
     """``uv sync`` (Python 3.14 + locked deps) plus the kernel's own packages."""
     uv = _uv()
     os.environ.setdefault(
         "UV_LINK_MODE", "copy"
     )  # Colab: cache and repo on different FS
-    _run([uv, "sync", "--extra", "dev"], repo)
-    python = repo / ".venv" / "bin" / "python"
-    _run([uv, "pip", "install", "-q", "--python", str(python), *KERNEL_PACKAGES], repo)
+    # No --extra dev: pytest/ruff/mypy/coverage are not used by any notebook.
+    _run([uv, "sync"], repo)
+    ensure_kernel_packages(repo)
+
+
+def ensure_kernel_packages(repo: Path) -> None:
+    """Install ``KERNEL_PACKAGES`` into the project environment if missing.
+
+    Runs on every :func:`prepare`, not only when the environment is created.
+    A ``.venv`` built by a plain ``uv sync``, or left behind by an interrupted
+    install, has no ``ipykernel``; the kernel then dies the instant it is
+    launched, and jupyter_client reports only "Kernel died before replying to
+    kernel_info" with no cause.
+    """
+    python = _venv_python(repo)
+    if not python.exists():
+        msg = f"No project environment at {python}; call install_environment() first"
+        raise FileNotFoundError(msg)
+    probe = subprocess.run(
+        [str(python), "-c", "import ipykernel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    print(
+        "Installing the kernel's packages into the project environment ...", flush=True
+    )
+    _run(
+        [_uv(), "pip", "install", "-q", "--python", str(python), *KERNEL_PACKAGES], repo
+    )
+
+
+def _kernel_launch_error(repo: Path) -> str:
+    """Why the project interpreter cannot host a kernel, or ``''`` if it can."""
+    python = _venv_python(repo)
+    if not python.exists():
+        return f"There is no project environment at {python}."
+    probe = subprocess.run(
+        [str(python), "-c", "import ipykernel, ipykernel_launcher"],
+        capture_output=True,
+        text=True,
+        cwd=str(repo),
+        check=False,
+    )
+    return "" if probe.returncode == 0 else probe.stderr.strip()
 
 
 def _mount_drive_if_needed(bundle: str) -> None:
@@ -158,10 +209,44 @@ class ProjectKernel:
         )
         ksm = KernelSpecManager(kernel_dirs=[str(spec_dir)])
         self.km = KernelManager(kernel_name=KERNEL_NAME, kernel_spec_manager=ksm)
-        self.km.start_kernel(cwd=str(repo))
+
+        # The kernel process's own stderr is where a failed launch explains
+        # itself; without this it is discarded and the only symptom is
+        # "Kernel died before replying to kernel_info".
+        self._stderr_path = spec_dir / "kernel-stderr.log"
+        self._stderr_file = self._stderr_path.open("wb")
+        self.km.start_kernel(cwd=str(repo), stderr=self._stderr_file)
         self.kc = self.km.client()
         self.kc.start_channels()
-        self.kc.wait_for_ready(timeout=READY_TIMEOUT_S)
+        try:
+            self.kc.wait_for_ready(timeout=READY_TIMEOUT_S)
+        except RuntimeError as exc:
+            raise RuntimeError(self._launch_failure(repo)) from exc
+
+    def _launch_failure(self, repo: Path) -> str:
+        """Assemble an actionable message for a kernel that never came up."""
+        self._stderr_file.flush()
+        try:
+            captured = self._stderr_path.read_text(errors="replace").strip()
+        except OSError:
+            captured = ""
+        reason = _kernel_launch_error(repo)
+        parts = ["The project's Python 3.14 kernel died before it was ready."]
+        if reason:
+            parts.append(
+                f"The project interpreter cannot host a kernel:\n{reason}\n\n"
+                "Fix it by rebuilding the environment:\n"
+                "    import colab_setup\n"
+                f"    colab_setup.install_environment({str(repo)!r})"
+            )
+        if captured:
+            parts.append(f"The kernel process wrote:\n{captured}")
+        if not reason and not captured:
+            parts.append(
+                "It left no output. Check the project environment by hand:\n"
+                f"    !{_venv_python(repo)} -m ipykernel_launcher --help"
+            )
+        return "\n\n".join(parts)
 
     def run(self, code: str) -> None:
         """Execute ``code`` and relay its output; raise if it failed."""
@@ -196,6 +281,7 @@ class ProjectKernel:
     def shutdown(self) -> None:
         self.kc.stop_channels()
         self.km.shutdown_kernel(now=True)
+        self._stderr_file.close()
 
 
 def _kernel_argv(repo: Path) -> list[str]:
@@ -249,8 +335,12 @@ def prepare(repo: Path | str, bundle: str | None = None, **_: Any) -> ProjectKer
     """Everything a notebook needs before its first ``%%pgen`` cell."""
     repo = Path(repo).resolve()
     if IN_COLAB:
-        if not (repo / ".venv" / "bin" / "python").exists():
+        if not _venv_python(repo).exists():
             install_environment(repo)
+        else:
+            # The environment may predate this bootstrap, or an earlier install
+            # may have been interrupted; make sure it can host a kernel.
+            ensure_kernel_packages(repo)
         install_data(repo, bundle)
     elif not (repo / DATA_MARKER).exists():
         install_data(repo, bundle)

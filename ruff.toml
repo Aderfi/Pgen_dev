@@ -79,6 +79,13 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # held to the package's function-complexity budget.
 "scripts/**/*.py" = ["PLR0912", "PLR0915"]
 "setup/**/*.py" = ["PLR0912", "PLR0915"]
+# Demo notebooks: the setup cell has to clone the repository and put it on
+# sys.path before it can import anything from it, so its imports cannot come
+# first (E402).
+"notebooks/*.ipynb" = ["E402"]
+# colab_setup holds the project's 3.14 kernel in a module-level singleton, so
+# that %%pgen cells share one kernel and its state; rebinding it is the point.
+"notebooks/colab_setup.py" = ["PLW0603"]
 
 [format]
 # Standard Black-compatible formatting

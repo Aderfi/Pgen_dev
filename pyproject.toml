@@ -105,13 +105,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=9.0.2",
     "pytest-cov>=4.0.0",
     "httpx>=0.28.0",     # API TestClient transport
-    "ruff>=0.0.280",
-    "mypy>=1.3.0",
-    "coverage>=7.0.0",
+    "ruff>=0.15.8",
+    "mypy>=1.19.1",
+    "coverage>=7.13.5",
     "graphifyy>=0.9.3",  # codebase knowledge graph (graphify-out/)
+    "claude-conversation-extractor>=1.1.2",
 ]
 viz = [
     "networkx>=3.4",  # scripts/viz*.py graph drawing
@@ -146,7 +147,7 @@ torch = { index = "pytorch-cu132" }
 pyg_lib = { index = "pyg" }
 torch_scatter = { index = "pyg" }
 torch_sparse = { index = "pyg" }
-modephere = { url = "https://github.com/Aderfi/Modephere/releases/download/v0.1.2/modephere-0.1.2-py3-none-any.whl" }
+modephere = { url = "https://github.com/Aderfi/Modephere/releases/download/v0.1.3/modephere-0.1.3-py3-none-any.whl" }
 
 
 # =============================================================================
